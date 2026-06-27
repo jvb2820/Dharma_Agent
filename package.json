@@ -1,0 +1,36 @@
+{
+  "name": "dharma-agent",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:client": "vite",
+    "dev:server": "node --watch server/index.js",
+    "start": "node server/index.js",
+    "ingest:company-info": "node scripts/ingestKnowledge.js --prefix \"Company Info\" --source-type company_info",
+    "ingest:raw-conversations": "node scripts/ingestKnowledge.js --prefix \"Raw Conversation\" --source-type raw_conversation",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "exceljs": "^4.4.0",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "eslint": "^10.5.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.6.0",
+    "vite": "^8.1.0"
+  }
+}
