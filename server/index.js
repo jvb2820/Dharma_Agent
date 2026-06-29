@@ -8,11 +8,18 @@ import {
   getPrioritySellerAvailability,
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
-import { getRespondContact } from './respondService.js'
+import { getRespondContact, sendRespondTextMessage } from './respondService.js'
 
 const PORT = Number(process.env.PORT || process.env.API_PORT || 8787)
 const DEFAULT_MODEL = 'gpt-4.1-mini'
 const DIST_DIR = resolve(process.cwd(), 'dist')
+const RESPOND_AGENT = {
+  id: 'sales',
+  systemPrompt:
+    process.env.RESPOND_AGENT_SYSTEM_PROMPT ||
+    'You are Maria from Dharma Clinic. You help inbound customers politely, answer from company knowledge, collect the next missing detail, and keep the conversation moving toward a free consultation when appropriate.',
+}
+const respondSessions = new Map()
 
 const MIME_TYPES = {
   '.css': 'text/css',
@@ -70,6 +77,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === 'POST' && pathname === '/api/respond/contact-lookup') {
       await handleRespondContactLookup(request, response)
+      return
+    }
+
+    if (request.method === 'POST' && pathname === '/api/respond/webhook') {
+      await handleRespondWebhook(request, response, url)
       return
     }
 
@@ -131,6 +143,25 @@ async function handleChat(request, response) {
     context: [body.context, ragContext].filter(Boolean).join('\n\n'),
   })
 
+  const text = await createOpenAIResponseText({ model, instructions, input })
+
+  sendJson(response, 200, {
+    model,
+    text,
+    message: {
+      role: 'agent',
+      content: text,
+    },
+  })
+}
+
+async function createOpenAIResponseText({ model, instructions, input }) {
+  const apiKey = process.env.OPENAI_API_KEY
+
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not configured.')
+  }
+
   const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
@@ -147,23 +178,10 @@ async function handleChat(request, response) {
   const data = await openaiResponse.json()
 
   if (!openaiResponse.ok) {
-    sendJson(response, openaiResponse.status, {
-      error: data.error?.message || 'OpenAI request failed.',
-    })
-    return
+    throw new Error(data.error?.message || 'OpenAI request failed.')
   }
 
-  const text = extractOutputText(data)
-
-  sendJson(response, 200, {
-    id: data.id,
-    model: data.model || model,
-    text,
-    message: {
-      role: 'agent',
-      content: text,
-    },
-  })
+  return extractOutputText(data)
 }
 
 async function handleKnowledgeIngest(request, response) {
@@ -234,6 +252,151 @@ async function handleRespondContactLookup(request, response) {
   const contact = await getRespondContact(body.contactId)
 
   sendJson(response, 200, { contact })
+}
+
+async function handleRespondWebhook(request, response, url) {
+  if (!isValidRespondWebhookRequest(request, url)) {
+    sendJson(response, 401, { error: 'Invalid webhook secret.' })
+    return
+  }
+
+  const body = await readJsonBody(request)
+  const event = normalizeRespondWebhookEvent(body)
+
+  if (!event.contactId || !event.text || !event.isIncoming) {
+    sendJson(response, 200, {
+      ok: true,
+      skipped: true,
+      reason: event.skipReason || 'No incoming text message found.',
+    })
+    return
+  }
+
+  sendJson(response, 200, { ok: true, accepted: true })
+
+  processRespondIncomingMessage(event).catch((error) => {
+    console.error('Respond webhook processing failed:', error)
+  })
+}
+
+function isValidRespondWebhookRequest(request, url) {
+  const secret = process.env.RESPOND_WEBHOOK_SECRET
+
+  if (!secret) {
+    return true
+  }
+
+  return (
+    url.searchParams.get('secret') === secret ||
+    request.headers['x-respond-webhook-secret'] === secret ||
+    request.headers['x-webhook-secret'] === secret
+  )
+}
+
+async function processRespondIncomingMessage(event) {
+  const session = getRespondSession(event.contactId)
+  const userMessage = {
+    role: 'user',
+    content: event.text,
+  }
+  const messages = [...session.messages, userMessage].slice(-12)
+  const customerLanguage =
+    session.customerLanguage || resolveCustomerLanguage({ messages, message: event.text }) || 'English'
+  const ragContext = await buildRagContext({
+    agent: RESPOND_AGENT,
+    messages,
+    message: event.text,
+  })
+  const redundancyControl = buildRedundancyControl({ messages })
+  const instructions = buildInstructions({
+    agent: RESPOND_AGENT,
+    customerLanguage,
+    redundancyControl,
+  })
+  const input = buildInput({
+    messages,
+    customerLanguage,
+    redundancyControl,
+    context: ragContext,
+  })
+  const text = await createOpenAIResponseText({
+    model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+    instructions,
+    input,
+  })
+
+  await sendRespondTextMessage({
+    contactId: event.contactId,
+    channelId: event.channelId,
+    text,
+  })
+
+  respondSessions.set(event.contactId, {
+    customerLanguage,
+    messages: [...messages, { role: 'agent', content: text }].slice(-12),
+  })
+}
+
+function getRespondSession(contactId) {
+  return respondSessions.get(contactId) || {
+    customerLanguage: '',
+    messages: [],
+  }
+}
+
+function normalizeRespondWebhookEvent(body) {
+  const message = body.message || body.data?.message || body.messages?.[0] || body.data?.messages?.[0] || {}
+  const contact = body.contact || body.data?.contact || message.contact || {}
+  const text = extractRespondWebhookText(message)
+  const traffic = message.traffic || body.traffic || body.data?.traffic || ''
+  const direction = message.direction || body.direction || body.data?.direction || ''
+  const eventName = body.event || body.eventName || body.type || body.data?.event || ''
+  const isOutgoing =
+    traffic === 'outgoing' ||
+    direction === 'outgoing' ||
+    /outgoing|sent|delivered|read/i.test(eventName)
+
+  return {
+    contactId:
+      String(
+        contact.id ||
+          contact.contactId ||
+          body.contactId ||
+          body.respondContactId ||
+          body.data?.contactId ||
+          message.contactId ||
+          '',
+      ).trim(),
+    channelId:
+      message.channelId ||
+      message.channel?.id ||
+      body.channelId ||
+      body.data?.channelId ||
+      body.channel?.id ||
+      '',
+    isIncoming: !isOutgoing,
+    skipReason: isOutgoing ? 'Ignoring outbound Respond message.' : '',
+    text,
+  }
+}
+
+function extractRespondWebhookText(message) {
+  const candidates = [
+    message.text,
+    message.message?.text,
+    message.message?.body,
+    message.body,
+    message.content,
+    message.message,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
+  }
+
+  return ''
 }
 
 function buildInstructions({ agent, instructions, customerLanguage, redundancyControl }) {
