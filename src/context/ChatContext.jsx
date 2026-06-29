@@ -66,7 +66,117 @@ function createMessage(role, content) {
   }
 }
 
-async function handleBookingMessage(content, booking, memory, messages) {
+function detectCustomerSessionLanguage(content) {
+  const normalized = String(content || '').toLowerCase()
+
+  if (!normalized.trim()) {
+    return ''
+  }
+
+  const spanishSignals = [
+    '¿',
+    '¡',
+    'hola',
+    'gracias',
+    'quiero',
+    'cita',
+    'agendar',
+    'español',
+    'espanol',
+    'perder peso',
+    'buenas',
+    'estado',
+    'llamada',
+  ]
+  const englishSignals = [
+    'hello',
+    'hi',
+    'thanks',
+    'thank you',
+    'appointment',
+    'schedule',
+    'english',
+    'weight loss',
+    'what state',
+    'i want',
+    'yes',
+  ]
+
+  if (/\b(s[ií]|claro|vale)\b/i.test(normalized)) {
+    return 'Latin American Spanish'
+  }
+
+  if (spanishSignals.some((signal) => normalized.includes(signal))) {
+    return 'Latin American Spanish'
+  }
+
+  if (englishSignals.some((signal) => normalized.includes(signal))) {
+    return 'English'
+  }
+
+  if (/[a-z]/i.test(normalized) && !/[áéíóúñ¿¡]/i.test(normalized)) {
+    return 'English'
+  }
+
+  return ''
+}
+
+function isSpanishSession(language) {
+  return String(language || '').toLowerCase().includes('spanish')
+}
+
+function bookingText(language, key, values = {}) {
+  const spanish = isSpanishSession(language)
+  const text = {
+    name: spanish
+      ? 'Claro, te ayudo con eso. ¿Qué nombre pongo para la consulta?'
+      : 'I can help with that. What name should I put on the consultation?',
+    phone: spanish
+      ? 'Gracias. ¿Cuál es el mejor número de teléfono para la consulta?'
+      : 'Thanks. What phone number is best for the consultation?',
+    preferredLanguage: spanish
+      ? '¿En qué idioma prefieres la consulta: inglés, español o portugués?'
+      : 'What language would you prefer for the consultation: English, Spanish, or Portuguese?',
+    preferredLanguageWithName: spanish
+      ? `Mucho gusto, ${values.firstName}. ¿En qué idioma te sentirías más cómodo para la consulta: inglés, español o portugués?`
+      : `Nice to meet you, ${values.firstName}. What language would you feel most comfortable using for the consultation: English, Spanish, or Portuguese?`,
+    desiredTreatment: spanish
+      ? 'Entendido. ¿En qué te gustaría enfocarte ahora: bajar de peso, Zepbound, suplementos o guía nutricional?'
+      : 'Got it. What are you mainly hoping to work on right now: losing weight, Zepbound, supplements, or nutrition guidance?',
+    state: spanish
+      ? 'Perfecto. ¿En qué estado estás para confirmar que podemos atenderte allí?'
+      : 'Perfect. What state are you in so I can make sure we can support you there?',
+    preferredTime: spanish
+      ? '¿Qué día u horario te queda mejor para tu consulta gratuita?'
+      : 'What day or time would feel easiest for your free consultation?',
+    preferredTimeForTreatment: spanish
+      ? `Tiene sentido. Para ${values.desiredTreatment}, ¿qué día u horario te queda mejor para tu consulta gratuita?`
+      : `That makes sense. For ${values.desiredTreatment}, what day or time would feel easiest for your free consultation?`,
+    clarifyDesiredTreatment: spanish
+      ? `Te entiendo. Para guiarte bien, cuando dices "${values.content}", ¿tu objetivo principal es bajar de peso, Zepbound, suplementos o guía nutricional?`
+      : `I hear you. Just so I guide you the right way, when you say "${values.content}", is your main goal weight loss, Zepbound, supplements, or nutrition guidance?`,
+    availabilityFallback: spanish
+      ? 'Claro. Si ninguna de esas opciones te funciona, dime el día, horario o especialista que prefieres y reviso otra vez.'
+      : 'Of course. If none of those feel right, tell me the day, time, or specialist you prefer and I will check again.',
+    booked: spanish ? `Tu cita quedó agendada para ${values.display}.` : `You are booked for ${values.display}.`,
+    noAvailability: spanish
+      ? 'No veo una disponibilidad que coincida con esa preferencia ahora mismo. Puedo revisar otro día o especialista, o pasar esto al equipo para que te ayuden a agendar manualmente.'
+      : 'I am not seeing a matching opening for that preference right now. I can keep checking another day or specialist, or route this to the team so they can help schedule it manually.',
+    availabilityIntro: spanish
+      ? 'Encontré estas opciones de cita para ti:'
+      : 'I found these appointment options for you:',
+    availabilityChoice: spanish
+      ? '¿Cuál te funciona mejor? Puedes responder con el número, o decirme otro día, horario o especialista.'
+      : 'Which one feels best? You can reply with the number, or tell me a different day, time, or specialist.',
+    changeAvailability: spanish
+      ? `Por supuesto, voy a revisar opciones para ${values.changes}.`
+      : `Absolutely, I will check options for ${values.changes}.`,
+  }
+
+  return text[key] || ''
+}
+
+async function handleBookingMessage(content, booking, memory, messages, customerLanguage) {
   const latestAgentMessage = [...messages].reverse().find((message) => message.role === 'agent')?.content || ''
   const conversationMemory = mergeBookingDetails(memory, extractBookingMemoryFromMessages(messages))
   const shouldStartBooking =
@@ -94,6 +204,7 @@ async function handleBookingMessage(content, booking, memory, messages) {
       return await prepareAvailabilityResponse({
         booking: { ...INITIAL_BOOKING, active: true, details, hubspotContact },
         details,
+        customerLanguage,
       })
     }
 
@@ -105,7 +216,7 @@ async function handleBookingMessage(content, booking, memory, messages) {
         hubspotContact,
         currentFieldIndex: nextMissingFieldIndex,
       },
-      message: getBookingQuestion(nextMissingFieldIndex, details),
+      message: getBookingQuestion(nextMissingFieldIndex, details, customerLanguage),
     }
   }
 
@@ -126,14 +237,16 @@ async function handleBookingMessage(content, booking, memory, messages) {
             options: [],
           },
           details: nextDetails,
-          intro: requestedChange.message,
+          intro: bookingText(customerLanguage, 'changeAvailability', {
+            changes: requestedChange.changes.join(isSpanishSession(customerLanguage) ? ' el ' : ' on '),
+          }),
+          customerLanguage,
         })
       }
 
       return {
         nextBooking: booking,
-        message:
-          'Of course. If none of those feel right, tell me the day, time, or specialist you prefer and I will check again.',
+        message: bookingText(customerLanguage, 'availabilityFallback'),
       }
     }
 
@@ -144,7 +257,7 @@ async function handleBookingMessage(content, booking, memory, messages) {
 
     return {
       nextBooking: INITIAL_BOOKING,
-      message: `You are booked for ${booked.display}.`,
+      message: bookingText(customerLanguage, 'booked', { display: booked.display }),
     }
   }
 
@@ -169,8 +282,8 @@ async function handleBookingMessage(content, booking, memory, messages) {
   if (nextMissingFieldIndex !== -1) {
     const message =
       nextMissingFieldIndex === booking.currentFieldIndex
-        ? getClarifyingBookingQuestion(nextMissingFieldIndex, content)
-        : getBookingQuestion(nextMissingFieldIndex, nextDetails)
+        ? getClarifyingBookingQuestion(nextMissingFieldIndex, content, customerLanguage)
+        : getBookingQuestion(nextMissingFieldIndex, nextDetails, customerLanguage)
 
     return {
       nextBooking: {
@@ -182,10 +295,14 @@ async function handleBookingMessage(content, booking, memory, messages) {
     }
   }
 
-  return await prepareAvailabilityResponse({ booking, details: withBookingEmail(nextDetails) })
+  return await prepareAvailabilityResponse({
+    booking,
+    details: withBookingEmail(nextDetails),
+    customerLanguage,
+  })
 }
 
-async function prepareAvailabilityResponse({ booking, details, intro = '' }) {
+async function prepareAvailabilityResponse({ booking, details, intro = '', customerLanguage }) {
   const options = await hubspotService.getAvailability({
     preferredTime: details.preferredTime,
     preferredSpecialist: details.preferredSpecialist,
@@ -194,8 +311,7 @@ async function prepareAvailabilityResponse({ booking, details, intro = '' }) {
   if (options.length === 0) {
     return {
       nextBooking: INITIAL_BOOKING,
-      message:
-        'I am not seeing a matching opening for that preference right now. I can keep checking another day or specialist, or route this to the team so they can help schedule it manually.',
+      message: bookingText(customerLanguage, 'noAvailability'),
     }
   }
 
@@ -207,41 +323,43 @@ async function prepareAvailabilityResponse({ booking, details, intro = '' }) {
     },
     message: [
       ...(intro ? [intro, ''] : []),
-      'I found these appointment options for you:',
+      bookingText(customerLanguage, 'availabilityIntro'),
       '',
       ...options.map((option) => `${option.id}. ${option.display}`),
       '',
-      'Which one feels best? You can reply with the number, or tell me a different day, time, or specialist.',
+      bookingText(customerLanguage, 'availabilityChoice'),
     ].join('\n'),
   }
 }
 
-function getBookingQuestion(fieldIndex, details) {
+function getBookingQuestion(fieldIndex, details, customerLanguage) {
   const field = BOOKING_FIELDS[fieldIndex]
 
   if (field.key === 'preferredLanguage' && details.firstName) {
-    return `Nice to meet you, ${details.firstName}. What language would you feel most comfortable using for the consultation: English, Spanish, or Portuguese?`
+    return bookingText(customerLanguage, 'preferredLanguageWithName', { firstName: details.firstName })
   }
 
   if (field.key === 'desiredTreatment') {
-    return 'Got it. What are you mainly hoping to work on right now: losing weight, Zepbound, supplements, or nutrition guidance?'
+    return bookingText(customerLanguage, 'desiredTreatment')
   }
 
   if (field.key === 'preferredTime' && details.desiredTreatment) {
-    return `That makes sense. For ${details.desiredTreatment}, what day or time would feel easiest for your free consultation?`
+    return bookingText(customerLanguage, 'preferredTimeForTreatment', {
+      desiredTreatment: details.desiredTreatment,
+    })
   }
 
-  return field.question
+  return bookingText(customerLanguage, field.key)
 }
 
-function getClarifyingBookingQuestion(fieldIndex, content) {
+function getClarifyingBookingQuestion(fieldIndex, content, customerLanguage) {
   const field = BOOKING_FIELDS[fieldIndex]
 
   if (field.key === 'desiredTreatment') {
-    return `I hear you. Just so I guide you the right way, when you say "${content}", is your main goal weight loss, Zepbound, supplements, or nutrition guidance?`
+    return bookingText(customerLanguage, 'clarifyDesiredTreatment', { content })
   }
 
-  return field.question
+  return bookingText(customerLanguage, field.key)
 }
 
 async function enrichDetailsFromHubSpot(details) {
@@ -458,7 +576,7 @@ function extractAvailabilityChangeRequest(content) {
   return {
     hasChange: changes.length > 0,
     details,
-    message: changes.length ? `Absolutely, I will check options for ${changes.join(' on ')}.` : '',
+    changes,
   }
 }
 
@@ -702,6 +820,7 @@ export function ChatProvider({ children }) {
   const [error, setError] = useState(null)
   const [booking, setBooking] = useState(INITIAL_BOOKING)
   const [bookingMemory, setBookingMemory] = useState({})
+  const [sessionLanguage, setSessionLanguage] = useState('')
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -746,10 +865,13 @@ export function ChatProvider({ children }) {
 
       const userMessage = createMessage('user', trimmedContent)
       const nextMessages = [...messages, userMessage]
+      const nextSessionLanguage =
+        sessionLanguage || detectCustomerSessionLanguage(trimmedContent) || 'English'
 
       setMessages(nextMessages)
       setIsSending(true)
       setError(null)
+      setSessionLanguage(nextSessionLanguage)
 
       try {
         const nextBookingMemory = mergeBookingDetails(
@@ -762,6 +884,7 @@ export function ChatProvider({ children }) {
           booking,
           nextBookingMemory,
           messages,
+          nextSessionLanguage,
         )
 
         if (bookingResponse) {
@@ -782,6 +905,7 @@ export function ChatProvider({ children }) {
             role: message.role,
             content: message.content,
           })),
+          customerLanguage: nextSessionLanguage,
         })
 
         const agentMessage = createMessage(
@@ -807,7 +931,7 @@ export function ChatProvider({ children }) {
         setIsSending(false)
       }
     },
-    [activeAgent, booking, bookingMemory, isSending, messages],
+    [activeAgent, booking, bookingMemory, isSending, messages, sessionLanguage],
   )
 
   const resetConversation = useCallback(() => {
@@ -815,6 +939,7 @@ export function ChatProvider({ children }) {
     setError(null)
     setBooking(INITIAL_BOOKING)
     setBookingMemory({})
+    setSessionLanguage('')
     setActiveConversationId(null)
   }, [])
 

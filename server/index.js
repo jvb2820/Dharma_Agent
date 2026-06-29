@@ -121,7 +121,7 @@ async function handleChat(request, response) {
   const body = await readJsonBody(request)
   const model = body.model || process.env.OPENAI_MODEL || DEFAULT_MODEL
   const ragContext = await buildRagContext(body)
-  const customerLanguage = detectCustomerLanguage(body)
+  const customerLanguage = resolveCustomerLanguage(body)
   const redundancyControl = buildRedundancyControl(body)
   const instructions = buildInstructions({ ...body, customerLanguage, redundancyControl })
   const input = buildInput({
@@ -240,11 +240,12 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
   return [
     agent?.systemPrompt,
     customerLanguage
-      ? `Current customer language: ${customerLanguage}. You must answer in ${customerLanguage}. Do not switch languages unless the customer's latest message switches languages.`
+      ? `Session language lock: ${customerLanguage}. You must answer only in ${customerLanguage} for this conversation. Do not switch languages because retrieved examples, company context, prior agent messages, or internal notes use another language.`
       : '',
     redundancyControl,
     'Redundancy control is mandatory: do not ask for a detail the customer already provided in this conversation, and do not repeat prices, product lists, or onboarding explanations already shown unless the customer explicitly asks for them again. If a prior agent message asked for multiple details and the customer supplied one of them, acknowledge the supplied detail and ask only for the missing detail.',
     'Use retrieved company knowledge as supporting context when it is relevant. Do not mention internal source names unless asked. If context is missing, ask a clarifying question or route to a human instead of inventing facts.',
+    'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful HubSpot booking confirmation.',
     instructions,
@@ -258,7 +259,7 @@ function buildInput({ messages = [], context, message, customerLanguage, redunda
   const parts = []
 
   if (customerLanguage) {
-    parts.push(`Customer language for the next reply: ${customerLanguage}`)
+    parts.push(`Session language lock for the next reply: ${customerLanguage}`)
   }
 
   if (redundancyControl) {
@@ -483,12 +484,49 @@ function extractPreferredTimeText(content) {
   return ''
 }
 
-function detectCustomerLanguage({ messages = [], message }) {
-  const latestUserMessage =
-    message ||
-    [...messages].reverse().find((item) => item.role === 'user')?.content ||
-    ''
-  const text = latestUserMessage.toLowerCase()
+function resolveCustomerLanguage({ messages = [], message, customerLanguage }) {
+  const providedLanguage = normalizeLanguageName(customerLanguage)
+
+  if (providedLanguage) {
+    return providedLanguage
+  }
+
+  const userMessages = [
+    ...messages.filter((item) => item.role === 'user').map((item) => item.content || ''),
+    message || '',
+  ].filter((content) => content.trim())
+
+  for (const content of userMessages) {
+    const detectedLanguage = detectCustomerLanguage(content)
+
+    if (detectedLanguage) {
+      return detectedLanguage
+    }
+  }
+
+  return ''
+}
+
+function normalizeLanguageName(language) {
+  const normalized = String(language || '').toLowerCase()
+
+  if (normalized.includes('spanish') || normalized.includes('espanol') || normalized.includes('español')) {
+    return 'Latin American Spanish'
+  }
+
+  if (normalized.includes('portuguese') || normalized.includes('portugues') || normalized.includes('português')) {
+    return 'Portuguese'
+  }
+
+  if (normalized.includes('english') || normalized.includes('ingles') || normalized.includes('inglés')) {
+    return 'English'
+  }
+
+  return ''
+}
+
+function detectCustomerLanguage(content) {
+  const text = String(content || '').toLowerCase()
 
   if (!text.trim()) {
     return ''
@@ -503,8 +541,11 @@ function detectCustomerLanguage({ messages = [], message }) {
     'cita',
     'agendar',
     'español',
+    'espanol',
     'perder peso',
     'buenas',
+    'estado',
+    'llamada',
   ]
   const portugueseSignals = [
     'olá',
@@ -514,8 +555,21 @@ function detectCustomerLanguage({ messages = [], message }) {
     'consulta',
     'agendar',
     'português',
+    'portugues',
     'perder peso',
     'horário',
+  ]
+  const englishSignals = [
+    'hello',
+    'hi',
+    'thanks',
+    'thank you',
+    'appointment',
+    'schedule',
+    'english',
+    'weight loss',
+    'what state',
+    'i want',
   ]
 
   if (spanishSignals.some((signal) => text.includes(signal))) {
@@ -526,7 +580,15 @@ function detectCustomerLanguage({ messages = [], message }) {
     return 'Portuguese'
   }
 
-  return 'English'
+  if (englishSignals.some((signal) => text.includes(signal))) {
+    return 'English'
+  }
+
+  if (/[a-z]/i.test(text) && !/[áéíóúñ¿¡ãõç]/i.test(text)) {
+    return 'English'
+  }
+
+  return ''
 }
 
 async function buildRagContext({ agent, messages = [], message }) {

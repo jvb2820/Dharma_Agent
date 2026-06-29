@@ -1,7 +1,7 @@
 const OPENAI_MODEL = import.meta.env.VITE_OPENAI_MODEL || 'gpt-4.1-mini'
 
 export const openaiService = {
-  createResponse: async ({ messages, instructions, context, agent } = {}) => {
+  createResponse: async ({ messages, instructions, context, agent, customerLanguage } = {}) => {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
@@ -13,6 +13,7 @@ export const openaiService = {
         instructions,
         context,
         agent,
+        customerLanguage,
       }),
     })
 
