@@ -20,6 +20,21 @@ const RESPOND_AGENT = {
     process.env.RESPOND_AGENT_SYSTEM_PROMPT ||
     'You are Maria from Dharma Clinic. You help inbound customers politely, answer from company knowledge, collect the next missing detail, and keep the conversation moving toward a free consultation when appropriate.',
 }
+const INITIAL_GREETING = `Hola, mi nombre es Maria, de la clínica Dharma. 👋 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
+
+📍 Somos una empresa de telemedicina ubicada en EE.UU. y atendemos online en 43 estados.
+
+💰*PRECIOS DE LOS MÁS VENDIDOS:*
+• *$589* – Paquete de hasta 4 semanas de GLP-1 personalizado
+• *$299* – Acceso a prescripción de Zepbound
+
+Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
+
+📲 Primero realizamos una llamada de análisis *gratuita* por videollamada.
+
+💥 *OFERTA ESPECIAL HOY* 💥
+
+📍 En que *estado* reside para saber si podemos atenderle?`
 const respondSessions = new Map()
 
 const MIME_TYPES = {
@@ -376,6 +391,21 @@ async function processRespondIncomingMessage(event) {
     role: 'user',
     content: event.text,
   }
+
+  if (session.messages.length === 0) {
+    await sendRespondTextMessage({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      text: INITIAL_GREETING,
+    })
+
+    respondSessions.set(event.contactId, {
+      customerLanguage: 'Latin American Spanish',
+      messages: [userMessage, { role: 'agent', content: INITIAL_GREETING }],
+    })
+    return
+  }
+
   const messages = [...session.messages, userMessage].slice(-12)
   const customerLanguage =
     session.customerLanguage || resolveCustomerLanguage({ messages, message: event.text }) || 'English'
