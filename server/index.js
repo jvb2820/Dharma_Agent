@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { loadLocalEnv } from './env.js'
@@ -254,13 +255,15 @@ async function handleRespondContactLookup(request, response) {
   sendJson(response, 200, { contact })
 }
 
-async function handleRespondWebhook(request, response, url) {
-  if (!isValidRespondWebhookRequest(request, url)) {
-    sendJson(response, 401, { error: 'Invalid webhook secret.' })
+async function handleRespondWebhook(request, response) {
+  const rawBody = await readRawBody(request)
+
+  if (!isValidRespondWebhookRequest(request, rawBody)) {
+    sendJson(response, 401, { error: 'Invalid webhook signature.' })
     return
   }
 
-  const body = await readJsonBody(request)
+  const body = parseJsonBody(rawBody)
   const event = normalizeRespondWebhookEvent(body)
 
   if (!isAllowedRespondChannel(event.channelId)) {
@@ -290,18 +293,64 @@ async function handleRespondWebhook(request, response, url) {
   })
 }
 
-function isValidRespondWebhookRequest(request, url) {
-  const secret = process.env.RESPOND_WEBHOOK_SECRET
+function isValidRespondWebhookRequest(request, rawBody) {
+  const signingKey = process.env.RESPOND_WEBHOOK_SIGNING_KEY
 
-  if (!secret) {
+  if (!signingKey) {
     return true
   }
 
-  return (
-    url.searchParams.get('secret') === secret ||
-    request.headers['x-respond-webhook-secret'] === secret ||
-    request.headers['x-webhook-secret'] === secret
-  )
+  const signature =
+    request.headers['x-webhook-signature'] ||
+    request.headers['x-respond-signature'] ||
+    request.headers['respond-signature'] ||
+    request.headers['x-signature']
+
+  if (!signature || Array.isArray(signature)) {
+    return false
+  }
+
+  return verifyWebhookSignature({
+    signingKey,
+    rawBody,
+    signature,
+  })
+}
+
+function verifyWebhookSignature({ signingKey, rawBody, signature }) {
+  const normalizedSignature = normalizeSignature(signature)
+  const keyCandidates = [Buffer.from(signingKey, 'utf8')]
+
+  try {
+    keyCandidates.push(Buffer.from(signingKey, 'base64'))
+  } catch {
+    // The signing key may be plain text rather than base64.
+  }
+
+  const digestEncodings = ['hex', 'base64']
+
+  for (const key of keyCandidates) {
+    for (const encoding of digestEncodings) {
+      const expected = createHmac('sha256', key).update(rawBody).digest(encoding)
+
+      if (constantTimeEquals(normalizedSignature, normalizeSignature(expected))) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+function normalizeSignature(signature) {
+  return String(signature || '').trim().replace(/^sha256=/i, '')
+}
+
+function constantTimeEquals(left, right) {
+  const leftBuffer = Buffer.from(left)
+  const rightBuffer = Buffer.from(right)
+
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer)
 }
 
 function isAllowedRespondChannel(channelId) {
@@ -815,6 +864,10 @@ function extractOutputText(data) {
 }
 
 function readJsonBody(request) {
+  return readRawBody(request).then(parseJsonBody)
+}
+
+function readRawBody(request) {
   return new Promise((resolveBody, rejectBody) => {
     let rawBody = ''
 
@@ -828,18 +881,21 @@ function readJsonBody(request) {
     })
 
     request.on('end', () => {
-      if (!rawBody) {
-        resolveBody({})
-        return
-      }
-
-      try {
-        resolveBody(JSON.parse(rawBody))
-      } catch {
-        rejectBody(new Error('Invalid JSON body.'))
-      }
+      resolveBody(rawBody)
     })
   })
+}
+
+function parseJsonBody(rawBody) {
+  if (!rawBody) {
+    return {}
+  }
+
+  try {
+    return JSON.parse(rawBody)
+  } catch {
+    throw new Error('Invalid JSON body.')
+  }
 }
 
 function sendJson(response, statusCode, payload) {
