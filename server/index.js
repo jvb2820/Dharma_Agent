@@ -263,6 +263,17 @@ async function handleRespondWebhook(request, response, url) {
   const body = await readJsonBody(request)
   const event = normalizeRespondWebhookEvent(body)
 
+  if (!isAllowedRespondChannel(event.channelId)) {
+    sendJson(response, 200, {
+      ok: true,
+      skipped: true,
+      reason: event.channelId
+        ? `Ignoring channel ${event.channelId}.`
+        : 'No channel ID found on webhook event.',
+    })
+    return
+  }
+
   if (!event.contactId || !event.text || !event.isIncoming) {
     sendJson(response, 200, {
       ok: true,
@@ -291,6 +302,23 @@ function isValidRespondWebhookRequest(request, url) {
     request.headers['x-respond-webhook-secret'] === secret ||
     request.headers['x-webhook-secret'] === secret
   )
+}
+
+function isAllowedRespondChannel(channelId) {
+  const allowedChannelIds = parseCsvEnv(process.env.RESPOND_ALLOWED_CHANNEL_IDS)
+
+  if (allowedChannelIds.length === 0) {
+    return true
+  }
+
+  return Boolean(channelId && allowedChannelIds.includes(String(channelId)))
+}
+
+function parseCsvEnv(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 async function processRespondIncomingMessage(event) {
