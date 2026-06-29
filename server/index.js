@@ -20,7 +20,9 @@ const RESPOND_AGENT = {
     process.env.RESPOND_AGENT_SYSTEM_PROMPT ||
     'You are Maria from Dharma Clinic. You help inbound customers politely, answer from company knowledge, collect the next missing detail, and keep the conversation moving toward a free consultation when appropriate.',
 }
-const INITIAL_GREETING = `Hola, mi nombre es Maria, de la clínica Dharma. 👋 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
+const INITIAL_GREETING = `Hola, mi nombre es Maria, de la clínica Dharma.
+
+👋 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
 
 📍 Somos una empresa de telemedicina ubicada en EE.UU. y atendemos online en 43 estados.
 
@@ -32,9 +34,9 @@ Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
 
 📲 Primero realizamos una llamada de análisis *gratuita* por videollamada.
 
-💥 *OFERTA ESPECIAL HOY* 💥
+💥 *OFERTA ESPECIAL HOY* 💥`
 
-📍 En que *estado* reside para saber si podemos atenderle?`
+const INITIAL_STATE_QUESTION = '📍 En que estado reside para saber si podemos atenderle?'
 const respondSessions = new Map()
 
 const MIME_TYPES = {
@@ -398,10 +400,19 @@ async function processRespondIncomingMessage(event) {
       channelId: event.channelId,
       text: INITIAL_GREETING,
     })
+    await sendRespondTextMessage({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      text: INITIAL_STATE_QUESTION,
+    })
 
     respondSessions.set(event.contactId, {
       customerLanguage: 'Latin American Spanish',
-      messages: [userMessage, { role: 'agent', content: INITIAL_GREETING }],
+      messages: [
+        userMessage,
+        { role: 'agent', content: INITIAL_GREETING },
+        { role: 'agent', content: INITIAL_STATE_QUESTION },
+      ],
     })
     return
   }
@@ -518,6 +529,9 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful HubSpot booking confirmation.',
+    'Never refer to Dharma specialists as doctors. Use "specialist" or "medical specialist" only.',
+    'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
+    'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',
     instructions,
   ]
     .filter(Boolean)

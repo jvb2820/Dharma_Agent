@@ -78,10 +78,6 @@ function compareAvailabilityOptions(left, right, preference, timezone) {
     }
   }
 
-  if (left.sellerPriority !== right.sellerPriority) {
-    return left.sellerPriority - right.sellerPriority
-  }
-
   if (preference.hour != null) {
     const leftScore = getHourDistance(left.startTime, preference.hour, timezone)
     const rightScore = getHourDistance(right.startTime, preference.hour, timezone)
@@ -91,7 +87,11 @@ function compareAvailabilityOptions(left, right, preference, timezone) {
     }
   }
 
-  return left.startTime - right.startTime
+  if (left.startTime !== right.startTime) {
+    return left.startTime - right.startTime
+  }
+
+  return left.sellerPriority - right.sellerPriority
 }
 
 function parsePreferredTime(value, timezone) {

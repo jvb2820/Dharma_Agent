@@ -7,18 +7,6 @@ import { ChatContext } from './chat-context'
 
 const BOOKING_FIELDS = [
   {
-    key: 'name',
-    question: 'I can help with that. What name should I put on the consultation?',
-  },
-  {
-    key: 'phone',
-    question: 'Thanks. What phone number is best for the consultation?',
-  },
-  {
-    key: 'preferredLanguage',
-    question: 'What language would you prefer for the consultation: English, Spanish, or Portuguese?',
-  },
-  {
     key: 'desiredTreatment',
     question:
       'Got it. What are you mainly hoping to work on right now? You can say it naturally, like losing weight, Zepbound, supplements, or nutrition guidance.',
@@ -31,17 +19,35 @@ const BOOKING_FIELDS = [
     key: 'preferredTime',
     question: 'What day or time would feel easiest for your free consultation?',
   },
+  {
+    key: 'name',
+    question: 'I can help with that. What name should I put on the consultation?',
+  },
+  {
+    key: 'phone',
+    question: 'Thanks. What phone number is best for the consultation?',
+  },
+  {
+    key: 'preferredLanguage',
+    question: 'What language would you prefer for the consultation: English, Spanish, or Portuguese?',
+  },
 ]
+
+const AVAILABILITY_FIELD_KEYS = ['desiredTreatment', 'state']
+const FINAL_BOOKING_FIELD_KEYS = ['name', 'phone', 'preferredLanguage']
 
 const INITIAL_BOOKING = {
   active: false,
   currentFieldIndex: 0,
   details: {},
   options: [],
+  selectedOption: null,
   hubspotContact: null,
 }
 
-const INITIAL_GREETING = `Hola, mi nombre es Maria, de la clínica Dharma. 👋 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
+const INITIAL_GREETING = `Hola, mi nombre es Maria, de la clínica Dharma.
+
+👋 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
 
 📍 Somos una empresa de telemedicina ubicada en EE.UU. y atendemos online en 43 estados.
 
@@ -53,9 +59,9 @@ Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
 
 📲 Primero realizamos una llamada de análisis *gratuita* por videollamada.
 
-💥 *OFERTA ESPECIAL HOY* 💥
+💥 *OFERTA ESPECIAL HOY* 💥`
 
-📍 En que *estado* reside para saber si podemos atenderle?`
+const INITIAL_STATE_QUESTION = '📍 En que estado reside para saber si podemos atenderle?'
 
 function createMessage(role, content) {
   return {
@@ -156,15 +162,15 @@ function bookingText(language, key, values = {}) {
       ? `Te entiendo. Para guiarte bien, cuando dices "${values.content}", ¿tu objetivo principal es bajar de peso, Zepbound, suplementos o guía nutricional?`
       : `I hear you. Just so I guide you the right way, when you say "${values.content}", is your main goal weight loss, Zepbound, supplements, or nutrition guidance?`,
     availabilityFallback: spanish
-      ? 'Claro. Si ninguna de esas opciones te funciona, dime el día, horario o especialista que prefieres y reviso otra vez.'
-      : 'Of course. If none of those feel right, tell me the day, time, or specialist you prefer and I will check again.',
+      ? 'Claro. Si esos horarios no te funcionan, ¿qué día u horario te queda mejor para la consulta gratuita? También puedo resolver cualquier pregunta antes de revisar otra opción.'
+      : 'Of course. If those times do not work for you, what day or time is best for your free consultation? I can also answer any questions before checking another option.',
     booked: spanish ? `Tu cita quedó agendada para ${values.display}.` : `You are booked for ${values.display}.`,
     noAvailability: spanish
-      ? 'No veo una disponibilidad que coincida con esa preferencia ahora mismo. Puedo revisar otro día o especialista, o pasar esto al equipo para que te ayuden a agendar manualmente.'
-      : 'I am not seeing a matching opening for that preference right now. I can keep checking another day or specialist, or route this to the team so they can help schedule it manually.',
+      ? 'No veo una disponibilidad que coincida con esa preferencia ahora mismo. ¿Tienes alguna pregunta que quieras resolver antes de revisar otro día, especialista o pasarlo al equipo para ayudarte a agendar manualmente?'
+      : 'I am not seeing a matching opening for that preference right now. Is there anything you would like me to answer before I check another day, another specialist, or route this to the team for manual scheduling?',
     availabilityIntro: spanish
-      ? 'Encontré estas opciones de cita para ti:'
-      : 'I found these appointment options for you:',
+      ? 'Revisé el calendario de nuestros especialistas y encontré estos primeros horarios disponibles:'
+      : 'I checked our specialists’ calendars and found these earliest available times:',
     availabilityChoice: spanish
       ? '¿Cuál te funciona mejor? Puedes responder con el número, o decirme otro día, horario o especialista.'
       : 'Which one feels best? You can reply with the number, or tell me a different day, time, or specialist.',
@@ -198,7 +204,7 @@ async function handleBookingMessage(content, booking, memory, messages, customer
       hubspotContact = lookup.contact
     }
 
-    const nextMissingFieldIndex = findMissingBookingFieldIndex(details)
+    const nextMissingFieldIndex = findMissingBookingFieldIndex(details, AVAILABILITY_FIELD_KEYS)
 
     if (nextMissingFieldIndex === -1) {
       return await prepareAvailabilityResponse({
@@ -250,6 +256,19 @@ async function handleBookingMessage(content, booking, memory, messages, customer
       }
     }
 
+    const finalMissingFieldIndex = findMissingBookingFieldIndex(booking.details, FINAL_BOOKING_FIELD_KEYS)
+
+    if (finalMissingFieldIndex !== -1) {
+      return {
+        nextBooking: {
+          ...booking,
+          selectedOption,
+          currentFieldIndex: finalMissingFieldIndex,
+        },
+        message: getBookingQuestion(finalMissingFieldIndex, booking.details, customerLanguage),
+      }
+    }
+
     const booked = await hubspotService.bookMeeting({
       customer: normalizeBookingDetails(withBookingEmail(booking.details)),
       option: selectedOption,
@@ -277,7 +296,40 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     booking = { ...booking, hubspotContact: lookup.contact }
   }
 
-  const nextMissingFieldIndex = findMissingBookingFieldIndex(nextDetails)
+  if (booking.selectedOption) {
+    const nextFinalMissingFieldIndex = findMissingBookingFieldIndex(
+      nextDetails,
+      FINAL_BOOKING_FIELD_KEYS,
+    )
+
+    if (nextFinalMissingFieldIndex !== -1) {
+      const message =
+        nextFinalMissingFieldIndex === booking.currentFieldIndex
+          ? getClarifyingBookingQuestion(nextFinalMissingFieldIndex, content, customerLanguage)
+          : getBookingQuestion(nextFinalMissingFieldIndex, nextDetails, customerLanguage)
+
+      return {
+        nextBooking: {
+          ...booking,
+          details: nextDetails,
+          currentFieldIndex: nextFinalMissingFieldIndex,
+        },
+        message,
+      }
+    }
+
+    const booked = await hubspotService.bookMeeting({
+      customer: normalizeBookingDetails(withBookingEmail(nextDetails)),
+      option: booking.selectedOption,
+    })
+
+    return {
+      nextBooking: INITIAL_BOOKING,
+      message: bookingText(customerLanguage, 'booked', { display: booked.display }),
+    }
+  }
+
+  const nextMissingFieldIndex = findMissingBookingFieldIndex(nextDetails, AVAILABILITY_FIELD_KEYS)
 
   if (nextMissingFieldIndex !== -1) {
     const message =
@@ -472,8 +524,10 @@ function collectBookingField(details, key, content) {
   return nextDetails
 }
 
-function findMissingBookingFieldIndex(details) {
-  return BOOKING_FIELDS.findIndex((item) => !hasBookingField(details, item.key))
+function findMissingBookingFieldIndex(details, fieldKeys = BOOKING_FIELDS.map((item) => item.key)) {
+  return BOOKING_FIELDS.findIndex(
+    (item) => fieldKeys.includes(item.key) && !hasBookingField(details, item.key),
+  )
 }
 
 function hasBookingField(details, key) {
@@ -815,6 +869,7 @@ export function ChatProvider({ children }) {
   const [activeConversationId, setActiveConversationId] = useState(null)
   const [messages, setMessages] = useState([
     createMessage('agent', INITIAL_GREETING),
+    createMessage('agent', INITIAL_STATE_QUESTION),
   ])
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState(null)
@@ -935,7 +990,10 @@ export function ChatProvider({ children }) {
   )
 
   const resetConversation = useCallback(() => {
-    setMessages([createMessage('agent', INITIAL_GREETING)])
+    setMessages([
+      createMessage('agent', INITIAL_GREETING),
+      createMessage('agent', INITIAL_STATE_QUESTION),
+    ])
     setError(null)
     setBooking(INITIAL_BOOKING)
     setBookingMemory({})
