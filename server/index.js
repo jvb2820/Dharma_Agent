@@ -659,8 +659,8 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     return null
   }
 
-  if (!details.desiredTreatment) {
-    return null
+  if (!details.desiredTreatment && hasBookingSignal) {
+    details.desiredTreatment = 'Weight Loss Injections'
   }
 
   if (!details.phone) {
@@ -780,8 +780,8 @@ function bookingCopy(language, key, values = {}) {
   const spanish = normalizeLanguageName(language) === 'Latin American Spanish'
   const copy = {
     askPhone: spanish
-      ? 'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada. 📲'
-      : 'Perfect. To check the available slot and move forward, please send the best phone number for the call. 📲',
+      ? 'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada. ??'
+      : 'Perfect. To check the available slot and move forward, please send the best phone number for the call. ??',
     askName: spanish
       ? 'Ese horario funciona. Que nombre completo pongo para la cita?'
       : 'That time works. What full name should I put on the appointment?',
@@ -789,24 +789,25 @@ function bookingCopy(language, key, values = {}) {
       ? 'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita?'
       : 'Perfect, I have your number. What full name should I use to check and book the appointment?',
     offerSlot: spanish
-      ? `Tengo este horario disponible para tu llamada gratuita de 20 minutos: ${values.slot}. Te funciona? 📆`
-      : `I have this available time for your free 20-minute discovery call: ${values.slot}. Does that work for you? 📆`,
+      ? `Tengo este horario disponible para tu llamada gratuita de 20 minutos: ${values.slot}. Te funciona? ??`
+      : `I have this available time for your free 20-minute discovery call: ${values.slot}. Does that work for you? ??`,
     booked: spanish
-      ? `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita. ✅`
-      : `All set, your call is booked for ${values.slot}. The appointment details will be sent to you. ✅`,
+      ? `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita. ?`
+      : `All set, your call is booked for ${values.slot}. The appointment details will be sent to you. ?`,
     noAvailability: spanish
-      ? 'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio. 📆'
-      : 'I do not see available slots right now. I will route this to the team so they can help find the next opening. 📆',
+      ? 'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio. ??'
+      : 'I do not see available slots right now. I will route this to the team so they can help find the next opening. ??',
     bookingFailed: spanish
-      ? 'No pude confirmar esa cita en HubSpot en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar. 📆'
-      : 'I could not confirm that appointment in HubSpot right now. I will route this to the team so they can check the calendar and help schedule it. 📆',
+      ? 'No pude confirmar esa cita en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar. ??'
+      : 'I could not confirm that appointment right now. I will route this to the team so they can check the calendar and help schedule it. ??',
     checking: spanish
-      ? 'Voy a revisar el calendario en vivo de HubSpot antes de confirmar cualquier cita. 📆'
-      : 'I will check the live HubSpot calendar before confirming any appointment. 📆',
+      ? 'Voy a revisar el proximo horario disponible antes de confirmar la cita. ??'
+      : 'I will check the next available time before confirming the appointment. ??',
   }
 
   return copy[key] || ''
 }
+
 
 function formatCustomerSlot(timestamp, timezone = 'America/New_York') {
   return new Intl.DateTimeFormat('en-US', {
@@ -977,18 +978,19 @@ function preventUnconfirmedBookingReply(text, customerLanguage, messages = []) {
 
   if (normalizeLanguageName(customerLanguage) === 'Latin American Spanish') {
     return [
-      'Antes de confirmar una cita, necesito verificar el calendario en vivo de HubSpot y enviar el formulario de reserva. 📆',
+      'Antes de confirmar una cita, necesito verificar el proximo horario disponible y enviar la reserva. ??',
       '',
       'Por favor enviame el mejor numero de telefono para la llamada.',
     ].join('\n')
   }
 
   return [
-    'Before I confirm any appointment, I need to check the live HubSpot calendar and submit the booking form. 📆',
+    'Before I confirm any appointment, I need to check the next available time and submit the booking. ??',
     '',
     'Please send the best phone number for the call.',
   ].join('\n')
 }
+
 
 function hasUnconfirmedBookingLanguage(text) {
   const normalized = String(text || '').toLowerCase()
@@ -1020,8 +1022,8 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 minutes.',
-    'When offering a discovery call, offer a real available slot from HubSpot or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
-    'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful HubSpot booking confirmation.',
+    'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
+    'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit HubSpot availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never mention internal booking identifiers or backend email-generation details to customers.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
