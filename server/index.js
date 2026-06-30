@@ -506,6 +506,29 @@ async function processRespondIncomingMessage(event) {
     await updateRespondContactState(event.contactId, state)
   }
 
+  const bookingResponse = await handleRespondBookingAutomation({
+    session,
+    messages,
+    customerLanguage,
+  })
+
+  if (bookingResponse) {
+    await sendRespondTextMessage({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      text: bookingResponse.text,
+    })
+
+    respondSessions.set(event.contactId, {
+      customerLanguage,
+      languageAsked: false,
+      lastInteractionAt: Date.now(),
+      messages: [...messages, { role: 'agent', content: bookingResponse.text }].slice(-12),
+      booking: bookingResponse.booking,
+    })
+    return
+  }
+
   const ragContext = await buildRagContext({
     agent: RESPOND_AGENT,
     messages,
@@ -541,6 +564,7 @@ async function processRespondIncomingMessage(event) {
     languageAsked: false,
     lastInteractionAt: Date.now(),
     messages: [...messages, { role: 'agent', content: text }].slice(-12),
+    booking: session.booking || null,
   })
 }
 
@@ -550,6 +574,208 @@ function getRespondSession(contactId) {
     languageAsked: false,
     lastInteractionAt: 0,
     messages: [],
+    booking: null,
+  }
+}
+
+async function handleRespondBookingAutomation({ session, messages, customerLanguage }) {
+  const existingBooking = session.booking || {}
+  const details = {
+    ...(existingBooking.details || {}),
+    ...extractRespondBookingDetails(messages),
+  }
+  const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
+
+  if (existingBooking.pendingField === 'name') {
+    const nameDetails = splitCustomerName(latestUserText)
+    const nextDetails = { ...details, ...nameDetails }
+
+    if (!nextDetails.firstName || !nextDetails.lastName) {
+      return {
+        text: bookingCopy(customerLanguage, 'askName'),
+        booking: { ...existingBooking, details: nextDetails, pendingField: 'name' },
+      }
+    }
+
+    return await bookAcceptedRespondSlot({
+      booking: existingBooking,
+      details: nextDetails,
+      customerLanguage,
+    })
+  }
+
+  const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
+
+  if (selectedOption || (existingBooking.offeredOption && isAffirmative(latestUserText))) {
+    const option = selectedOption || existingBooking.offeredOption
+
+    if (!details.firstName || !details.lastName) {
+      return {
+        text: bookingCopy(customerLanguage, 'askName'),
+        booking: {
+          ...existingBooking,
+          details,
+          offeredOption: option,
+          pendingField: 'name',
+        },
+      }
+    }
+
+    return await bookAcceptedRespondSlot({
+      booking: { ...existingBooking, offeredOption: option },
+      details,
+      customerLanguage,
+    })
+  }
+
+  if (!details.state || !details.desiredTreatment) {
+    return null
+  }
+
+  if (!details.phone) {
+    return {
+      text: bookingCopy(customerLanguage, 'askPhone'),
+      booking: { ...existingBooking, details },
+    }
+  }
+
+  if (existingBooking.offeredOption && !isNegative(latestUserText)) {
+    return null
+  }
+
+  const options = await getPrioritySellerAvailability({ limit: 1 })
+  const offeredOption = options[0]
+
+  if (!offeredOption) {
+    return {
+      text: bookingCopy(customerLanguage, 'noAvailability'),
+      booking: { ...existingBooking, details },
+    }
+  }
+
+  return {
+    text: bookingCopy(customerLanguage, 'offerSlot', {
+      slot: formatCustomerSlot(offeredOption.startTime, offeredOption.timezone),
+    }),
+    booking: {
+      details,
+      options,
+      offeredOption,
+      pendingField: '',
+    },
+  }
+}
+
+async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
+  const option = booking.offeredOption || booking.options?.[0]
+
+  if (!option) {
+    return {
+      text: bookingCopy(customerLanguage, 'checking'),
+      booking: { ...booking, details },
+    }
+  }
+
+  const booked = await bookPrioritySellerMeeting({
+    customer: buildRespondBookingCustomer(details, customerLanguage),
+    option,
+  })
+
+  return {
+    text: bookingCopy(customerLanguage, 'booked', {
+      slot: formatCustomerSlot(option.startTime, option.timezone),
+      bookedDisplay: booked.display,
+    }),
+    booking: null,
+  }
+}
+
+function extractRespondBookingDetails(messages) {
+  const userMessages = messages.filter((item) => item.role === 'user').map((item) => item.content || '')
+  const joined = userMessages.join('\n')
+
+  return Object.fromEntries(
+    Object.entries({
+      state: extractStateName(joined),
+      desiredTreatment: extractDesiredTreatmentName(joined),
+      phone: extractPhoneNumber(joined),
+    }).filter(([, value]) => Boolean(value)),
+  )
+}
+
+function buildRespondBookingCustomer(details, customerLanguage) {
+  return {
+    firstName: details.firstName || 'New',
+    lastName: details.lastName || 'Lead',
+    email: createDummyEmailFromPhone(details.phone),
+    phone: details.phone,
+    preferredLanguage: customerLanguage,
+    desiredTreatment: details.desiredTreatment,
+    state: details.state,
+  }
+}
+
+function bookingCopy(language, key, values = {}) {
+  const spanish = normalizeLanguageName(language) === 'Latin American Spanish'
+  const copy = {
+    askPhone: spanish
+      ? 'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada. 📲'
+      : 'Perfect. To check the available slot and move forward, please send the best phone number for the call. 📲',
+    askName: spanish
+      ? 'Ese horario funciona. Que nombre completo pongo para la cita?'
+      : 'That time works. What full name should I put on the appointment?',
+    offerSlot: spanish
+      ? `Tengo este horario disponible para tu llamada gratuita de 20 minutos: ${values.slot}. Te funciona? 📆`
+      : `I have this available time for your free 20-minute discovery call: ${values.slot}. Does that work for you? 📆`,
+    booked: spanish
+      ? `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita. ✅`
+      : `All set, your call is booked for ${values.slot}. The appointment details will be sent to you. ✅`,
+    noAvailability: spanish
+      ? 'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio. 📆'
+      : 'I do not see available slots right now. I will route this to the team so they can help find the next opening. 📆',
+    checking: spanish
+      ? 'Voy a revisar el calendario en vivo de HubSpot antes de confirmar cualquier cita. 📆'
+      : 'I will check the live HubSpot calendar before confirming any appointment. 📆',
+  }
+
+  return copy[key] || ''
+}
+
+function formatCustomerSlot(timestamp, timezone = 'America/New_York') {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: timezone,
+    timeZoneName: 'short',
+  }).format(new Date(timestamp))
+}
+
+function pickRespondAvailabilityOption(content, options = []) {
+  const selectedId = String(content || '').match(/\d+/)?.[0]
+
+  return options.find((option) => option.id === selectedId) || null
+}
+
+function isAffirmative(content) {
+  return /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|book it|si|sí|claro|dale|esta bien|est[aá] bien)\b/i.test(
+    content,
+  )
+}
+
+function isNegative(content) {
+  return /\b(no|not|doesn'?t work|otro|otra|different|later|mas tarde|m[aá]s tarde)\b/i.test(content)
+}
+
+function splitCustomerName(content) {
+  const cleaned = cleanLikelyName(content)
+  const parts = cleaned.split(/\s+/).filter(Boolean)
+
+  return {
+    firstName: parts[0] || '',
+    lastName: parts.slice(1).join(' '),
   }
 }
 
@@ -961,6 +1187,37 @@ function extractPreferredTimeText(content) {
   }
 
   return ''
+}
+
+function extractPhoneNumber(content) {
+  return (
+    String(content || '').match(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)?\d{3}[\s.-]?\d{4,}/)
+      ?.[0] || ''
+  )
+}
+
+function createDummyEmailFromPhone(phone) {
+  const digits = normalizePhoneDigitsForEmail(phone)
+
+  if (!digits) {
+    return ''
+  }
+
+  return `${digits}@dummy.com`
+}
+
+function normalizePhoneDigitsForEmail(phone) {
+  const digits = String(phone || '').replace(/\D/g, '')
+
+  if (digits.length === 10) {
+    return `1${digits}`
+  }
+
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return digits
+  }
+
+  return digits
 }
 
 function extractDesiredTreatmentName(content) {
