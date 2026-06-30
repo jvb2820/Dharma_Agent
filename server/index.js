@@ -670,14 +670,14 @@ function preventUnconfirmedBookingReply(text, customerLanguage) {
     return [
       'Antes de confirmar una cita, necesito verificar el calendario en vivo de HubSpot y enviar el formulario de reserva. 📆',
       '',
-      'Por favor enviame el mejor numero de telefono para la llamada. La reserva se crea en HubSpot usando ese telefono con @dummy.com.',
+      'Por favor enviame el mejor numero de telefono para la llamada.',
     ].join('\n')
   }
 
   return [
     'Before I confirm any appointment, I need to check the live HubSpot calendar and submit the booking form. 📆',
     '',
-    'Please send the best phone number for the call. The HubSpot booking is created from that phone number using @dummy.com.',
+    'Please send the best phone number for the call.',
   ].join('\n')
 }
 
@@ -712,7 +712,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 minutes.',
     'When offering a discovery call, offer a real available slot from HubSpot or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful HubSpot booking confirmation.',
-    'For Respond webhook conversations, do not invent appointment availability. If there is no explicit HubSpot availability or booking confirmation in the application context, collect the missing booking details instead. HubSpot bookings must use a placeholder email generated from the customer phone number as phoneDigits@dummy.com, even if the customer provides a real email; the customer phone is required before booking.',
+    'For Respond webhook conversations, do not invent appointment availability. If there is no explicit HubSpot availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never mention internal booking identifiers or backend email-generation details to customers.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
