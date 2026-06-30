@@ -657,6 +657,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
       : '',
     redundancyControl,
     'Redundancy control is mandatory: do not ask for a detail the customer already provided in this conversation, and do not repeat prices, product lists, or onboarding explanations already shown unless the customer explicitly asks for them again. If a prior agent message asked for multiple details and the customer supplied one of them, acknowledge the supplied detail and ask only for the missing detail.',
+    'If the customer says they want to lose weight, bajar de peso, weight loss, or similar, treat that as a complete enough goal for weight-loss qualification. Do not ask another version of the same goal question, such as appetite control, energy boost, or specific benefit, unless the customer asks for help comparing options.',
     'Use retrieved company knowledge as supporting context when it is relevant. Do not mention internal source names unless asked. If context is missing, ask a clarifying question or route to a human instead of inventing facts.',
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
@@ -742,6 +743,7 @@ function extractKnownCustomerDetails(userMessages) {
   const state = extractStateName(joined)
   const language = extractPreferredLanguageName(joined)
   const preferredTime = extractPreferredTimeText(joined)
+  const desiredTreatment = extractDesiredTreatmentName(joined)
   const likelyName = [...userMessages].reverse().map(cleanLikelyName).find((text) => {
     const trimmed = text.trim()
     return /^[A-Za-z][A-Za-z' -]+$/.test(trimmed) && trimmed.split(/\s+/).length >= 2
@@ -753,6 +755,10 @@ function extractKnownCustomerDetails(userMessages) {
 
   if (preferredTime) {
     details.push(`preferred time=${preferredTime}`)
+  }
+
+  if (desiredTreatment) {
+    details.push(`desired treatment=${desiredTreatment}`)
   }
 
   if (likelyName) {
@@ -910,6 +916,43 @@ function extractPreferredTimeText(content) {
   }
 
   return ''
+}
+
+function extractDesiredTreatmentName(content) {
+  const searchable = normalizeSearchText(content)
+  const compact = searchable.replace(/\s+/g, '')
+
+  if (/\b(zep|zepbound)\b/.test(searchable)) {
+    return 'Zepbound'
+  }
+
+  if (
+    /\b(weight loss|lose weight|losing weight|slim down|slimming|fat loss|bajar de peso|perder peso|glp 1|semaglutide|tirzepatide|shot|shots|injection|injections|injectable|medication|meds)\b/.test(
+      searchable,
+    ) ||
+    /(weightloss|loseweight|losingweight|fatloss|slimdown|glp1)/.test(compact)
+  ) {
+    return 'Weight Loss'
+  }
+
+  if (/\b(nutri|nutrition|nutritionist|nutritional|diet|dietitian|meal plan|food plan|consulta|asesoria nutricional|nutricion)\b/.test(searchable)) {
+    return 'Nutrition'
+  }
+
+  if (/\b(supp|supps|supplement|supplements|vitamin|vitamins|protein|collagen|greens|probiotic|suplemento|suplementos)\b/.test(searchable)) {
+    return 'Supplements'
+  }
+
+  return ''
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
 }
 
 function resolveCustomerLanguage({ messages = [], message, customerLanguage }) {
