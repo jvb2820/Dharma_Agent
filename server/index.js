@@ -588,7 +588,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
 
   if (existingBooking.pendingField === 'nameBeforeSlot') {
     const nameDetails = splitCustomerName(latestUserText)
-    const nextDetails = { ...details, ...nameDetails }
+    const nextDetails = mergeNonEmptyDetails(details, nameDetails)
 
     if (!nextDetails.firstName || !nextDetails.lastName) {
       return {
@@ -606,7 +606,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
 
   if (existingBooking.pendingField === 'name') {
     const nameDetails = splitCustomerName(latestUserText)
-    const nextDetails = { ...details, ...nameDetails }
+    const nextDetails = mergeNonEmptyDetails(details, nameDetails)
 
     if (!nextDetails.firstName || !nextDetails.lastName) {
       return {
@@ -750,7 +750,7 @@ function extractRespondBookingDetails(messages) {
   const joined = userMessages.join('\n')
   const likelyName = [...userMessages].reverse().map(cleanLikelyName).find((text) => {
     const trimmed = text.trim()
-    return /^[A-Za-z][A-Za-z' -]+$/.test(trimmed) && trimmed.split(/\s+/).length >= 2
+    return isLikelyCustomerName(trimmed)
   })
   const nameDetails = likelyName ? splitCustomerName(likelyName) : {}
 
@@ -780,8 +780,8 @@ function bookingCopy(language, key, values = {}) {
   const spanish = normalizeLanguageName(language) === 'Latin American Spanish'
   const copy = {
     askPhone: spanish
-      ? 'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada. ??'
-      : 'Perfect. To check the available slot and move forward, please send the best phone number for the call. ??',
+      ? 'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada.'
+      : 'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
     askName: spanish
       ? 'Ese horario funciona. Que nombre completo pongo para la cita?'
       : 'That time works. What full name should I put on the appointment?',
@@ -789,20 +789,20 @@ function bookingCopy(language, key, values = {}) {
       ? 'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita?'
       : 'Perfect, I have your number. What full name should I use to check and book the appointment?',
     offerSlot: spanish
-      ? `Tengo este horario disponible para tu llamada gratuita de 20 minutos: ${values.slot}. Te funciona? ??`
-      : `I have this available time for your free 20-minute discovery call: ${values.slot}. Does that work for you? ??`,
+      ? `Tengo este horario disponible para tu llamada gratuita de 20 minutos: ${values.slot}. Te funciona?`
+      : `I have this available time for your free 20-minute discovery call: ${values.slot}. Does that work for you?`,
     booked: spanish
-      ? `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita. ?`
-      : `All set, your call is booked for ${values.slot}. The appointment details will be sent to you. ?`,
+      ? `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita.`
+      : `All set, your call is booked for ${values.slot}. The appointment details will be sent to you.`,
     noAvailability: spanish
-      ? 'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio. ??'
-      : 'I do not see available slots right now. I will route this to the team so they can help find the next opening. ??',
+      ? 'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio.'
+      : 'I do not see available slots right now. I will route this to the team so they can help find the next opening.',
     bookingFailed: spanish
-      ? 'No pude confirmar esa cita en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar. ??'
-      : 'I could not confirm that appointment right now. I will route this to the team so they can check the calendar and help schedule it. ??',
+      ? 'No pude confirmar esa cita en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar.'
+      : 'I could not confirm that appointment right now. I will route this to the team so they can check the calendar and help schedule it.',
     checking: spanish
-      ? 'Dame un momento y te ayudo con el proximo horario disponible. ??'
-      : 'Give me a moment and I will help with the next available time. ??',
+      ? 'Dame un momento y te ayudo con el proximo horario disponible.'
+      : 'Give me a moment and I will help with the next available time.',
   }
 
   return copy[key] || ''
@@ -845,12 +845,44 @@ function isBookingRequest(content) {
 
 function splitCustomerName(content) {
   const cleaned = cleanLikelyName(content)
+  if (!isLikelyCustomerName(cleaned)) {
+    return {}
+  }
   const parts = cleaned.split(/\s+/).filter(Boolean)
 
   return {
     firstName: parts[0] || '',
     lastName: parts.slice(1).join(' '),
   }
+}
+
+function mergeNonEmptyDetails(currentDetails, nextDetails) {
+  return Object.fromEntries(
+    Object.entries({
+      ...currentDetails,
+      ...Object.fromEntries(
+        Object.entries(nextDetails || {}).filter(([, value]) => Boolean(value)),
+      ),
+    }).filter(([, value]) => Boolean(value)),
+  )
+}
+
+function isLikelyCustomerName(content) {
+  const trimmed = String(content || '').trim()
+  const normalized = normalizeSearchText(trimmed)
+  const parts = trimmed.split(/\s+/).filter(Boolean)
+
+  if (!/^[A-Za-z][A-Za-z' -]+$/.test(trimmed) || parts.length < 2 || parts.length > 4) {
+    return false
+  }
+
+  if (isAffirmative(trimmed) || isNegative(trimmed) || isBookingRequest(trimmed)) {
+    return false
+  }
+
+  return !/\b(yes|yeah|yep|ok|okay|sure|works|does|good|fine|perfect|confirm|book|appointment|call|time|slot|tomorrow|today|morning|afternoon|evening|quiero|cita|si|claro)\b/.test(
+    normalized,
+  )
 }
 
 function shouldRestartRespondConversation(session) {
@@ -1097,7 +1129,7 @@ function extractKnownCustomerDetails(userMessages) {
   const desiredTreatment = extractDesiredTreatmentName(joined)
   const likelyName = [...userMessages].reverse().map(cleanLikelyName).find((text) => {
     const trimmed = text.trim()
-    return /^[A-Za-z][A-Za-z' -]+$/.test(trimmed) && trimmed.split(/\s+/).length >= 2
+    return isLikelyCustomerName(trimmed)
   })
 
   if (state) {
