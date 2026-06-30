@@ -601,7 +601,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
       booking: existingBooking,
       details: nextDetails,
       customerLanguage,
-    })
+    }).catch((error) => buildRespondBookingFailure(existingBooking, nextDetails, customerLanguage, error))
   }
 
   const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
@@ -625,7 +625,9 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
       booking: { ...existingBooking, offeredOption: option },
       details,
       customerLanguage,
-    })
+    }).catch((error) =>
+      buildRespondBookingFailure({ ...existingBooking, offeredOption: option }, details, customerLanguage, error),
+    )
   }
 
   if (!details.state || !details.desiredTreatment) {
@@ -690,6 +692,15 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
   }
 }
 
+function buildRespondBookingFailure(booking, details, customerLanguage, error) {
+  console.warn(`Unable to book Respond HubSpot appointment: ${error.message}`)
+
+  return {
+    text: bookingCopy(customerLanguage, 'bookingFailed'),
+    booking: { ...booking, details },
+  }
+}
+
 function extractRespondBookingDetails(messages) {
   const userMessages = messages.filter((item) => item.role === 'user').map((item) => item.content || '')
   const joined = userMessages.join('\n')
@@ -733,6 +744,9 @@ function bookingCopy(language, key, values = {}) {
     noAvailability: spanish
       ? 'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio. 📆'
       : 'I do not see available slots right now. I will route this to the team so they can help find the next opening. 📆',
+    bookingFailed: spanish
+      ? 'No pude confirmar esa cita en HubSpot en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar. 📆'
+      : 'I could not confirm that appointment in HubSpot right now. I will route this to the team so they can check the calendar and help schedule it. 📆',
     checking: spanish
       ? 'Voy a revisar el calendario en vivo de HubSpot antes de confirmar cualquier cita. 📆'
       : 'I will check the live HubSpot calendar before confirming any appointment. 📆',
@@ -911,7 +925,8 @@ function hasUnconfirmedBookingLanguage(text) {
   const normalized = String(text || '').toLowerCase()
 
   return [
-    /\b(booked|scheduled|confirmed|reserved)\b[\s\S]{0,80}\b(today|tomorrow|mon|tue|wed|thu|fri|sat|sun|am|pm|est|edt|\d{1,2}:\d{2})\b/,
+    /\b(booked|scheduled|confirmed|reserved|set)\b[\s\S]{0,80}\b(today|tomorrow|mon|tue|wed|thu|fri|sat|sun|am|pm|est|edt|\d{1,2}:\d{2})\b/,
+    /\b(call|appointment|discovery call)\s+is\s+set\b/,
     /\b(i|we)\s+(will|can|shall)\s+send\b[\s\S]{0,80}\b(appointment|details|link|invite)\b/,
     /\b(proceed|go ahead|move forward)\b[\s\S]{0,80}\b(setting up|scheduling|booking|confirming)\b/,
     /\b(i|we)\s+have\s+availability\b[\s\S]{0,80}\b(today|tomorrow|am|pm|est|edt|\d{1,2}:\d{2})\b/,

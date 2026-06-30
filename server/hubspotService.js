@@ -28,6 +28,11 @@ export async function getPrioritySellerAvailability({
     const meetingInfo = await fetchMeetingInfo({ slug: seller.slug, timezone })
     const supportedFormFieldNames = getSupportedFormFieldNames(meetingInfo)
     const duration = meetingInfo.customParams?.durations?.[0] || 1200000
+
+    if (duration !== 1200000) {
+      continue
+    }
+
     const availability = await fetchAvailability({ slug: seller.slug, timezone })
     const slots = availability.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || []
 
