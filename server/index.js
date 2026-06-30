@@ -586,6 +586,19 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
   }
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
 
+  if (existingBooking.pendingField === 'preferredTime') {
+    const preferredTime = extractPreferredTimeText(latestUserText) || latestUserText.trim()
+    const nextDetails = { ...details, preferredTime }
+
+    return await offerSoonestRespondSlot({
+      booking: { ...existingBooking, offeredOption: null, options: [] },
+      details: nextDetails,
+      customerLanguage,
+      preferredTime,
+      closest: true,
+    })
+  }
+
   if (existingBooking.pendingField === 'nameBeforeSlot') {
     const nameDetails = splitCustomerName(latestUserText)
     const nextDetails = mergeNonEmptyDetails(details, nameDetails)
@@ -623,6 +636,19 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
   }
 
   const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
+
+  if (existingBooking.offeredOption && isNegative(latestUserText)) {
+    return {
+      text: bookingCopy(customerLanguage, 'askPreferredTime'),
+      booking: {
+        ...existingBooking,
+        details,
+        offeredOption: null,
+        options: [],
+        pendingField: 'preferredTime',
+      },
+    }
+  }
 
   if (selectedOption || (existingBooking.offeredOption && isAffirmative(latestUserText))) {
     const option = selectedOption || existingBooking.offeredOption
@@ -688,8 +714,14 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
   })
 }
 
-async function offerSoonestRespondSlot({ booking, details, customerLanguage }) {
-  const options = await getPrioritySellerAvailability({ limit: 1 })
+async function offerSoonestRespondSlot({
+  booking,
+  details,
+  customerLanguage,
+  preferredTime = details.preferredTime,
+  closest = false,
+}) {
+  const options = await getPrioritySellerAvailability({ limit: 1, preferredTime })
   const offeredOption = options[0]
 
   if (!offeredOption) {
@@ -700,7 +732,7 @@ async function offerSoonestRespondSlot({ booking, details, customerLanguage }) {
   }
 
   return {
-    text: bookingCopy(customerLanguage, 'offerSlot', {
+    text: bookingCopy(customerLanguage, closest ? 'offerClosestSlot' : 'offerSlot', {
       slot: formatCustomerSlot(offeredOption.startTime, offeredOption.timezone),
     }),
     booking: {
@@ -791,6 +823,12 @@ function bookingCopy(language, key, values = {}) {
     offerSlot: spanish
       ? `Tengo este horario disponible para tu llamada gratuita de 20 minutos: ${values.slot}. Te funciona?`
       : `I have this available time for your free 20-minute discovery call: ${values.slot}. Does that work for you?`,
+    askPreferredTime: spanish
+      ? 'Claro, no hay problema. Que dia y hora te queda mejor para la llamada?'
+      : 'Of course, no problem. What day and time works best for the call?',
+    offerClosestSlot: spanish
+      ? `No veo exactamente ese horario, pero este es el espacio mas cercano disponible: ${values.slot}. Te funciona?`
+      : `I do not see that exact time, but this is the closest available opening: ${values.slot}. Does that work for you?`,
     booked: spanish
       ? `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita.`
       : `All set, your call is booked for ${values.slot}. The appointment details will be sent to you.`,
