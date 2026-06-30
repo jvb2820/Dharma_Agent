@@ -128,15 +128,16 @@ export async function sendRespondImageMessage({ contactId, imageUrl, channelId, 
 
   const payload = {
     message: {
-      type: 'image',
-      image: {
+      type: 'attachment',
+      attachment: {
+        type: 'image',
         url: imageUrl,
       },
     },
   }
 
   if (caption.trim()) {
-    payload.message.text = caption.trim()
+    payload.message.attachment.caption = caption.trim()
   }
 
   if (channelId) {
@@ -157,7 +158,11 @@ export async function sendRespondImageMessage({ contactId, imageUrl, channelId, 
   const data = await response.json().catch(() => ({}))
 
   if (!response.ok) {
-    throw new Error(data.message || `Respond image send failed with ${response.status}.`)
+    throw new Error(
+      data.message ||
+        data.error ||
+        `Respond image send failed with ${response.status}: ${JSON.stringify(data)}`,
+    )
   }
 
   return data
