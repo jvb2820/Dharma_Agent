@@ -29,44 +29,44 @@ const SESSION_RESTART_WINDOW_MS =
   Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
 const LANGUAGE_QUESTION =
   process.env.RESPOND_LANGUAGE_QUESTION ||
-  'Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
+  '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
 const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || ''
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
 
-It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic*.
+👋 It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic* 📸.
 
-We are a telemedicine company located in the U.S. and our consultations are online.
+📍 We are a telemedicine company located in the U.S. and our consultations are online.
 
-*BEST-SELLING PRICES:*
+💰 *BEST-SELLING PRICES:*
 - *$589* - Up to 4-week personalized GLP-1 package
 - *$299* - Zepbound prescription access
 
 We also offer longer treatments depending on your goal.
 
-First, we do a *free* discovery call by video.
+📲 First, we do a *free* discovery call by video.
 
-*SPECIAL OFFER TODAY*`,
+💥 *SPECIAL OFFER TODAY* 💥`,
   'Latin American Spanish': `Hola, mi nombre es Maria, de la clinica Dharma.
 
-Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic*.
+👋 Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic* 📸.
 
-Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
+📍 Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
 
-*PRECIOS DE LOS MAS VENDIDOS:*
+💰 *PRECIOS DE LOS MAS VENDIDOS:*
 - *$589* - Paquete de hasta 4 semanas de GLP-1 personalizado
 - *$299* - Acceso a prescripcion de Zepbound
 
 Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 
-Primero realizamos una llamada de analisis *gratuita* por videollamada.
+📲 Primero realizamos una llamada de analisis *gratuita* por videollamada.
 
-*OFERTA ESPECIAL HOY*`,
+💥 *OFERTA ESPECIAL HOY* 💥`,
 }
 const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
-  English: 'What state do you live in so I can confirm whether we deliver there?',
+  English: '📍 What state do you live in so I can confirm whether we deliver there?',
   'Latin American Spanish':
-    'Dime por favor en que estado vives para saber si hacemos envios a tu estado.',
+    '📍 Dime por favor en que estado vives para saber si hacemos envios a tu estado.',
 }
 const respondSessions = new Map()
 
@@ -661,6 +661,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
     'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name occasionally when known, especially when they return after several hours or days.',
+    'Emoji style: use friendly, relevant emojis in the initial messages and later in the conversation when they add warmth, clarity, or emphasis. Do not overdo it; one or two fitting emojis is usually enough, and keep serious medical/support messages calm.',
     'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 minutes.',

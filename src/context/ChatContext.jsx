@@ -46,43 +46,43 @@ const INITIAL_BOOKING = {
 }
 
 const LANGUAGE_QUESTION =
-  'Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
+  '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
 
-It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic*.
+👋 It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic* 📸.
 
-We are a telemedicine company located in the U.S. and our consultations are online.
+📍 We are a telemedicine company located in the U.S. and our consultations are online.
 
-*BEST-SELLING PRICES:*
+💰 *BEST-SELLING PRICES:*
 - *$589* - Up to 4-week personalized GLP-1 package
 - *$299* - Zepbound prescription access
 
 We also offer longer treatments depending on your goal.
 
-First, we do a *free* discovery call by video.
+📲 First, we do a *free* discovery call by video.
 
-*SPECIAL OFFER TODAY*`,
+💥 *SPECIAL OFFER TODAY* 💥`,
   'Latin American Spanish': `Hola, mi nombre es Maria, de la clinica Dharma.
 
-Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic*.
+👋 Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic* 📸.
 
-Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
+📍 Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
 
-*PRECIOS DE LOS MAS VENDIDOS:*
+💰 *PRECIOS DE LOS MAS VENDIDOS:*
 - *$589* - Paquete de hasta 4 semanas de GLP-1 personalizado
 - *$299* - Acceso a prescripcion de Zepbound
 
 Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 
-Primero realizamos una llamada de analisis *gratuita* por videollamada.
+📲 Primero realizamos una llamada de analisis *gratuita* por videollamada.
 
-*OFERTA ESPECIAL HOY*`,
+💥 *OFERTA ESPECIAL HOY* 💥`,
 }
 const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
-  English: 'What state do you live in so I can confirm whether we deliver there?',
+  English: '📍 What state do you live in so I can confirm whether we deliver there?',
   'Latin American Spanish':
-    'Dime por favor en que estado vives para saber si hacemos envios a tu estado.',
+    '📍 Dime por favor en que estado vives para saber si hacemos envios a tu estado.',
 }
 
 function createMessage(role, content) {
