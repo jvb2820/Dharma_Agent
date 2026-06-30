@@ -551,7 +551,7 @@ async function processRespondIncomingMessage(event) {
     instructions,
     input,
   })
-  const text = preventUnconfirmedBookingReply(generatedText, customerLanguage)
+  const text = preventUnconfirmedBookingReply(generatedText, customerLanguage, messages)
 
   await sendRespondTextMessage({
     contactId: event.contactId,
@@ -585,6 +585,24 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     ...extractRespondBookingDetails(messages),
   }
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
+
+  if (existingBooking.pendingField === 'nameBeforeSlot') {
+    const nameDetails = splitCustomerName(latestUserText)
+    const nextDetails = { ...details, ...nameDetails }
+
+    if (!nextDetails.firstName || !nextDetails.lastName) {
+      return {
+        text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
+        booking: { ...existingBooking, details: nextDetails, pendingField: 'nameBeforeSlot' },
+      }
+    }
+
+    return await offerSoonestRespondSlot({
+      booking: existingBooking,
+      details: nextDetails,
+      customerLanguage,
+    })
+  }
 
   if (existingBooking.pendingField === 'name') {
     const nameDetails = splitCustomerName(latestUserText)
@@ -630,7 +648,18 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     )
   }
 
-  if (!details.state || !details.desiredTreatment) {
+  const hasBookingSignal =
+    existingBooking.offeredOption ||
+    existingBooking.pendingField ||
+    details.phone ||
+    details.desiredTreatment ||
+    isBookingRequest(latestUserText)
+
+  if (!hasBookingSignal) {
+    return null
+  }
+
+  if (!details.desiredTreatment) {
     return null
   }
 
@@ -641,17 +670,32 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     }
   }
 
+  if (!details.firstName || !details.lastName) {
+    return {
+      text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
+      booking: { ...existingBooking, details, pendingField: 'nameBeforeSlot' },
+    }
+  }
+
   if (existingBooking.offeredOption && !isNegative(latestUserText)) {
     return null
   }
 
+  return await offerSoonestRespondSlot({
+    booking: existingBooking,
+    details,
+    customerLanguage,
+  })
+}
+
+async function offerSoonestRespondSlot({ booking, details, customerLanguage }) {
   const options = await getPrioritySellerAvailability({ limit: 1 })
   const offeredOption = options[0]
 
   if (!offeredOption) {
     return {
       text: bookingCopy(customerLanguage, 'noAvailability'),
-      booking: { ...existingBooking, details },
+      booking: { ...booking, details },
     }
   }
 
@@ -704,9 +748,15 @@ function buildRespondBookingFailure(booking, details, customerLanguage, error) {
 function extractRespondBookingDetails(messages) {
   const userMessages = messages.filter((item) => item.role === 'user').map((item) => item.content || '')
   const joined = userMessages.join('\n')
+  const likelyName = [...userMessages].reverse().map(cleanLikelyName).find((text) => {
+    const trimmed = text.trim()
+    return /^[A-Za-z][A-Za-z' -]+$/.test(trimmed) && trimmed.split(/\s+/).length >= 2
+  })
+  const nameDetails = likelyName ? splitCustomerName(likelyName) : {}
 
   return Object.fromEntries(
     Object.entries({
+      ...nameDetails,
       state: extractStateName(joined),
       desiredTreatment: extractDesiredTreatmentName(joined),
       phone: extractPhoneNumber(joined),
@@ -735,6 +785,9 @@ function bookingCopy(language, key, values = {}) {
     askName: spanish
       ? 'Ese horario funciona. Que nombre completo pongo para la cita?'
       : 'That time works. What full name should I put on the appointment?',
+    askNameBeforeSlot: spanish
+      ? 'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita?'
+      : 'Perfect, I have your number. What full name should I use to check and book the appointment?',
     offerSlot: spanish
       ? `Tengo este horario disponible para tu llamada gratuita de 20 minutos: ${values.slot}. Te funciona? 📆`
       : `I have this available time for your free 20-minute discovery call: ${values.slot}. Does that work for you? 📆`,
@@ -781,6 +834,12 @@ function isAffirmative(content) {
 
 function isNegative(content) {
   return /\b(no|not|doesn'?t work|otro|otra|different|later|mas tarde|m[aá]s tarde)\b/i.test(content)
+}
+
+function isBookingRequest(content) {
+  return /\b(appointment|book|booking|schedule|scheduled|discovery call|call|cita|agendar|consulta)\b/i.test(
+    content,
+  )
 }
 
 function splitCustomerName(content) {
@@ -901,9 +960,19 @@ function extractRespondWebhookText(message) {
   return ''
 }
 
-function preventUnconfirmedBookingReply(text, customerLanguage) {
+function preventUnconfirmedBookingReply(text, customerLanguage, messages = []) {
   if (!hasUnconfirmedBookingLanguage(text)) {
     return text
+  }
+
+  const details = extractRespondBookingDetails(messages)
+
+  if (details.phone && (!details.firstName || !details.lastName)) {
+    return bookingCopy(customerLanguage, 'askNameBeforeSlot')
+  }
+
+  if (details.phone && details.firstName && details.lastName) {
+    return bookingCopy(customerLanguage, 'checking')
   }
 
   if (normalizeLanguageName(customerLanguage) === 'Latin American Spanish') {
