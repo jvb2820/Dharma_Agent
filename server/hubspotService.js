@@ -24,6 +24,7 @@ export async function getPrioritySellerAvailability({
   const sellers = filterSellersByPreference(getConfiguredPrioritySellers(), preferredSpecialist)
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
+  const monthOffset = getMonthOffsetForPreference(preference, timezone)
 
   for (const [sellerIndex, seller] of sellers.entries()) {
     const meetingInfo = await fetchMeetingInfo({ slug: seller.slug, timezone })
@@ -34,7 +35,7 @@ export async function getPrioritySellerAvailability({
       continue
     }
 
-    const availability = await fetchAvailability({ slug: seller.slug, timezone })
+    const availability = await fetchAvailability({ slug: seller.slug, timezone, monthOffset })
     const slots = availability.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || []
 
     const futureSlots = slots.filter((slot) => slot.startMillisUtc > Date.now() + 5 * 60 * 1000)
@@ -84,8 +85,8 @@ function compareAvailabilityOptions(left, right, preference, timezone) {
   }
 
   if (preference.hour != null) {
-    const leftScore = getHourDistance(left.startTime, preference.hour, timezone)
-    const rightScore = getHourDistance(right.startTime, preference.hour, timezone)
+    const leftScore = getTimeDistance(left.startTime, preference, timezone)
+    const rightScore = getTimeDistance(right.startTime, preference, timezone)
 
     if (leftScore !== rightScore) {
       return leftScore - rightScore
@@ -97,6 +98,21 @@ function compareAvailabilityOptions(left, right, preference, timezone) {
   }
 
   return left.sellerPriority - right.sellerPriority
+}
+
+function getMonthOffsetForPreference(preference, timezone) {
+  if (!preference.dateKey) {
+    return 0
+  }
+
+  const current = getDateParts(Date.now(), timezone)
+  const [targetYear, targetMonth] = preference.dateKey.split('-').map(Number)
+
+  if (!targetYear || !targetMonth) {
+    return 0
+  }
+
+  return Math.max(0, (targetYear - current.year) * 12 + (targetMonth - current.month))
 }
 
 function parsePreferredTime(value, timezone) {
@@ -119,6 +135,8 @@ function parsePreferredTime(value, timezone) {
 
   let hour = Number(hourMatch[1])
   const period = hourMatch[2]
+  const minuteMatch = hourMatch[0].match(/:(\d{2})/)
+  const minute = minuteMatch ? Number(minuteMatch[1]) : 0
 
   if (period === 'pm' && hour < 12) {
     hour += 12
@@ -128,7 +146,7 @@ function parsePreferredTime(value, timezone) {
     hour = 0
   }
 
-  return { ...preference, hour }
+  return { ...preference, hour, minute }
 }
 
 function parsePreferredDateKey(value, timezone) {
@@ -244,15 +262,18 @@ function pad2(value) {
   return String(value).padStart(2, '0')
 }
 
-function getHourDistance(timestamp, preferredHour, timezone) {
+function getTimeDistance(timestamp, preference, timezone) {
   const parts = new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
+    minute: '2-digit',
     hour12: false,
     timeZone: timezone,
   }).formatToParts(new Date(timestamp))
   const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0)
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0)
+  const preferredMinute = preference.minute || 0
 
-  return Math.abs(hour - preferredHour)
+  return Math.abs(hour * 60 + minute - (preference.hour * 60 + preferredMinute))
 }
 
 export async function bookPrioritySellerMeeting({ customer, option }) {
@@ -731,8 +752,10 @@ async function fetchMeetingInfo({ slug, timezone }) {
   return hubspotGet(`/scheduler/v3/meetings/meeting-links/book/${encodeURIComponent(slug)}?timezone=${encodeURIComponent(timezone)}`)
 }
 
-async function fetchAvailability({ slug, timezone }) {
-  return hubspotGet(`/scheduler/v3/meetings/meeting-links/book/availability-page/${encodeURIComponent(slug)}?timezone=${encodeURIComponent(timezone)}`)
+async function fetchAvailability({ slug, timezone, monthOffset = 0 }) {
+  return hubspotGet(
+    `/scheduler/v3/meetings/meeting-links/book/availability-page/${encodeURIComponent(slug)}?timezone=${encodeURIComponent(timezone)}&monthOffset=${encodeURIComponent(monthOffset)}`,
+  )
 }
 
 async function hubspotGet(path) {
