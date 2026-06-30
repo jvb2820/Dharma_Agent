@@ -16,6 +16,8 @@ import {
   updateRespondContact,
 } from './respondService.js'
 
+loadLocalEnv()
+
 const PORT = Number(process.env.PORT || process.env.API_PORT || 8787)
 const DEFAULT_MODEL = 'gpt-4.1-mini'
 const DIST_DIR = resolve(process.cwd(), 'dist')
@@ -30,7 +32,7 @@ const SESSION_RESTART_WINDOW_MS =
 const LANGUAGE_QUESTION =
   process.env.RESPOND_LANGUAGE_QUESTION ||
   '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
-const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || ''
+const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
 
@@ -74,6 +76,8 @@ const MIME_TYPES = {
   '.css': 'text/css',
   '.html': 'text/html',
   '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
   '.js': 'text/javascript',
   '.json': 'application/json',
   '.png': 'image/png',
@@ -81,8 +85,6 @@ const MIME_TYPES = {
   '.txt': 'text/plain',
   '.webp': 'image/webp',
 }
-
-loadLocalEnv()
 
 const server = http.createServer(async (request, response) => {
   try {
@@ -416,6 +418,15 @@ function parseCsvEnv(value) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function getDefaultInitialImageUrl() {
+  const baseUrl =
+    process.env.WEB_SERVICE_URL ||
+    process.env.VITE_WEB_SERVICE_URL ||
+    'https://dharma-agent.onrender.com'
+
+  return `${baseUrl.replace(/\/+$/, '')}/Images/before%20and%20after.jpg`
 }
 
 async function processRespondIncomingMessage(event) {
