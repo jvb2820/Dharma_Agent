@@ -9,7 +9,12 @@ import {
   getPrioritySellerAvailability,
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
-import { getRespondContact, sendRespondTextMessage } from './respondService.js'
+import {
+  getRespondContact,
+  sendRespondImageMessage,
+  sendRespondTextMessage,
+  updateRespondContact,
+} from './respondService.js'
 
 const PORT = Number(process.env.PORT || process.env.API_PORT || 8787)
 const DEFAULT_MODEL = 'gpt-4.1-mini'
@@ -18,25 +23,51 @@ const RESPOND_AGENT = {
   id: 'sales',
   systemPrompt:
     process.env.RESPOND_AGENT_SYSTEM_PROMPT ||
-    'You are Maria from Dharma Clinic. You help inbound customers politely, answer from company knowledge, collect the next missing detail, and keep the conversation moving toward a free consultation when appropriate.',
+    'You are Maria from Dharma Clinic. You help inbound customers politely, answer from company knowledge, collect the next missing detail, and guide qualified leads toward a free online discovery call when appropriate.',
 }
-const INITIAL_GREETING = `Hola, mi nombre es Maria, de la clínica Dharma.
+const SESSION_RESTART_WINDOW_MS =
+  Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
+const LANGUAGE_QUESTION =
+  process.env.RESPOND_LANGUAGE_QUESTION ||
+  'Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
+const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || ''
+const INITIAL_GREETING_BY_LANGUAGE = {
+  English: `Hi, my name is Maria from Dharma Clinic.
 
-👋 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
+It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic*.
 
-📍 Somos una empresa de telemedicina ubicada en EE.UU. y atendemos online en 43 estados.
+We are a telemedicine company located in the U.S. and our consultations are online.
 
-💰*PRECIOS DE LOS MÁS VENDIDOS:*
-• *$589* – Paquete de hasta 4 semanas de GLP-1 personalizado
-• *$299* – Acceso a prescripción de Zepbound
+*BEST-SELLING PRICES:*
+- *$589* - Up to 4-week personalized GLP-1 package
+- *$299* - Zepbound prescription access
 
-Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
+We also offer longer treatments depending on your goal.
 
-📲 Primero realizamos una llamada de análisis *gratuita* por videollamada.
+First, we do a *free* discovery call by video.
 
-💥 *OFERTA ESPECIAL HOY* 💥`
+*SPECIAL OFFER TODAY*`,
+  'Latin American Spanish': `Hola, mi nombre es Maria, de la clinica Dharma.
 
-const INITIAL_STATE_QUESTION = '📍 En que estado reside para saber si podemos atenderle?'
+Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic*.
+
+Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
+
+*PRECIOS DE LOS MAS VENDIDOS:*
+- *$589* - Paquete de hasta 4 semanas de GLP-1 personalizado
+- *$299* - Acceso a prescripcion de Zepbound
+
+Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
+
+Primero realizamos una llamada de analisis *gratuita* por videollamada.
+
+*OFERTA ESPECIAL HOY*`,
+}
+const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
+  English: 'What state do you live in so I can confirm whether we deliver there?',
+  'Latin American Spanish':
+    'Dime por favor en que estado vives para saber si hacemos envios a tu estado.',
+}
 const respondSessions = new Map()
 
 const MIME_TYPES = {
@@ -393,33 +424,77 @@ async function processRespondIncomingMessage(event) {
     role: 'user',
     content: event.text,
   }
+  const detectedLanguage = resolveCustomerLanguage({
+    messages: [userMessage],
+    message: event.text,
+  })
+  const preferredLanguage = detectedLanguage || session.customerLanguage
 
-  if (session.messages.length === 0) {
-    await sendRespondTextMessage({
+  if (shouldRestartRespondConversation(session)) {
+    if (!preferredLanguage) {
+      await sendRespondTextMessage({
+        contactId: event.contactId,
+        channelId: event.channelId,
+        text: LANGUAGE_QUESTION,
+      })
+
+      respondSessions.set(event.contactId, {
+        customerLanguage: '',
+        languageAsked: true,
+        lastInteractionAt: Date.now(),
+        messages: [userMessage, { role: 'agent', content: LANGUAGE_QUESTION }],
+      })
+      return
+    }
+
+    await sendInitialRespondSequence({
       contactId: event.contactId,
       channelId: event.channelId,
-      text: INITIAL_GREETING,
-    })
-    await sendRespondTextMessage({
-      contactId: event.contactId,
-      channelId: event.channelId,
-      text: INITIAL_STATE_QUESTION,
+      customerLanguage: preferredLanguage,
     })
 
     respondSessions.set(event.contactId, {
-      customerLanguage: 'Latin American Spanish',
+      customerLanguage: preferredLanguage,
+      languageAsked: false,
+      lastInteractionAt: Date.now(),
       messages: [
         userMessage,
-        { role: 'agent', content: INITIAL_GREETING },
-        { role: 'agent', content: INITIAL_STATE_QUESTION },
+        { role: 'agent', content: getInitialGreeting(preferredLanguage) },
+        { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
       ],
     })
     return
   }
 
+  if (session.languageAsked && preferredLanguage) {
+    await sendInitialRespondSequence({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      customerLanguage: preferredLanguage,
+    })
+
+    respondSessions.set(event.contactId, {
+      customerLanguage: preferredLanguage,
+      languageAsked: false,
+      lastInteractionAt: Date.now(),
+      messages: [
+        ...session.messages,
+        userMessage,
+        { role: 'agent', content: getInitialGreeting(preferredLanguage) },
+        { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
+      ].slice(-12),
+    })
+    return
+  }
+
   const messages = [...session.messages, userMessage].slice(-12)
-  const customerLanguage =
-    session.customerLanguage || resolveCustomerLanguage({ messages, message: event.text }) || 'English'
+  const customerLanguage = preferredLanguage || 'English'
+  const state = extractStateName(event.text)
+
+  if (state) {
+    await updateRespondContactState(event.contactId, state)
+  }
+
   const ragContext = await buildRagContext({
     agent: RESPOND_AGENT,
     messages,
@@ -451,6 +526,8 @@ async function processRespondIncomingMessage(event) {
 
   respondSessions.set(event.contactId, {
     customerLanguage,
+    languageAsked: false,
+    lastInteractionAt: Date.now(),
     messages: [...messages, { role: 'agent', content: text }].slice(-12),
   })
 }
@@ -458,8 +535,63 @@ async function processRespondIncomingMessage(event) {
 function getRespondSession(contactId) {
   return respondSessions.get(contactId) || {
     customerLanguage: '',
+    languageAsked: false,
+    lastInteractionAt: 0,
     messages: [],
   }
+}
+
+function shouldRestartRespondConversation(session) {
+  return (
+    session.messages.length === 0 ||
+    (SESSION_RESTART_WINDOW_MS > 0 &&
+      session.lastInteractionAt > 0 &&
+      Date.now() - session.lastInteractionAt >= SESSION_RESTART_WINDOW_MS)
+  )
+}
+
+async function sendInitialRespondSequence({ contactId, channelId, customerLanguage }) {
+  const greeting = getInitialGreeting(customerLanguage)
+  const stateQuestion = getInitialStateQuestion(customerLanguage)
+
+  if (INITIAL_IMAGE_URL) {
+    await sendRespondImageMessage({
+      contactId,
+      channelId,
+      imageUrl: INITIAL_IMAGE_URL,
+    }).catch((error) => {
+      console.warn(`Unable to send initial Respond image: ${error.message}`)
+    })
+  }
+
+  await sendRespondTextMessage({ contactId, channelId, text: greeting })
+  await sendRespondTextMessage({ contactId, channelId, text: stateQuestion })
+}
+
+function getInitialGreeting(customerLanguage) {
+  return (
+    INITIAL_GREETING_BY_LANGUAGE[normalizeLanguageName(customerLanguage)] ||
+    INITIAL_GREETING_BY_LANGUAGE.English
+  )
+}
+
+function getInitialStateQuestion(customerLanguage) {
+  return (
+    INITIAL_STATE_QUESTION_BY_LANGUAGE[normalizeLanguageName(customerLanguage)] ||
+    INITIAL_STATE_QUESTION_BY_LANGUAGE.English
+  )
+}
+
+async function updateRespondContactState(contactId, state) {
+  await updateRespondContact({
+    contactId,
+    customFields: {
+      state,
+      State: state,
+    },
+  }).catch((error) => {
+    console.warn(`Unable to update Respond state field: ${error.message}`)
+  })
 }
 
 function normalizeRespondWebhookEvent(body) {
@@ -528,7 +660,18 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Use retrieved company knowledge as supporting context when it is relevant. Do not mention internal source names unless asked. If context is missing, ask a clarifying question or route to a human instead of inventing facts.',
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
+    'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name occasionally when known, especially when they return after several hours or days.',
+    'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
+    'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
+    'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 minutes.',
+    'When offering a discovery call, offer a real available slot from HubSpot or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful HubSpot booking confirmation.',
+    'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
+    'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
+    'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
+    'Price follow-up rule: after the initial price message, do not restate the full price list unless asked. If asked about cost, say treatments start at $589 and longer options depend on the goal; explain that details are covered in the free discovery call, then offer a specific available slot if one is available.',
+    'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
+    'State and product qualification rule: use company knowledge for which products are deliverable in each state. If you are not sure a product is available in the customer state, do not send the lead to that appointment type; route to a human or offer a safer alternative such as nutrition or supplements.',
     'Never refer to Dharma specialists as doctors. Use "specialist" or "medical specialist" only.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',

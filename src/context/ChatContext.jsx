@@ -45,23 +45,45 @@ const INITIAL_BOOKING = {
   hubspotContact: null,
 }
 
-const INITIAL_GREETING = `Hola, mi nombre es Maria, de la clínica Dharma.
+const LANGUAGE_QUESTION =
+  'Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
+const INITIAL_GREETING_BY_LANGUAGE = {
+  English: `Hi, my name is Maria from Dharma Clinic.
 
-👋 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
+It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic*.
 
-📍 Somos una empresa de telemedicina ubicada en EE.UU. y atendemos online en 43 estados.
+We are a telemedicine company located in the U.S. and our consultations are online.
 
-💰*PRECIOS DE LOS MÁS VENDIDOS:*
-• *$589* – Paquete de hasta 4 semanas de GLP-1 personalizado
-• *$299* – Acceso a prescripción de Zepbound
+*BEST-SELLING PRICES:*
+- *$589* - Up to 4-week personalized GLP-1 package
+- *$299* - Zepbound prescription access
 
-Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
+We also offer longer treatments depending on your goal.
 
-📲 Primero realizamos una llamada de análisis *gratuita* por videollamada.
+First, we do a *free* discovery call by video.
 
-💥 *OFERTA ESPECIAL HOY* 💥`
+*SPECIAL OFFER TODAY*`,
+  'Latin American Spanish': `Hola, mi nombre es Maria, de la clinica Dharma.
 
-const INITIAL_STATE_QUESTION = '📍 En que estado reside para saber si podemos atenderle?'
+Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic*.
+
+Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
+
+*PRECIOS DE LOS MAS VENDIDOS:*
+- *$589* - Paquete de hasta 4 semanas de GLP-1 personalizado
+- *$299* - Acceso a prescripcion de Zepbound
+
+Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
+
+Primero realizamos una llamada de analisis *gratuita* por videollamada.
+
+*OFERTA ESPECIAL HOY*`,
+}
+const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
+  English: 'What state do you live in so I can confirm whether we deliver there?',
+  'Latin American Spanish':
+    'Dime por favor en que estado vives para saber si hacemos envios a tu estado.',
+}
 
 function createMessage(role, content) {
   return {
@@ -131,49 +153,59 @@ function isSpanishSession(language) {
   return String(language || '').toLowerCase().includes('spanish')
 }
 
+function getInitialGreeting(language) {
+  return INITIAL_GREETING_BY_LANGUAGE[isSpanishSession(language) ? 'Latin American Spanish' : 'English']
+}
+
+function getInitialStateQuestion(language) {
+  return INITIAL_STATE_QUESTION_BY_LANGUAGE[
+    isSpanishSession(language) ? 'Latin American Spanish' : 'English'
+  ]
+}
+
 function bookingText(language, key, values = {}) {
   const spanish = isSpanishSession(language)
   const text = {
     name: spanish
-      ? 'Claro, te ayudo con eso. ¿Qué nombre pongo para la consulta?'
+      ? 'Claro, te ayudo con eso. Que nombre pongo para la consulta?'
       : 'I can help with that. What name should I put on the consultation?',
     phone: spanish
-      ? 'Gracias. ¿Cuál es el mejor número de teléfono para la consulta?'
+      ? 'Gracias. Cual es el mejor numero de telefono para la consulta?'
       : 'Thanks. What phone number is best for the consultation?',
     preferredLanguage: spanish
-      ? '¿En qué idioma prefieres la consulta: inglés, español o portugués?'
-      : 'What language would you prefer for the consultation: English, Spanish, or Portuguese?',
+      ? 'En que idioma prefieres la consulta: ingles o espanol?'
+      : 'What language would you prefer for the consultation: English or Spanish?',
     preferredLanguageWithName: spanish
-      ? `Mucho gusto, ${values.firstName}. ¿En qué idioma te sentirías más cómodo para la consulta: inglés, español o portugués?`
-      : `Nice to meet you, ${values.firstName}. What language would you feel most comfortable using for the consultation: English, Spanish, or Portuguese?`,
+      ? `Mucho gusto, ${values.firstName}. En que idioma te sentirias mas comodo para la consulta: ingles o espanol?`
+      : `Nice to meet you, ${values.firstName}. What language would you feel most comfortable using for the consultation: English or Spanish?`,
     desiredTreatment: spanish
-      ? 'Entendido. ¿En qué te gustaría enfocarte ahora: bajar de peso, Zepbound, suplementos o guía nutricional?'
-      : 'Got it. What are you mainly hoping to work on right now: losing weight, Zepbound, supplements, or nutrition guidance?',
+      ? 'Entendido. Para guiarte bien, tu objetivo principal es bajar de peso, suplementos o guia nutricional?'
+      : 'Got it. To guide you correctly, is your main goal weight loss, supplements, or nutrition guidance?',
     state: spanish
-      ? 'Perfecto. ¿En qué estado estás para confirmar que podemos atenderte allí?'
-      : 'Perfect. What state are you in so I can make sure we can support you there?',
+      ? 'Dime por favor en que estado vives para saber si hacemos envios a tu estado.'
+      : 'What state do you live in so I can confirm whether we deliver there?',
     preferredTime: spanish
-      ? '¿Qué día u horario te queda mejor para tu consulta gratuita?'
-      : 'What day or time would feel easiest for your free consultation?',
+      ? 'Voy a revisar los proximos horarios disponibles para tu consulta gratuita.'
+      : 'I will check the next available times for your free consultation.',
     preferredTimeForTreatment: spanish
-      ? `Tiene sentido. Para ${values.desiredTreatment}, ¿qué día u horario te queda mejor para tu consulta gratuita?`
-      : `That makes sense. For ${values.desiredTreatment}, what day or time would feel easiest for your free consultation?`,
+      ? `Tiene sentido. Para ${values.desiredTreatment}, voy a revisar los proximos horarios disponibles para tu consulta gratuita.`
+      : `That makes sense. For ${values.desiredTreatment}, I will check the next available times for your free consultation.`,
     clarifyDesiredTreatment: spanish
-      ? `Te entiendo. Para guiarte bien, cuando dices "${values.content}", ¿tu objetivo principal es bajar de peso, Zepbound, suplementos o guía nutricional?`
-      : `I hear you. Just so I guide you the right way, when you say "${values.content}", is your main goal weight loss, Zepbound, supplements, or nutrition guidance?`,
+      ? `Te entiendo. Para guiarte bien, cuando dices "${values.content}", tu objetivo principal es bajar de peso, suplementos o guia nutricional?`
+      : `I hear you. Just so I guide you the right way, when you say "${values.content}", is your main goal weight loss, supplements, or nutrition guidance?`,
     availabilityFallback: spanish
-      ? 'Claro. Si esos horarios no te funcionan, ¿qué día u horario te queda mejor para la consulta gratuita? También puedo resolver cualquier pregunta antes de revisar otra opción.'
-      : 'Of course. If those times do not work for you, what day or time is best for your free consultation? I can also answer any questions before checking another option.',
-    booked: spanish ? `Tu cita quedó agendada para ${values.display}.` : `You are booked for ${values.display}.`,
+      ? 'Claro. Si esos horarios no te funcionan, reviso otra opcion disponible. Tambien puedo resolver cualquier pregunta antes de buscar otro espacio.'
+      : 'Of course. If those times do not work, I can check another available option. I can also answer any questions before looking for another slot.',
+    booked: spanish ? `Tu cita quedo agendada para ${values.display}.` : `You are booked for ${values.display}.`,
     noAvailability: spanish
-      ? 'No veo una disponibilidad que coincida con esa preferencia ahora mismo. ¿Tienes alguna pregunta que quieras resolver antes de revisar otro día, especialista o pasarlo al equipo para ayudarte a agendar manualmente?'
-      : 'I am not seeing a matching opening for that preference right now. Is there anything you would like me to answer before I check another day, another specialist, or route this to the team for manual scheduling?',
+      ? 'No veo una disponibilidad que coincida ahora mismo. Puedo revisar otro horario, otro especialista o pasarlo al equipo para ayudarte a agendar manualmente.'
+      : 'I am not seeing a matching opening right now. I can check another slot, another specialist, or route this to the team for manual scheduling.',
     availabilityIntro: spanish
-      ? 'Revisé el calendario de nuestros especialistas y encontré estos primeros horarios disponibles:'
-      : 'I checked our specialists’ calendars and found these earliest available times:',
+      ? 'Revise el calendario de nuestros especialistas y encontre estos primeros horarios disponibles:'
+      : 'I checked our specialists calendars and found these earliest available times:',
     availabilityChoice: spanish
-      ? '¿Cuál te funciona mejor? Puedes responder con el número, o decirme otro día, horario o especialista.'
-      : 'Which one feels best? You can reply with the number, or tell me a different day, time, or specialist.',
+      ? 'Cual te funciona mejor? Puedes responder con el numero.'
+      : 'Which one works best? You can reply with the number.',
     changeAvailability: spanish
       ? `Por supuesto, voy a revisar opciones para ${values.changes}.`
       : `Absolutely, I will check options for ${values.changes}.`,
@@ -181,6 +213,7 @@ function bookingText(language, key, values = {}) {
 
   return text[key] || ''
 }
+
 
 async function handleBookingMessage(content, booking, memory, messages, customerLanguage) {
   const latestAgentMessage = [...messages].reverse().find((message) => message.role === 'agent')?.content || ''
@@ -868,8 +901,7 @@ export function ChatProvider({ children }) {
   const { activeAgent } = useAgent()
   const [activeConversationId, setActiveConversationId] = useState(null)
   const [messages, setMessages] = useState([
-    createMessage('agent', INITIAL_GREETING),
-    createMessage('agent', INITIAL_STATE_QUESTION),
+    createMessage('agent', LANGUAGE_QUESTION),
   ])
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState(null)
@@ -920,8 +952,8 @@ export function ChatProvider({ children }) {
 
       const userMessage = createMessage('user', trimmedContent)
       const nextMessages = [...messages, userMessage]
-      const nextSessionLanguage =
-        sessionLanguage || detectCustomerSessionLanguage(trimmedContent) || 'English'
+      const detectedLanguage = extractPreferredLanguage(trimmedContent) || detectCustomerSessionLanguage(trimmedContent)
+      const nextSessionLanguage = detectedLanguage || sessionLanguage || 'English'
 
       setMessages(nextMessages)
       setIsSending(true)
@@ -929,6 +961,18 @@ export function ChatProvider({ children }) {
       setSessionLanguage(nextSessionLanguage)
 
       try {
+        if (!sessionLanguage && detectedLanguage) {
+          const greeting = getInitialGreeting(nextSessionLanguage)
+          const stateQuestion = getInitialStateQuestion(nextSessionLanguage)
+
+          setMessages((currentMessages) => [
+            ...currentMessages,
+            createMessage('agent', greeting),
+            createMessage('agent', stateQuestion),
+          ])
+          return
+        }
+
         const nextBookingMemory = mergeBookingDetails(
           bookingMemory,
           extractBookingMemory(trimmedContent),
@@ -990,10 +1034,7 @@ export function ChatProvider({ children }) {
   )
 
   const resetConversation = useCallback(() => {
-    setMessages([
-      createMessage('agent', INITIAL_GREETING),
-      createMessage('agent', INITIAL_STATE_QUESTION),
-    ])
+    setMessages([createMessage('agent', LANGUAGE_QUESTION)])
     setError(null)
     setBooking(INITIAL_BOOKING)
     setBookingMemory({})
