@@ -38,11 +38,10 @@ export async function getPrioritySellerAvailability({
     const slots = availability.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || []
 
     const futureSlots = slots.filter((slot) => slot.startMillisUtc > Date.now() + 5 * 60 * 1000)
-    const candidateSlots = preference.dateKey
-      ? futureSlots.filter((slot) => getDateKey(slot.startMillisUtc, timezone) === preference.dateKey)
-      : futureSlots
+    const candidateSlots = futureSlots
+    const maxSlotsPerSeller = preference.dateKey || preference.hour != null ? 100 : 6
 
-    for (const slot of candidateSlots.slice(0, 6)) {
+    for (const slot of candidateSlots.slice(0, maxSlotsPerSeller)) {
       options.push({
         sellerName: seller.name,
         sellerSlug: seller.slug,

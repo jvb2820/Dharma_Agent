@@ -650,6 +650,26 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     }
   }
 
+  if (existingBooking.options?.length > 1 && isNegative(latestUserText)) {
+    return {
+      text: bookingCopy(customerLanguage, 'askPreferredTime'),
+      booking: {
+        ...existingBooking,
+        details,
+        offeredOption: null,
+        options: [],
+        pendingField: 'preferredTime',
+      },
+    }
+  }
+
+  if (existingBooking.options?.length > 1 && !selectedOption) {
+    return {
+      text: bookingCopy(customerLanguage, 'askChooseOption'),
+      booking: existingBooking,
+    }
+  }
+
   if (selectedOption || (existingBooking.offeredOption && isAffirmative(latestUserText))) {
     const option = selectedOption || existingBooking.offeredOption
 
@@ -721,8 +741,16 @@ async function offerSoonestRespondSlot({
   preferredTime = details.preferredTime,
   closest = false,
 }) {
-  const options = await getPrioritySellerAvailability({ limit: 1, preferredTime })
-  const offeredOption = options[0]
+  const options = await getPrioritySellerAvailability({
+    limit: closest ? 4 : 1,
+    preferredTime,
+  })
+  const fallbackOptions =
+    closest && options.length === 0
+      ? await getPrioritySellerAvailability({ limit: 4 })
+      : []
+  const availableOptions = options.length ? options : fallbackOptions
+  const offeredOption = availableOptions[0]
 
   if (!offeredOption) {
     return {
@@ -731,14 +759,20 @@ async function offerSoonestRespondSlot({
     }
   }
 
+  const nextOptions = closest ? availableOptions : [offeredOption]
+
   return {
-    text: bookingCopy(customerLanguage, closest ? 'offerClosestSlot' : 'offerSlot', {
-      slot: formatCustomerSlot(offeredOption.startTime, offeredOption.timezone),
-    }),
+    text: closest
+      ? bookingCopy(customerLanguage, options.length ? 'offerClosestSlots' : 'offerFallbackSlots', {
+          slots: formatNumberedSlots(nextOptions),
+        })
+      : bookingCopy(customerLanguage, 'offerSlot', {
+          slot: formatCustomerSlot(offeredOption.startTime, offeredOption.timezone),
+        }),
     booking: {
       details,
-      options,
-      offeredOption,
+      options: nextOptions,
+      offeredOption: closest ? null : offeredOption,
       pendingField: '',
     },
   }
@@ -829,6 +863,15 @@ function bookingCopy(language, key, values = {}) {
     offerClosestSlot: spanish
       ? `No veo exactamente ese horario, pero este es el espacio mas cercano disponible: ${values.slot}. Te funciona?`
       : `I do not see that exact time, but this is the closest available opening: ${values.slot}. Does that work for you?`,
+    offerClosestSlots: spanish
+      ? `No tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`
+      : `I do not have that exact time available, but these are the closest schedules based on your desired time:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+    offerFallbackSlots: spanish
+      ? `No tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`
+      : `I do not have availability for that requested time right now, but these are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+    askChooseOption: spanish
+      ? 'Cual opcion te funciona mejor? Responde con el numero para agendarla.'
+      : 'Which option works best? Please reply with the number so I can book it.',
     booked: spanish
       ? `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita.`
       : `All set, your call is booked for ${values.slot}. The appointment details will be sent to you.`,
@@ -859,6 +902,12 @@ function formatCustomerSlot(timestamp, timezone = 'America/New_York') {
   }).format(new Date(timestamp))
 }
 
+function formatNumberedSlots(options = []) {
+  return options
+    .map((option, index) => `${index + 1}. ${formatCustomerSlot(option.startTime, option.timezone)}`)
+    .join('\n')
+}
+
 function pickRespondAvailabilityOption(content, options = []) {
   const selectedId = String(content || '').match(/\d+/)?.[0]
 
@@ -866,10 +915,17 @@ function pickRespondAvailabilityOption(content, options = []) {
 }
 
 function isAffirmative(content) {
-  return /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|book it|si|sí|claro|dale|esta bien|est[aá] bien)\b/i.test(
+  const normalized = normalizeSearchText(content)
+
+  if (/[?]/.test(String(content || '')) || /\b(when|what time|which|cuando|que hora)\b/.test(normalized)) {
+    return false
+  }
+
+  return /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|book it|si|claro|dale|esta bien)\b/i.test(
     content,
   )
 }
+
 
 function isNegative(content) {
   return /\b(no|not|doesn'?t work|otro|otra|different|later|mas tarde|m[aá]s tarde)\b/i.test(content)
