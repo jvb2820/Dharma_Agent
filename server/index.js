@@ -801,8 +801,8 @@ function bookingCopy(language, key, values = {}) {
       ? 'No pude confirmar esa cita en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar. ??'
       : 'I could not confirm that appointment right now. I will route this to the team so they can check the calendar and help schedule it. ??',
     checking: spanish
-      ? 'Voy a revisar el proximo horario disponible antes de confirmar la cita. ??'
-      : 'I will check the next available time before confirming the appointment. ??',
+      ? 'Dame un momento y te ayudo con el proximo horario disponible. ??'
+      : 'Give me a moment and I will help with the next available time. ??',
   }
 
   return copy[key] || ''
@@ -1018,7 +1018,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 minutes.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
-    'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never mention internal booking identifiers, backend email-generation details, form submission, or system/calendar checking steps to customers.',
+    'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
