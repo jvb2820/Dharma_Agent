@@ -4,6 +4,7 @@ const DEFAULT_DEAL_PIPELINE = '693198644'
 const DEFAULT_DEAL_STAGE = '1013987700'
 const DEFAULT_DEAL_EVALUATION_DATE_PROPERTY = 'evaluation_date_and_hour_2'
 const DEFAULT_DEAL_NAME_PREFIX = 'Sellers'
+const DEFAULT_DISABLED_SELLER_SLUGS = ['diana-giron']
 
 const PRIORITY_SELLERS = [
   { slug: 'meribet-yazziet', name: 'Meribet', fieldValue: 'Meribet Sampson' },
@@ -616,7 +617,7 @@ function normalizeDesiredTreatment(value) {
     ) ||
     /(weightloss|loseweight|losingweight|fatloss|slimdown|glp1)/.test(compact)
   ) {
-    return 'Weight Loss Injections'
+    return 'Compounded Semaglutide'
   }
 
   if (/\b(nutri|nutrition|nutritionist|nutritional|diet|dietitian|meal plan|food plan|consult|consultation|consulta|asesoria nutricional|nutricion)\b/.test(searchable)) {
@@ -642,7 +643,7 @@ function normalizeDesiredTreatment(value) {
     normalized.includes('semaglutide') ||
     normalized.includes('tirzepatide')
   ) {
-    return 'Weight Loss Injections'
+    return 'Compounded Semaglutide'
   }
 
   if (normalized.includes('supplement')) {
@@ -771,17 +772,24 @@ async function hubspotSend(path, options = {}) {
 }
 
 function getConfiguredPrioritySellers() {
+  const disabledSlugs = new Set(
+    (process.env.HUBSPOT_DISABLED_SELLER_SLUGS || DEFAULT_DISABLED_SELLER_SLUGS.join(','))
+      .split(',')
+      .map((slug) => slug.trim())
+      .filter(Boolean),
+  )
   const configuredSlugs = process.env.HUBSPOT_PRIORITY_SELLER_SLUGS?.split(',')
     .map((slug) => slug.trim())
     .filter(Boolean)
 
   if (!configuredSlugs?.length) {
-    return PRIORITY_SELLERS
+    return PRIORITY_SELLERS.filter((seller) => !disabledSlugs.has(seller.slug))
   }
 
   return configuredSlugs
     .map((slug) => PRIORITY_SELLERS.find((seller) => seller.slug === slug))
     .filter(Boolean)
+    .filter((seller) => !disabledSlugs.has(seller.slug))
 }
 
 function filterSellersByPreference(sellers, preferredSpecialist) {
