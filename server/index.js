@@ -512,11 +512,12 @@ async function processRespondIncomingMessage(event) {
     redundancyControl,
     context: ragContext,
   })
-  const text = await createOpenAIResponseText({
+  const generatedText = await createOpenAIResponseText({
     model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
     instructions,
     input,
   })
+  const text = preventUnconfirmedBookingReply(generatedText, customerLanguage)
 
   await sendRespondTextMessage({
     contactId: event.contactId,
@@ -649,6 +650,38 @@ function extractRespondWebhookText(message) {
   return ''
 }
 
+function preventUnconfirmedBookingReply(text, customerLanguage) {
+  if (!hasUnconfirmedBookingLanguage(text)) {
+    return text
+  }
+
+  if (normalizeLanguageName(customerLanguage) === 'Latin American Spanish') {
+    return [
+      'Antes de confirmar una cita, necesito verificar el calendario en vivo de HubSpot y enviar el formulario de reserva. 📆',
+      '',
+      'Por favor enviame el mejor numero de telefono para la llamada. La reserva se crea en HubSpot usando ese telefono con @dummy.com.',
+    ].join('\n')
+  }
+
+  return [
+    'Before I confirm any appointment, I need to check the live HubSpot calendar and submit the booking form. 📆',
+    '',
+    'Please send the best phone number for the call. The HubSpot booking is created from that phone number using @dummy.com.',
+  ].join('\n')
+}
+
+function hasUnconfirmedBookingLanguage(text) {
+  const normalized = String(text || '').toLowerCase()
+
+  return [
+    /\b(booked|scheduled|confirmed|reserved)\b[\s\S]{0,80}\b(today|tomorrow|mon|tue|wed|thu|fri|sat|sun|am|pm|est|edt|\d{1,2}:\d{2})\b/,
+    /\b(i|we)\s+(will|can|shall)\s+send\b[\s\S]{0,80}\b(appointment|details|link|invite)\b/,
+    /\b(proceed|go ahead|move forward)\b[\s\S]{0,80}\b(setting up|scheduling|booking|confirming)\b/,
+    /\b(i|we)\s+have\s+availability\b[\s\S]{0,80}\b(today|tomorrow|am|pm|est|edt|\d{1,2}:\d{2})\b/,
+    /\bavailable slot\b[\s\S]{0,80}\b(today|tomorrow|am|pm|est|edt|\d{1,2}:\d{2})\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
 function buildInstructions({ agent, instructions, customerLanguage, redundancyControl }) {
   return [
     agent?.systemPrompt,
@@ -668,6 +701,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 minutes.',
     'When offering a discovery call, offer a real available slot from HubSpot or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful HubSpot booking confirmation.',
+    'For Respond webhook conversations, do not invent appointment availability. If there is no explicit HubSpot availability or booking confirmation in the application context, collect the missing booking details instead. HubSpot bookings must use a placeholder email generated from the customer phone number as phoneDigits@dummy.com, even if the customer provides a real email; the customer phone is required before booking.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',

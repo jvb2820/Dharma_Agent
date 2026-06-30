@@ -591,7 +591,7 @@ function normalizeBookingDetails(details) {
 }
 
 function withBookingEmail(details) {
-  if (details.email || !details.phone) {
+  if (!details.phone) {
     return details
   }
 
