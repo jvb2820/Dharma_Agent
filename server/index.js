@@ -855,8 +855,8 @@ function bookingCopy(language, key, values = {}) {
       ? 'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita?'
       : 'Perfect, I have your number. What full name should I use to check and book the appointment?',
     offerSlot: spanish
-      ? `Tengo este horario disponible para tu llamada gratuita de 20 minutos: ${values.slot}. Te funciona?`
-      : `I have this available time for your free 20-minute discovery call: ${values.slot}. Does that work for you?`,
+      ? `Tengo este horario disponible para tu llamada gratuita de análisis: ${values.slot}. Te funciona?`
+      : `I have this available time for your free discovery call: ${values.slot}. Does that work for you?`,
     askPreferredTime: spanish
       ? 'Claro, no hay problema. Que dia y hora te queda mejor para la llamada?'
       : 'Of course, no problem. What day and time works best for the call?',
@@ -1141,7 +1141,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Emoji style: use friendly, relevant emojis in the initial messages and later in the conversation when they add warmth, clarity, or emphasis. Do not overdo it; one or two fitting emojis is usually enough, and keep serious medical/support messages calm.',
     'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
-    'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 minutes.',
+    'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',

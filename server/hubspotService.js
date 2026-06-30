@@ -31,7 +31,7 @@ export async function getPrioritySellerAvailability({
     const supportedFormFieldNames = getSupportedFormFieldNames(meetingInfo)
     const duration = meetingInfo.customParams?.durations?.[0] || 1200000
 
-    if (duration !== 1200000) {
+    if (duration !== 1200000 && duration !== 1800000) {
       continue
     }
 

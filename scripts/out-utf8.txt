@@ -1,0 +1,19 @@
+[
+  {
+    "sellerName": "Alejandro",
+    "sellerSlug": "alejandro667",
+    "sellerFieldValue": "Alejandro Rivera",
+    "supportedFormFieldNames": [
+      "create_deal",
+      "agent_lead_management",
+      "dont_send_notification"
+    ],
+    "startTime": 1782855000000,
+    "endTime": 1782856800000,
+    "duration": 1800000,
+    "timezone": "America/New_York",
+    "sellerPriority": 4,
+    "display": "Specialist Alejandro is available Tue, Jun 30, 5:30 PM EDT",
+    "id": "1"
+  }
+]
