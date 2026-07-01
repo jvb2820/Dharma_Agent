@@ -426,7 +426,7 @@ function getDefaultInitialImageUrl() {
     process.env.VITE_WEB_SERVICE_URL ||
     'https://dharma-agent.onrender.com'
 
-  return `${baseUrl.replace(/\/+$/, '')}/Images/before%20and%20after.jpg`
+  return `${baseUrl.replace(/\/+$/, '')}/Images/before%20and%20after.png`
 }
 
 async function processRespondIncomingMessage(event) {
