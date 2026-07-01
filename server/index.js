@@ -460,7 +460,11 @@ async function processRespondIncomingMessage(event) {
     messages: [userMessage],
     message: event.text,
   })
-  const preferredLanguage = session.customerLanguage || detectedLanguage
+  const preferredLanguage =
+    session.customerLanguage ||
+    detectedLanguage ||
+    respondContactProfile?.bookingDetails?.preferredLanguage ||
+    ''
 
   if (shouldRestartRespondConversation(session)) {
     if (!preferredLanguage) {
@@ -623,11 +627,13 @@ function classifyRespondContact(contact) {
       status: 'new_or_no_record',
       label: 'New or no existing Respond record',
       reason: 'Respond contact lookup did not return a profile.',
+      bookingDetails: {},
     }
   }
 
   const customFields = getRespondCustomFieldMap(contact)
   const tags = getRespondTagNames(contact)
+  const bookingDetails = buildRespondContactBookingDetails({ contact, customFields })
   const leadStatus = customFields.lead_status || ''
   const classification = customFields.classification || ''
   const hubspotId = customFields.hubspot_id || ''
@@ -647,6 +653,7 @@ function classifyRespondContact(contact) {
       label: 'Returning client',
       reason: 'Respond fields or tags indicate an existing client/patient.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+      bookingDetails,
     }
   }
 
@@ -656,6 +663,7 @@ function classifyRespondContact(contact) {
       label: 'Returning lead',
       reason: 'Respond fields or tags indicate an existing scheduled/evaluated lead.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+      bookingDetails,
     }
   }
 
@@ -665,6 +673,7 @@ function classifyRespondContact(contact) {
       label: 'Existing HubSpot contact',
       reason: 'Respond contact has a hubspot_id custom field.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+      bookingDetails,
     }
   }
 
@@ -674,6 +683,7 @@ function classifyRespondContact(contact) {
       label: 'Returning conversation',
       reason: 'Respond fields indicate prior conversation handling, but not confirmed client status.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+      bookingDetails,
     }
   }
 
@@ -682,6 +692,7 @@ function classifyRespondContact(contact) {
     label: 'New or no existing record',
     reason: 'No current Respond fields indicate a prior client, lead, HubSpot record, or handled conversation.',
     fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+    bookingDetails,
   }
 }
 
@@ -705,6 +716,7 @@ function buildRespondContactSignalSummary({ customFields, tags, contact }) {
       leadStatus: customFields.lead_status,
       classification: customFields.classification,
       hasHubspotId: Boolean(customFields.hubspot_id),
+      hasPhone: Boolean(contact?.phone),
       state: customFields.state || customFields.state1,
       treatment: customFields.treatment || customFields.desired_treatment_form,
       contactStatus: contact?.status,
@@ -712,6 +724,52 @@ function buildRespondContactSignalSummary({ customFields, tags, contact }) {
       tags: tags.length ? tags.join(', ') : '',
     }).filter(([, value]) => Boolean(value)),
   )
+}
+
+function buildRespondContactBookingDetails({ contact, customFields }) {
+  return Object.fromEntries(
+    Object.entries({
+      firstName: contact?.firstName,
+      lastName: contact?.lastName,
+      phone: contact?.phone,
+      email: isPlaceholderEmail(contact?.email) ? '' : contact?.email,
+      state: normalizeRespondState(customFields.state || customFields.state1),
+      desiredTreatment: customFields.treatment || customFields.desired_treatment_form,
+      preferredLanguage: normalizeRespondContactLanguage(contact?.language),
+    }).filter(([, value]) => Boolean(value)),
+  )
+}
+
+function getRespondContactBookingDetails(profile) {
+  return profile?.bookingDetails || {}
+}
+
+function normalizeRespondState(value) {
+  const state = extractStateName(String(value || ''))
+
+  return state || String(value || '').split(/[-–]/)[0].trim()
+}
+
+function normalizeRespondContactLanguage(language) {
+  const normalized = String(language || '').toLowerCase()
+
+  if (normalized.startsWith('es')) {
+    return 'Latin American Spanish'
+  }
+
+  if (normalized.startsWith('pt')) {
+    return 'Portuguese'
+  }
+
+  if (normalized.startsWith('en')) {
+    return 'English'
+  }
+
+  return ''
+}
+
+function isPlaceholderEmail(email) {
+  return /@dummy\.com$/i.test(String(email || ''))
 }
 
 function formatRespondContactProfileForPrompt(profile) {
@@ -745,6 +803,7 @@ async function handleRespondBookingAutomation({
   const existingBooking = session.booking || {}
   const bookingTeam = existingBooking.bookingTeam || getBookingTeamForRespondContact(respondContactProfile)
   const details = {
+    ...getRespondContactBookingDetails(respondContactProfile),
     ...(existingBooking.details || {}),
     ...extractRespondBookingDetails(messages),
   }
@@ -1638,8 +1697,12 @@ function extractDesiredTreatmentName(content) {
   const searchable = normalizeSearchText(content)
   const compact = searchable.replace(/\s+/g, '')
 
+  if (/\b(peptide|peptides|peptidos|péptidos)\b/.test(searchable)) {
+    return 'Other peptides'
+  }
+
   if (/\b(zep|zepbound)\b/.test(searchable)) {
-    return 'Zepbound'
+    return 'Weight Loss Injections'
   }
 
   if (
@@ -1648,11 +1711,11 @@ function extractDesiredTreatmentName(content) {
     ) ||
     /(weightloss|loseweight|losingweight|fatloss|slimdown|glp1)/.test(compact)
   ) {
-    return 'Weight Loss'
+    return 'Weight Loss Injections'
   }
 
   if (/\b(nutri|nutrition|nutritionist|nutritional|diet|dietitian|meal plan|food plan|consulta|asesoria nutricional|nutricion)\b/.test(searchable)) {
-    return 'Nutrition'
+    return 'Nutrition Consultation'
   }
 
   if (/\b(supp|supps|supplement|supplements|vitamin|vitamins|protein|collagen|greens|probiotic|suplemento|suplementos)\b/.test(searchable)) {
