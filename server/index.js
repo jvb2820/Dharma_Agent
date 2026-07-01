@@ -439,7 +439,7 @@ async function processRespondIncomingMessage(event) {
     messages: [userMessage],
     message: event.text,
   })
-  const preferredLanguage = detectedLanguage || session.customerLanguage
+  const preferredLanguage = session.customerLanguage || detectedLanguage
 
   if (shouldRestartRespondConversation(session)) {
     if (!preferredLanguage) {
@@ -1525,6 +1525,22 @@ function detectCustomerLanguage(content) {
     'buenas',
     'estado',
     'llamada',
+    'cuanto',
+    'precio',
+    'cuesta',
+    'informacion',
+    'información',
+    'ayuda',
+    'como',
+    'donde',
+    'que',
+    'hablo',
+    'hablar',
+    'favor',
+    'porfa',
+    'buenos dias',
+    'buenas tardes',
+    'buenas noches',
   ]
   const portugueseSignals = [
     'olá',
@@ -1549,6 +1565,18 @@ function detectCustomerLanguage(content) {
     'weight loss',
     'what state',
     'i want',
+    'how much',
+    'price',
+    'cost',
+    'help',
+    'what',
+    'where',
+    'when',
+    'how',
+    'yes',
+    'please',
+    'morning',
+    'afternoon',
   ]
 
   if (spanishSignals.some((signal) => text.includes(signal))) {
@@ -1560,10 +1588,6 @@ function detectCustomerLanguage(content) {
   }
 
   if (englishSignals.some((signal) => text.includes(signal))) {
-    return 'English'
-  }
-
-  if (/[a-z]/i.test(text) && !/[áéíóúñ¿¡ãõç]/i.test(text)) {
     return 'English'
   }
 
