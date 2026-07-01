@@ -5,7 +5,7 @@ export async function getRespondContact(contactId) {
     return null
   }
 
-  const token = process.env.RESPOND_API_TOKEN
+  const token = process.env.RESPOND_API_TOKEN || process.env.RESPONDIO_API_KEY
 
   if (!token) {
     throw new Error('RESPOND_API_TOKEN is not configured.')

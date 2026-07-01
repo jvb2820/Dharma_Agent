@@ -15,20 +15,54 @@ const PRIORITY_SELLERS = [
   { slug: 'diana-giron', name: 'Diana', fieldValue: 'Diana Stephanie' },
 ]
 
+const CUSTOMER_SERVICE_TEAM = [
+  { slug: 'alice-f', name: 'Alice', fieldValue: 'Alice F' },
+  { slug: 'brayam-zuluaga', name: 'Brayam', fieldValue: 'Brayam Zuluaga' },
+  { slug: 'arles-martinez', name: 'Arles', fieldValue: 'Arles Martinez' },
+  { slug: 'edmilson-morales', name: 'Edmilson', fieldValue: 'Edmilson Morales' },
+]
+
 export async function getPrioritySellerAvailability({
   limit = 6,
   preferredTime = '',
   preferredSpecialist = '',
 } = {}) {
+  return getTeamAvailability({
+    members: filterSellersByPreference(getConfiguredPrioritySellers(), preferredSpecialist),
+    limit,
+    preferredTime,
+  })
+}
+
+export async function getCustomerServiceAvailability({
+  limit = 6,
+  preferredTime = '',
+  preferredSpecialist = '',
+} = {}) {
+  return getTeamAvailability({
+    members: filterSellersByPreference(getConfiguredCustomerServiceTeam(), preferredSpecialist),
+    limit,
+    preferredTime,
+  })
+}
+
+async function getTeamAvailability({ members, limit = 6, preferredTime = '' }) {
   const timezone = EASTERN_TIMEZONE
-  const sellers = filterSellersByPreference(getConfiguredPrioritySellers(), preferredSpecialist)
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
   const weekday = parsePreferredWeekday(preferredTime)
   const monthOffset = getMonthOffsetForPreference(preference, timezone)
 
-  for (const [sellerIndex, seller] of sellers.entries()) {
-    const meetingInfo = await fetchMeetingInfo({ slug: seller.slug, timezone })
+  for (const [sellerIndex, seller] of members.entries()) {
+    const meetingInfo = await fetchMeetingInfo({ slug: seller.slug, timezone }).catch((error) => {
+      console.warn(`Unable to fetch HubSpot meeting info for ${seller.name}: ${error.message}`)
+      return null
+    })
+
+    if (!meetingInfo) {
+      continue
+    }
+
     const supportedFormFieldNames = getSupportedFormFieldNames(meetingInfo)
     const duration = meetingInfo.customParams?.durations?.[0] || 1200000
 
@@ -36,7 +70,15 @@ export async function getPrioritySellerAvailability({
       continue
     }
 
-    const availability = await fetchAvailability({ slug: seller.slug, timezone, monthOffset })
+    const availability = await fetchAvailability({ slug: seller.slug, timezone, monthOffset }).catch((error) => {
+      console.warn(`Unable to fetch HubSpot availability for ${seller.name}: ${error.message}`)
+      return null
+    })
+
+    if (!availability) {
+      continue
+    }
+
     const slots = availability.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || []
 
     const futureSlots = slots.filter((slot) => slot.startMillisUtc > Date.now() + 5 * 60 * 1000)
@@ -290,12 +332,30 @@ function getTimeDistance(timestamp, preference, timezone) {
 }
 
 export async function bookPrioritySellerMeeting({ customer, option }) {
+  return bookTeamMeeting({
+    customer,
+    option,
+    members: getConfiguredPrioritySellers(),
+    teamLabel: 'priority seller',
+  })
+}
+
+export async function bookCustomerServiceMeeting({ customer, option }) {
+  return bookTeamMeeting({
+    customer,
+    option,
+    members: getConfiguredCustomerServiceTeam(),
+    teamLabel: 'customer service team',
+  })
+}
+
+async function bookTeamMeeting({ customer, option, members, teamLabel }) {
   const timezone = EASTERN_TIMEZONE
   const token = requireHubSpotToken()
-  const seller = getConfiguredPrioritySellers().find((item) => item.slug === option?.sellerSlug)
+  const seller = members.find((item) => item.slug === option?.sellerSlug)
 
   if (!seller) {
-    throw new Error('Selected seller is not in the priority seller list.')
+    throw new Error(`Selected specialist is not in the ${teamLabel} list.`)
   }
 
   const supportedFormFieldNames = option.supportedFormFieldNames?.length
@@ -825,6 +885,25 @@ function getConfiguredPrioritySellers() {
     .map((slug) => PRIORITY_SELLERS.find((seller) => seller.slug === slug))
     .filter(Boolean)
     .filter((seller) => !disabledSlugs.has(seller.slug))
+}
+
+function getConfiguredCustomerServiceTeam() {
+  const defaultTeam = CUSTOMER_SERVICE_TEAM.map((member) =>
+    member.name === 'Alice' && process.env.HUBSPOT_ALICE_MEETING_SLUG
+      ? { ...member, slug: process.env.HUBSPOT_ALICE_MEETING_SLUG }
+      : member,
+  ).filter((member) => member.slug)
+  const configuredSlugs = process.env.HUBSPOT_CS_TEAM_SLUGS?.split(',')
+    .map((slug) => slug.trim())
+    .filter(Boolean)
+
+  if (!configuredSlugs?.length) {
+    return defaultTeam
+  }
+
+  return configuredSlugs
+    .map((slug) => defaultTeam.find((member) => member.slug === slug))
+    .filter(Boolean)
 }
 
 function filterSellersByPreference(sellers, preferredSpecialist) {

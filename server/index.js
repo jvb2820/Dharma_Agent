@@ -4,8 +4,10 @@ import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { loadLocalEnv } from './env.js'
 import {
+  bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
   findHubSpotContactByEmail,
+  getCustomerServiceAvailability,
   getPrioritySellerAvailability,
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
@@ -32,7 +34,7 @@ const SESSION_RESTART_WINDOW_MS =
 const LANGUAGE_QUESTION =
   process.env.RESPOND_LANGUAGE_QUESTION ||
   '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English, Spanish or Portuguese?'
-const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || ''
+const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
 
@@ -448,6 +450,8 @@ function getDefaultInitialImageUrl() {
 
 async function processRespondIncomingMessage(event) {
   const session = getRespondSession(event.contactId)
+  const respondContactProfile =
+    session.respondContactProfile || (await getRespondContactProfile(event.contactId))
   const userMessage = {
     role: 'user',
     content: event.text,
@@ -471,6 +475,7 @@ async function processRespondIncomingMessage(event) {
         languageAsked: true,
         lastInteractionAt: Date.now(),
         messages: [userMessage, { role: 'agent', content: LANGUAGE_QUESTION }],
+        respondContactProfile,
       })
       return
     }
@@ -490,6 +495,7 @@ async function processRespondIncomingMessage(event) {
         { role: 'agent', content: getInitialGreeting(preferredLanguage) },
         { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
       ],
+      respondContactProfile,
     })
     return
   }
@@ -511,6 +517,7 @@ async function processRespondIncomingMessage(event) {
         { role: 'agent', content: getInitialGreeting(preferredLanguage) },
         { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
       ].slice(-12),
+      respondContactProfile,
     })
     return
   }
@@ -527,6 +534,7 @@ async function processRespondIncomingMessage(event) {
     session,
     messages,
     customerLanguage,
+    respondContactProfile,
   })
 
   if (bookingResponse) {
@@ -542,6 +550,7 @@ async function processRespondIncomingMessage(event) {
       lastInteractionAt: Date.now(),
       messages: [...messages, { role: 'agent', content: bookingResponse.text }].slice(-12),
       booking: bookingResponse.booking,
+      respondContactProfile,
     })
     return
   }
@@ -562,6 +571,7 @@ async function processRespondIncomingMessage(event) {
     customerLanguage,
     redundancyControl,
     context: ragContext,
+    respondContactProfile,
   })
   const generatedText = await createOpenAIResponseText({
     model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
@@ -582,6 +592,7 @@ async function processRespondIncomingMessage(event) {
     lastInteractionAt: Date.now(),
     messages: [...messages, { role: 'agent', content: text }].slice(-12),
     booking: session.booking || null,
+    respondContactProfile,
   })
 }
 
@@ -592,11 +603,147 @@ function getRespondSession(contactId) {
     lastInteractionAt: 0,
     messages: [],
     booking: null,
+    respondContactProfile: null,
   }
 }
 
-async function handleRespondBookingAutomation({ session, messages, customerLanguage }) {
+async function getRespondContactProfile(contactId) {
+  try {
+    const contact = await getRespondContact(contactId)
+    return classifyRespondContact(contact)
+  } catch (error) {
+    console.warn(`Unable to fetch Respond contact profile: ${error.message}`)
+    return classifyRespondContact(null)
+  }
+}
+
+function classifyRespondContact(contact) {
+  if (!contact?.id) {
+    return {
+      status: 'new_or_no_record',
+      label: 'New or no existing Respond record',
+      reason: 'Respond contact lookup did not return a profile.',
+    }
+  }
+
+  const customFields = getRespondCustomFieldMap(contact)
+  const tags = getRespondTagNames(contact)
+  const leadStatus = customFields.lead_status || ''
+  const classification = customFields.classification || ''
+  const hubspotId = customFields.hubspot_id || ''
+  const statusText = [
+    leadStatus,
+    classification,
+    contact.lifecycle,
+    contact.status,
+    tags.join(' '),
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  if (/\b(client|cliente|patient|paciente|active|paid|current|recurring|old client)\b/i.test(statusText)) {
+    return {
+      status: 'returning_client',
+      label: 'Returning client',
+      reason: 'Respond fields or tags indicate an existing client/patient.',
+      fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+    }
+  }
+
+  if (/\b(evaluation scheduled|scheduled|booked|appointment|cita|1st evaluation)\b/i.test(statusText)) {
+    return {
+      status: 'returning_lead',
+      label: 'Returning lead',
+      reason: 'Respond fields or tags indicate an existing scheduled/evaluated lead.',
+      fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+    }
+  }
+
+  if (hubspotId) {
+    return {
+      status: 'existing_hubspot_contact',
+      label: 'Existing HubSpot contact',
+      reason: 'Respond contact has a hubspot_id custom field.',
+      fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+    }
+  }
+
+  if (/\b(no response|closed|follow up|follow-up|followup)\b/i.test(statusText)) {
+    return {
+      status: 'returning_conversation',
+      label: 'Returning conversation',
+      reason: 'Respond fields indicate prior conversation handling, but not confirmed client status.',
+      fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+    }
+  }
+
+  return {
+    status: 'new_or_no_record',
+    label: 'New or no existing record',
+    reason: 'No current Respond fields indicate a prior client, lead, HubSpot record, or handled conversation.',
+    fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
+  }
+}
+
+function getRespondCustomFieldMap(contact) {
+  return Object.fromEntries(
+    (contact?.custom_fields || [])
+      .map((field) => [field.name || field.id || '', field.value])
+      .filter(([name, value]) => name && value != null && String(value).trim()),
+  )
+}
+
+function getRespondTagNames(contact) {
+  return (contact?.tags || [])
+    .map((tag) => (typeof tag === 'string' ? tag : tag.name || tag.label || ''))
+    .filter(Boolean)
+}
+
+function buildRespondContactSignalSummary({ customFields, tags, contact }) {
+  return Object.fromEntries(
+    Object.entries({
+      leadStatus: customFields.lead_status,
+      classification: customFields.classification,
+      hasHubspotId: Boolean(customFields.hubspot_id),
+      state: customFields.state || customFields.state1,
+      treatment: customFields.treatment || customFields.desired_treatment_form,
+      contactStatus: contact?.status,
+      lifecycle: contact?.lifecycle,
+      tags: tags.length ? tags.join(', ') : '',
+    }).filter(([, value]) => Boolean(value)),
+  )
+}
+
+function formatRespondContactProfileForPrompt(profile) {
+  const fields = profile.fields
+    ? Object.entries(profile.fields)
+        .map(([key, value]) => `${key}=${value}`)
+        .join('; ')
+    : ''
+
+  return [
+    'Respond contact profile context:',
+    `Contact status identifier: ${profile.status} (${profile.label}).`,
+    `Reason: ${profile.reason}`,
+    fields ? `Current Respond signals: ${fields}` : '',
+    'Use this only for routing and tone. Do not mention internal field names or IDs to the customer.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function getBookingTeamForRespondContact(profile) {
+  return profile?.status && profile.status !== 'new_or_no_record' ? 'customer_service' : 'sales'
+}
+
+async function handleRespondBookingAutomation({
+  session,
+  messages,
+  customerLanguage,
+  respondContactProfile,
+}) {
   const existingBooking = session.booking || {}
+  const bookingTeam = existingBooking.bookingTeam || getBookingTeamForRespondContact(respondContactProfile)
   const details = {
     ...(existingBooking.details || {}),
     ...extractRespondBookingDetails(messages),
@@ -608,7 +755,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     const nextDetails = { ...details, preferredTime }
 
     return await offerSoonestRespondSlot({
-      booking: { ...existingBooking, offeredOption: null, options: [] },
+      booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
       details: nextDetails,
       customerLanguage,
       preferredTime,
@@ -623,15 +770,17 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     if (!nextDetails.firstName || !nextDetails.lastName) {
       return {
         text: bookingCopy(customerLanguage, 'askName'),
-        booking: { ...existingBooking, details: nextDetails, pendingField: 'name' },
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
       }
     }
 
     return await bookAcceptedRespondSlot({
-      booking: existingBooking,
+      booking: { ...existingBooking, bookingTeam },
       details: nextDetails,
       customerLanguage,
-    }).catch((error) => buildRespondBookingFailure(existingBooking, nextDetails, customerLanguage, error))
+    }).catch((error) =>
+      buildRespondBookingFailure({ ...existingBooking, bookingTeam }, nextDetails, customerLanguage, error),
+    )
   }
 
   const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
@@ -639,7 +788,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegative(latestUserText)) {
     return await offerSoonestRespondSlot({
-      booking: { ...existingBooking, offeredOption: null, options: [] },
+      booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
       details,
       customerLanguage,
       closest: true,
@@ -649,7 +798,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
   // When user rejects from a list, offer a fresh set of alternatives
   if (existingBooking.options?.length > 1 && isNegative(latestUserText)) {
     return await offerSoonestRespondSlot({
-      booking: { ...existingBooking, offeredOption: null, options: [] },
+      booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
       details,
       customerLanguage,
       closest: true,
@@ -672,6 +821,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
         text: bookingCopy(customerLanguage, 'askName'),
         booking: {
           ...existingBooking,
+          bookingTeam,
           details,
           offeredOption: option,
           pendingField: 'name',
@@ -680,11 +830,16 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     }
 
     return await bookAcceptedRespondSlot({
-      booking: { ...existingBooking, offeredOption: option },
+      booking: { ...existingBooking, bookingTeam, offeredOption: option },
       details,
       customerLanguage,
     }).catch((error) =>
-      buildRespondBookingFailure({ ...existingBooking, offeredOption: option }, details, customerLanguage, error),
+      buildRespondBookingFailure(
+        { ...existingBooking, bookingTeam, offeredOption: option },
+        details,
+        customerLanguage,
+        error,
+      ),
     )
   }
 
@@ -706,7 +861,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
   if (!details.phone) {
     return {
       text: bookingCopy(customerLanguage, 'askPhone'),
-      booking: { ...existingBooking, details },
+      booking: { ...existingBooking, bookingTeam, details },
     }
   }
 
@@ -716,7 +871,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
 
   // Offer the first available slot immediately — do not ask for preferred time
   return await offerSoonestRespondSlot({
-    booking: existingBooking,
+    booking: { ...existingBooking, bookingTeam },
     details,
     customerLanguage,
   })
@@ -729,13 +884,17 @@ async function offerSoonestRespondSlot({
   preferredTime = details.preferredTime,
   closest = false,
 }) {
-  const options = await getPrioritySellerAvailability({
+  const getAvailability =
+    booking.bookingTeam === 'customer_service'
+      ? getCustomerServiceAvailability
+      : getPrioritySellerAvailability
+  const options = await getAvailability({
     limit: closest ? 4 : 1,
     preferredTime,
   })
   const fallbackOptions =
     closest && options.length === 0
-      ? await getPrioritySellerAvailability({ limit: 4 })
+      ? await getAvailability({ limit: 4 })
       : []
   const availableOptions = options.length ? options : fallbackOptions
   const offeredOption = availableOptions[0]
@@ -759,6 +918,7 @@ async function offerSoonestRespondSlot({
         }),
     booking: {
       details,
+      bookingTeam: booking.bookingTeam || 'sales',
       options: nextOptions,
       offeredOption: closest ? null : offeredOption,
       pendingField: '',
@@ -776,7 +936,11 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
     }
   }
 
-  const booked = await bookPrioritySellerMeeting({
+  const bookMeeting =
+    booking.bookingTeam === 'customer_service'
+      ? bookCustomerServiceMeeting
+      : bookPrioritySellerMeeting
+  const booked = await bookMeeting({
     customer: buildRespondBookingCustomer(details, customerLanguage),
     option,
   })
@@ -1177,6 +1341,8 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
+    'Use the Respond contact profile context when present. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
+    'Booking routing rule: new_or_no_record contacts are booked with the sellers team. returning_client, returning_lead, existing_hubspot_contact, and returning_conversation contacts are booked with the CS Team. Do not tell the customer this internal routing logic.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
     'Price follow-up rule: if the customer asks about price or cost again (even if you have shared pricing before), always share the full price list again politely and naturally without saying you already shared it. After sharing the pricing, always follow up immediately with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
@@ -1192,7 +1358,14 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     .trim()
 }
 
-function buildInput({ messages = [], context, message, customerLanguage, redundancyControl }) {
+function buildInput({
+  messages = [],
+  context,
+  message,
+  customerLanguage,
+  redundancyControl,
+  respondContactProfile,
+}) {
   const parts = []
 
   if (customerLanguage) {
@@ -1201,6 +1374,10 @@ function buildInput({ messages = [], context, message, customerLanguage, redunda
 
   if (redundancyControl) {
     parts.push(redundancyControl)
+  }
+
+  if (respondContactProfile) {
+    parts.push(formatRespondContactProfileForPrompt(respondContactProfile))
   }
 
   if (context) {
