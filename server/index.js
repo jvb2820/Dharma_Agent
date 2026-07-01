@@ -1406,7 +1406,31 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
     'Price follow-up rule: if the customer asks about price or cost again (even if you have shared pricing before), always share the full price list again politely and naturally without saying you already shared it. After sharing the pricing, always follow up immediately with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
     'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
-    'State and product qualification rule: use company knowledge for which products are deliverable in each state. If you are not sure a product is available in the customer state, do not send the lead to that appointment type; route to a human or offer a safer alternative such as nutrition or supplements.',
+    `State and product qualification rule: use company knowledge for which products are deliverable in each state. If you are not sure a weight loss product is available in the customer state, or if the customer state strictly does not allow it, you MUST reply with the exact out-of-state supplement alternative script in the customer's language, completely replacing the appointment offer. Do not route to a human, just send the exact template below.
+
+Spanish Template:
+💛✨ Por el momento no podemos enviar inyecciones de pérdida de peso a su estado😔.
+Pero sí podemos ayudarte con nuestra línea de suplementos Dharma, diseñados para apoyar tu proceso de forma natural:
+🔥 *Fat Burner*: acelera el metabolismo, da energía limpia y ayuda a quemar grasa durante el día.
+🟠 *Berberine*: controla antojos, reduce azúcar en sangre y baja la inflamación abdominal.
+💪 *Creatine*: mejora fuerza, tonifica más rápido y acelera la recuperación para verte más fit.
+*Puedes ver todo aquí* 👉 https://dharmanutritionclinic.com/collections/supplements
+
+English Template:
+💛✨ At the moment, we cannot ship weight loss injections to your state 😔.
+But we can help you with our Dharma supplement line, designed to support your journey naturally:
+🔥 *Fat Burner*: speeds up metabolism, provides clean energy, and helps burn fat throughout the day.
+🟠 *Berberine*: controls cravings, reduces blood sugar, and lowers abdominal inflammation.
+💪 *Creatine*: improves strength, tones faster, and speeds up recovery so you look more fit.
+*You can view everything here* 👉 https://dharmanutritionclinic.com/collections/supplements
+
+Portuguese Template:
+💛✨ No momento, não podemos enviar injeções de perda de peso para o seu estado😔.
+Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para apoiar seu processo de forma natural:
+🔥 *Fat Burner*: acelera o metabolismo, dá energia limpa e ajuda a queimar gordura durante o dia.
+🟠 *Berberine*: controla os desejos, reduz o açúcar no sangue e diminui a inflamação abdominal.
+💪 *Creatine*: melhora a força, tonifica mais rápido e acelera a recuperação para você ficar mais fit.
+*Você pode ver tudo aqui* 👉 https://dharmanutritionclinic.com/collections/supplements`,
     'Never refer to Dharma specialists as doctors. Use "specialist" or "medical specialist" only.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',
