@@ -31,8 +31,8 @@ const SESSION_RESTART_WINDOW_MS =
   Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
 const LANGUAGE_QUESTION =
   process.env.RESPOND_LANGUAGE_QUESTION ||
-  '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
-const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
+  '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English, Spanish or Portuguese?'
+const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || ''
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
 
@@ -64,11 +64,28 @@ Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 📲 Primero realizamos una llamada de analisis *gratuita* por videollamada.
 
 💥 *OFERTA ESPECIAL HOY* 💥`,
+  Portuguese: `Olá, meu nome é Maria, da clínica Dharma.
+
+👋 É um prazer ter você aqui. Você também pode dar uma olhada no nosso Instagram *@dharma.clinic* 📸.
+
+📍 Somos uma empresa de telemedicina localizada nos EUA e as consultas são online.
+
+💰 *PREÇOS DOS MAIS VENDIDOS:*
+- *$589* - Pacote de até 4 semanas de GLP-1 personalizado
+- *$299* - Acesso à receita de Zepbound
+
+Temos tratamentos mais longos para que você possa alcançar seu objetivo.
+
+📲 Primeiro, realizamos uma chamada de análise *gratuita* por videochamada.
+
+💥 *OFERTA ESPECIAL HOJE* 💥`,
 }
 const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
-  English: '📍 What state do you live in so I can confirm whether we deliver there?',
+  English: '📍Please tell us which state you live in to find out if we ship to your state?',
   'Latin American Spanish':
-    '📍 Dime por favor en que estado vives para saber si hacemos envios a tu estado.',
+    '📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?',
+  Portuguese:
+    '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
 }
 const respondSessions = new Map()
 
@@ -599,24 +616,6 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     })
   }
 
-  if (existingBooking.pendingField === 'nameBeforeSlot') {
-    const nameDetails = splitCustomerName(latestUserText)
-    const nextDetails = mergeNonEmptyDetails(details, nameDetails)
-
-    if (!nextDetails.firstName || !nextDetails.lastName) {
-      return {
-        text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
-        booking: { ...existingBooking, details: nextDetails, pendingField: 'nameBeforeSlot' },
-      }
-    }
-
-    return await offerSoonestRespondSlot({
-      booking: existingBooking,
-      details: nextDetails,
-      customerLanguage,
-    })
-  }
-
   if (existingBooking.pendingField === 'name') {
     const nameDetails = splitCustomerName(latestUserText)
     const nextDetails = mergeNonEmptyDetails(details, nameDetails)
@@ -637,30 +636,24 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
 
   const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
 
+  // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegative(latestUserText)) {
-    return {
-      text: bookingCopy(customerLanguage, 'askPreferredTime'),
-      booking: {
-        ...existingBooking,
-        details,
-        offeredOption: null,
-        options: [],
-        pendingField: 'preferredTime',
-      },
-    }
+    return await offerSoonestRespondSlot({
+      booking: { ...existingBooking, offeredOption: null, options: [] },
+      details,
+      customerLanguage,
+      closest: true,
+    })
   }
 
+  // When user rejects from a list, offer a fresh set of alternatives
   if (existingBooking.options?.length > 1 && isNegative(latestUserText)) {
-    return {
-      text: bookingCopy(customerLanguage, 'askPreferredTime'),
-      booking: {
-        ...existingBooking,
-        details,
-        offeredOption: null,
-        options: [],
-        pendingField: 'preferredTime',
-      },
-    }
+    return await offerSoonestRespondSlot({
+      booking: { ...existingBooking, offeredOption: null, options: [] },
+      details,
+      customerLanguage,
+      closest: true,
+    })
   }
 
   if (existingBooking.options?.length > 1 && !selectedOption) {
@@ -670,6 +663,7 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     }
   }
 
+  // When user confirms a slot (selected one or said yes to offered one), ask for their name
   if (selectedOption || (existingBooking.offeredOption && isAffirmative(latestUserText))) {
     const option = selectedOption || existingBooking.offeredOption
 
@@ -716,17 +710,11 @@ async function handleRespondBookingAutomation({ session, messages, customerLangu
     }
   }
 
-  if (!details.firstName || !details.lastName) {
-    return {
-      text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
-      booking: { ...existingBooking, details, pendingField: 'nameBeforeSlot' },
-    }
-  }
-
   if (existingBooking.offeredOption && !isNegative(latestUserText)) {
     return null
   }
 
+  // Offer the first available slot immediately — do not ask for preferred time
   return await offerSoonestRespondSlot({
     booking: existingBooking,
     details,
@@ -814,8 +802,13 @@ function buildRespondBookingFailure(booking, details, customerLanguage, error) {
 function extractRespondBookingDetails(messages) {
   const userMessages = messages.filter((item) => item.role === 'user').map((item) => item.content || '')
   const joined = userMessages.join('\n')
+  // Only try to extract a name from messages that do NOT contain a phone number,
+  // to avoid treating extra words in a phone message (e.g. "pero solo hablo espanol") as the name.
   const likelyName = [...userMessages].reverse().map(cleanLikelyName).find((text) => {
     const trimmed = text.trim()
+    if (extractPhoneNumber(trimmed)) {
+      return false
+    }
     return isLikelyCustomerName(trimmed)
   })
   const nameDetails = likelyName ? splitCustomerName(likelyName) : {}
@@ -843,47 +836,87 @@ function buildRespondBookingCustomer(details, customerLanguage) {
 }
 
 function bookingCopy(language, key, values = {}) {
-  const spanish = normalizeLanguageName(language) === 'Latin American Spanish'
+  const langNorm = normalizeLanguageName(language)
+  const spanish = langNorm === 'Latin American Spanish'
+  const portuguese = langNorm === 'Portuguese'
+
+  function tri(en, es, pt) {
+    if (spanish) return es
+    if (portuguese) return pt
+    return en
+  }
+
   const copy = {
-    askPhone: spanish
-      ? 'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada.'
-      : 'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
-    askName: spanish
-      ? 'Ese horario funciona. Que nombre completo pongo para la cita?'
-      : 'That time works. What full name should I put on the appointment?',
-    askNameBeforeSlot: spanish
-      ? 'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita?'
-      : 'Perfect, I have your number. What full name should I use to check and book the appointment?',
-    offerSlot: spanish
-      ? `Tengo este horario disponible para tu llamada gratuita de análisis: ${values.slot}. Te funciona?`
-      : `I have this available time for your free discovery call: ${values.slot}. Does that work for you?`,
-    askPreferredTime: spanish
-      ? 'Claro, no hay problema. Que dia y hora te queda mejor para la llamada?'
-      : 'Of course, no problem. What day and time works best for the call?',
-    offerClosestSlot: spanish
-      ? `No veo exactamente ese horario, pero este es el espacio mas cercano disponible: ${values.slot}. Te funciona?`
-      : `I do not see that exact time, but this is the closest available opening: ${values.slot}. Does that work for you?`,
-    offerClosestSlots: spanish
-      ? `No tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`
-      : `I do not have that exact time available, but these are the closest schedules based on your desired time:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
-    offerFallbackSlots: spanish
-      ? `No tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`
-      : `I do not have availability for that requested time right now, but these are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
-    askChooseOption: spanish
-      ? 'Cual opcion te funciona mejor? Responde con el numero para agendarla.'
-      : 'Which option works best? Please reply with the number so I can book it.',
-    booked: spanish
-      ? `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita.`
-      : `All set, your call is booked for ${values.slot}. The appointment details will be sent to you.`,
-    noAvailability: spanish
-      ? 'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio.'
-      : 'I do not see available slots right now. I will route this to the team so they can help find the next opening.',
-    bookingFailed: spanish
-      ? 'No pude confirmar esa cita en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar.'
-      : 'I could not confirm that appointment right now. I will route this to the team so they can check the calendar and help schedule it.',
-    checking: spanish
-      ? 'Dame un momento y te ayudo con el proximo horario disponible.'
-      : 'Give me a moment and I will help with the next available time.',
+    askPhone: tri(
+      'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
+      'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada.',
+      'Perfeito. Para verificar o horário disponível e avançar com o agendamento, por favor me envie o melhor número de telefone para a chamada.',
+    ),
+    askName: tri(
+      'That time works. What full name should I put on the appointment?',
+      'Ese horario funciona. Que nombre completo pongo para la cita?',
+      'Esse horário funciona. Qual nome completo devo colocar no agendamento?',
+    ),
+    askNameBeforeSlot: tri(
+      'Perfect, I have your number. What full name should I use to check and book the appointment?',
+      'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita?',
+      'Perfeito, já tenho seu número. Qual nome completo devo usar para verificar e agendar a consulta?',
+    ),
+    offerSlot: tri(
+      `I have this available time for your free discovery call: ${values.slot}. Does that work for you?`,
+      `Tengo este horario disponible para tu llamada gratuita de análisis: ${values.slot}. Te funciona?`,
+      `Tenho este horário disponível para sua chamada gratuita de análise: ${values.slot}. Funciona para você?`,
+    ),
+    askPreferredTime: tri(
+      'Of course, no problem. What day and time works best for the call?',
+      'Claro, no hay problema. Que dia y hora te queda mejor para la llamada?',
+      'Claro, sem problema. Que dia e hora funciona melhor para você?',
+    ),
+    offerClosestSlot: tri(
+      `I do not see that exact time, but this is the closest available opening: ${values.slot}. Does that work for you?`,
+      `No veo exactamente ese horario, pero este es el espacio mas cercano disponible: ${values.slot}. Te funciona?`,
+      `Não vejo exatamente esse horário, mas este é o espaço mais próximo disponível: ${values.slot}. Funciona para você?`,
+    ),
+    offerClosestSlots: tri(
+      `I do not have that exact time available, but these are the closest schedules based on your desired time:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+      `No tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
+      `Não tenho exatamente esse horário disponível, mas estes são os horários mais próximos conforme sua preferência:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
+    ),
+    offerAlternativeSlots: tri(
+      `That time does not work. Here are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+      `Ese horario no funciona. Estos son los proximos espacios disponibles:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
+      `Esse horário não funciona. Estes são os próximos horários disponíveis:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
+    ),
+    offerFallbackSlots: tri(
+      `I do not have availability for that requested time right now, but these are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+      `No tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
+      `Não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
+    ),
+    askChooseOption: tri(
+      'Which option works best? Please reply with the number so I can book it.',
+      'Cual opcion te funciona mejor? Responde con el numero para agendarla.',
+      'Qual opção funciona melhor? Responda com o número para que eu possa agendar.',
+    ),
+    booked: tri(
+      `All set, your call is booked for ${values.slot}. The appointment details will be sent to you.`,
+      `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita.`,
+      `Pronto, sua chamada está agendada para ${values.slot}. Os detalhes do agendamento serão enviados para você.`,
+    ),
+    noAvailability: tri(
+      'I do not see available slots right now. I will route this to the team so they can help find the next opening.',
+      'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio.',
+      'Não vejo horários disponíveis no momento. Vou encaminhar para a equipe para que possam ajudá-lo a encontrar o próximo espaço disponível.',
+    ),
+    bookingFailed: tri(
+      'I could not confirm that appointment right now. I will route this to the team so they can check the calendar and help schedule it.',
+      'No pude confirmar esa cita en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar.',
+      'Não consegui confirmar esse agendamento agora. Vou encaminhar para a equipe para que verifiquem o calendário e ajudem a agendar.',
+    ),
+    checking: tri(
+      'Give me a moment and I will help with the next available time.',
+      'Dame un momento y te ayudo con el proximo horario disponible.',
+      'Dê-me um momento e vou ajudá-lo com o próximo horário disponível.',
+    ),
   }
 
   return copy[key] || ''
@@ -966,7 +999,8 @@ function isLikelyCustomerName(content) {
   const normalized = normalizeSearchText(trimmed)
   const parts = trimmed.split(/\s+/).filter(Boolean)
 
-  if (!/^[A-Za-z][A-Za-z' -]+$/.test(trimmed) || parts.length < 2 || parts.length > 4) {
+  // Support accented Latin characters (Spanish, Portuguese names)
+  if (!/^[\p{L}][\p{L}' -]+$/u.test(trimmed) || parts.length < 2 || parts.length > 4) {
     return false
   }
 
@@ -974,7 +1008,7 @@ function isLikelyCustomerName(content) {
     return false
   }
 
-  return !/\b(yes|yeah|yep|ok|okay|sure|works|does|good|fine|perfect|confirm|book|appointment|call|time|slot|tomorrow|today|morning|afternoon|evening|quiero|cita|si|claro)\b/.test(
+  return !/\b(yes|yeah|yep|ok|okay|sure|works|does|good|fine|perfect|confirm|book|appointment|call|time|slot|tomorrow|today|morning|afternoon|evening|quiero|cita|si|claro|pero|solo|hablo|espanol|ingles|portuguese|portugues)\b/.test(
     normalized,
   )
 }
@@ -1094,11 +1128,8 @@ function preventUnconfirmedBookingReply(text, customerLanguage, messages = []) {
 
   const details = extractRespondBookingDetails(messages)
 
-  if (details.phone && (!details.firstName || !details.lastName)) {
-    return bookingCopy(customerLanguage, 'askNameBeforeSlot')
-  }
-
-  if (details.phone && details.firstName && details.lastName) {
+  if (details.phone) {
+    // Phone is known; slot will be offered by the booking automation — show checking copy
     return bookingCopy(customerLanguage, 'checking')
   }
 
@@ -1148,7 +1179,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
-    'Price follow-up rule: after the initial price message, do not restate the full price list unless asked. If asked about cost, say treatments start at $589 and longer options depend on the goal; explain that details are covered in the free discovery call, then offer a specific available slot if one is available.',
+    'Price follow-up rule: if the customer asks about price or cost again (even if you have shared pricing before), always share the full price list again politely and naturally without saying you already shared it. After sharing the pricing, always follow up immediately with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
     'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
     'State and product qualification rule: use company knowledge for which products are deliverable in each state. If you are not sure a product is available in the customer state, do not send the lead to that appointment type; route to a human or offer a safer alternative such as nutrition or supplements.',
     'Never refer to Dharma specialists as doctors. Use "specialist" or "medical specialist" only.',

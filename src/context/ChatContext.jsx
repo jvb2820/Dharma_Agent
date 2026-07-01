@@ -3,6 +3,7 @@ import { useAgent } from '../hooks/useAgent'
 import { hubspotService } from '../services/hubspotService'
 import { openaiService } from '../services/openaiService'
 import { respondService } from '../services/respondService'
+import { US_STATES, isPrescribedTreatmentDeliveryState } from '../data/states'
 import { ChatContext } from './chat-context'
 
 const BOOKING_FIELDS = [
@@ -214,6 +215,41 @@ function bookingText(language, key, values = {}) {
   return text[key] || ''
 }
 
+function shouldUseOutOfStatePrescribedSnippet(details) {
+  return Boolean(
+    details.state &&
+      !isPrescribedTreatmentDeliveryState(details.state) &&
+      !isAlternativeTreatment(details.desiredTreatment),
+  )
+}
+
+function isAlternativeTreatment(treatment) {
+  return /\b(nutrition|supplements?)\b/i.test(String(treatment || ''))
+}
+
+function outOfStatePrescribedText(language) {
+  if (!isSpanishSession(language)) {
+    return [
+      '💛✨ At the moment, we cannot ship prescribed weight-loss injections to your state 😔.',
+      'But we can still support you with our Dharma supplement line, designed to help your process naturally:',
+      '🔥 *Fat Burner*: supports metabolism, clean energy, and daytime fat-burning support.',
+      '🟠 *Berberine*: helps with cravings, blood sugar support, and abdominal inflammation support.',
+      '💪 *Creatine*: supports strength, faster toning, and workout recovery so you can feel more fit.',
+      '*You can see everything here* 👉 https://dharmanutritionclinic.com/collections/supplements',
+      '',
+      'We can also help with a nutrition consultation if you would like guidance without prescribed treatment.',
+    ].join('\n')
+  }
+
+  return [
+    '💛✨ Por el momento no podemos enviar inyecciones de pérdida de peso a su estado😔.',
+    'Pero sí podemos ayudarte con nuestra línea de suplementos Dharma, diseñados para apoyar tu proceso de forma natural:',
+    '🔥 *Fat Burner*: acelera el metabolismo, da energía limpia y ayuda a quemar grasa durante el día.',
+    '🟠 *Berberine*: controla antojos, reduce azúcar en sangre y baja la inflamación abdominal.',
+    '💪 *Creatine*: mejora fuerza, tonifica más rápido y acelera la recuperación para verte más fit.',
+    '*Puedes ver todo aquí* 👉 https://dharmanutritionclinic.com/collections/supplements',
+  ].join('\n')
+}
 
 async function handleBookingMessage(content, booking, memory, messages, customerLanguage) {
   const latestAgentMessage = [...messages].reverse().find((message) => message.role === 'agent')?.content || ''
@@ -238,6 +274,19 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     }
 
     const nextMissingFieldIndex = findMissingBookingFieldIndex(details, AVAILABILITY_FIELD_KEYS)
+
+    if (shouldUseOutOfStatePrescribedSnippet(details)) {
+      return {
+        nextBooking: {
+          ...INITIAL_BOOKING,
+          active: true,
+          details,
+          hubspotContact,
+          outOfStateNotified: true,
+        },
+        message: outOfStatePrescribedText(customerLanguage),
+      }
+    }
 
     if (nextMissingFieldIndex === -1) {
       return await prepareAvailabilityResponse({
@@ -321,6 +370,17 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     field.key,
     content,
   )
+
+  if (shouldUseOutOfStatePrescribedSnippet(nextDetails)) {
+    return {
+      nextBooking: {
+        ...booking,
+        details: nextDetails,
+        outOfStateNotified: true,
+      },
+      message: outOfStatePrescribedText(customerLanguage),
+    }
+  }
 
   if (field.key === 'phone' || field.key === 'email') {
     nextDetails = withBookingEmail(nextDetails)
@@ -805,61 +865,9 @@ function extractPreferredTime(content) {
 }
 
 function extractState(content) {
-  const states = [
-    'Alabama',
-    'Alaska',
-    'Arizona',
-    'Arkansas',
-    'California',
-    'Colorado',
-    'Connecticut',
-    'Delaware',
-    'Florida',
-    'Georgia',
-    'Hawaii',
-    'Idaho',
-    'Illinois',
-    'Indiana',
-    'Iowa',
-    'Kansas',
-    'Kentucky',
-    'Louisiana',
-    'Maine',
-    'Maryland',
-    'Massachusetts',
-    'Michigan',
-    'Minnesota',
-    'Mississippi',
-    'Missouri',
-    'Montana',
-    'Nebraska',
-    'Nevada',
-    'New Hampshire',
-    'New Jersey',
-    'New Mexico',
-    'New York',
-    'North Carolina',
-    'North Dakota',
-    'Ohio',
-    'Oklahoma',
-    'Oregon',
-    'Pennsylvania',
-    'Rhode Island',
-    'South Carolina',
-    'South Dakota',
-    'Tennessee',
-    'Texas',
-    'Utah',
-    'Vermont',
-    'Virginia',
-    'Washington',
-    'West Virginia',
-    'Wisconsin',
-    'Wyoming',
-  ]
   const normalized = content.toLowerCase()
 
-  return states.find((state) => normalized.includes(state.toLowerCase())) || ''
+  return US_STATES.find((state) => normalized.includes(state.toLowerCase())) || ''
 }
 
 function bookingMemoryFromRespondContact(contact) {
@@ -978,6 +986,21 @@ export function ChatProvider({ children }) {
           extractBookingMemory(trimmedContent),
         )
         setBookingMemory(nextBookingMemory)
+
+        if (shouldUseOutOfStatePrescribedSnippet(nextBookingMemory)) {
+          setBooking((currentBooking) => ({
+            ...currentBooking,
+            active: true,
+            details: nextBookingMemory,
+            outOfStateNotified: true,
+          }))
+          setMessages((currentMessages) => [
+            ...currentMessages,
+            createMessage('agent', outOfStatePrescribedText(nextSessionLanguage)),
+          ])
+          return
+        }
+
         const bookingResponse = await handleBookingMessage(
           trimmedContent,
           booking,

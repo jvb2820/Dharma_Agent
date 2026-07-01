@@ -24,6 +24,7 @@ export async function getPrioritySellerAvailability({
   const sellers = filterSellersByPreference(getConfiguredPrioritySellers(), preferredSpecialist)
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
+  const weekday = parsePreferredWeekday(preferredTime)
   const monthOffset = getMonthOffsetForPreference(preference, timezone)
 
   for (const [sellerIndex, seller] of sellers.entries()) {
@@ -39,8 +40,20 @@ export async function getPrioritySellerAvailability({
     const slots = availability.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || []
 
     const futureSlots = slots.filter((slot) => slot.startMillisUtc > Date.now() + 5 * 60 * 1000)
-    const candidateSlots = futureSlots
-    const maxSlotsPerSeller = preference.dateKey || preference.hour != null ? 100 : 6
+    const candidateSlots = futureSlots.filter((slot) => {
+      if (weekday === null) {
+        return true
+      }
+      const slotDate = new Date(slot.startMillisUtc)
+      const slotWeekdayStr = new Intl.DateTimeFormat('en-US', {
+        weekday: 'long',
+        timeZone: timezone,
+      }).format(slotDate).toLowerCase()
+
+      const weekdaysEnglish = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+      return weekdaysEnglish.indexOf(slotWeekdayStr) === weekday
+    })
+    const maxSlotsPerSeller = preference.dateKey || preference.hour != null || weekday !== null ? 100 : 6
 
     for (const slot of candidateSlots.slice(0, maxSlotsPerSeller)) {
       options.push({
@@ -874,4 +887,27 @@ function resolveLocale(language) {
   }
 
   return 'en-us'
+}
+
+function parsePreferredWeekday(value) {
+  const normalized = String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+  const weekdaysEnglish = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+  const weekdaysSpanish = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
+  const weekdaysPortuguese = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
+
+  for (let i = 0; i < 7; i++) {
+    if (
+      normalized.includes(weekdaysEnglish[i]) ||
+      normalized.includes(weekdaysSpanish[i]) ||
+      normalized.includes(weekdaysPortuguese[i])
+    ) {
+      return i // 0 for Sunday, 1 for Monday, etc.
+    }
+  }
+
+  return null
 }
