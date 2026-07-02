@@ -983,6 +983,10 @@ async function handleRespondBookingAutomation({
 
   const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
 
+  if (!isActiveBookingContinuation(existingBooking, latestUserText)) {
+    return null
+  }
+
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegativeReply(latestUserText)) {
     const preferredTime = extractPreferredTimeText(latestUserText) || details.preferredTime
@@ -1052,8 +1056,6 @@ async function handleRespondBookingAutomation({
   const hasBookingSignal =
     existingBooking.offeredOption ||
     existingBooking.pendingField ||
-    details.phone ||
-    details.desiredTreatment ||
     isBookingRequest(latestUserText)
 
   if (!hasBookingSignal) {
@@ -1398,6 +1400,24 @@ function pickRespondAvailabilityOption(content, options = []) {
   return options.find((option) => option.id === selectedId) || null
 }
 
+function isActiveBookingContinuation(booking, latestUserText) {
+  if (booking.pendingField) {
+    return true
+  }
+
+  if (booking.options?.length > 0 || booking.offeredOption) {
+    return (
+      pickRespondAvailabilityOption(latestUserText, booking.options) ||
+      isAffirmative(latestUserText) ||
+      isNegativeReply(latestUserText) ||
+      extractPreferredTimeText(latestUserText) ||
+      isBookingRequest(latestUserText)
+    )
+  }
+
+  return isBookingRequest(latestUserText)
+}
+
 function isAffirmative(content) {
   const normalized = normalizeSearchText(content)
 
@@ -1644,6 +1664,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Emoji style for model-generated chat replies: include exactly one friendly, relevant emoji in every normal generated customer-facing reply. Choose an emoji that fits the message, such as 📍 for state, 📲 for phone, 💛 for warmth, or ✨ for encouragement. Do not add extra emojis. This rule applies only to generated chat replies; do not rewrite or add emojis to fixed application templates.',
     'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
+    'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved.',
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
@@ -1655,7 +1676,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
     'Price follow-up rule: if the customer asks about price or cost again (even if you have shared pricing before), always share the full price list again politely and naturally without saying you already shared it. After sharing the pricing, always follow up immediately with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
     'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
-    `State and product qualification rule: use company knowledge for which products are deliverable in each state. If you are not sure a weight loss product is available in the customer state, or if the customer state strictly does not allow it, you MUST reply with the exact out-of-state supplement alternative script in the customer's language, completely replacing the appointment offer. Do not route to a human, just send the exact template below.
+    `State and product qualification rule: use company knowledge for which products are deliverable in each state. If the customer is out of state for weight-loss injections, do not offer or book a prescribed-treatment appointment and do not claim injections can ship there. If they ask a general question, answer it normally in their language using company knowledge and then gently guide them toward supplements or nutrition support. Only send the exact out-of-state supplement alternative script when the customer is trying to qualify, book, buy, or ship weight-loss injections in a non-serviceable state.
 
 Spanish Template:
 💛✨ Por el momento no podemos enviar inyecciones de pérdida de peso a su estado😔.
