@@ -452,8 +452,11 @@ function getDefaultInitialImageUrl() {
 
 async function processRespondIncomingMessage(event) {
   const session = getRespondSession(event.contactId)
-  const respondContactProfile =
+  let respondContactProfile =
     session.respondContactProfile || (await getRespondContactProfile(event.contactId))
+  respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
+    phone: event.contactPhone,
+  })
   const userMessage = {
     role: 'user',
     content: event.text,
@@ -713,12 +716,14 @@ function getRespondTagNames(contact) {
 }
 
 function buildRespondContactSignalSummary({ customFields, tags, contact }) {
+  const phone = extractRespondContactPhone(contact, customFields)
+
   return Object.fromEntries(
     Object.entries({
       leadStatus: customFields.lead_status,
       classification: customFields.classification,
       hasHubspotId: Boolean(customFields.hubspot_id),
-      hasPhone: Boolean(contact?.phone),
+      hasPhone: Boolean(phone),
       state: customFields.state || customFields.state1,
       treatment: customFields.treatment || customFields.desired_treatment_form,
       contactStatus: contact?.status,
@@ -729,11 +734,13 @@ function buildRespondContactSignalSummary({ customFields, tags, contact }) {
 }
 
 function buildRespondContactBookingDetails({ contact, customFields }) {
+  const phone = extractRespondContactPhone(contact, customFields)
+
   return Object.fromEntries(
     Object.entries({
       firstName: contact?.firstName,
       lastName: contact?.lastName,
-      phone: contact?.phone,
+      phone,
       email: isPlaceholderEmail(contact?.email) ? '' : contact?.email,
       state: normalizeRespondState(customFields.state || customFields.state1),
       desiredTreatment: customFields.treatment || customFields.desired_treatment_form,
@@ -742,8 +749,53 @@ function buildRespondContactBookingDetails({ contact, customFields }) {
   )
 }
 
+function extractRespondContactPhone(contact, customFields = {}) {
+  const directValue = [
+    contact?.phone,
+    contact?.phoneNumber,
+    contact?.phone_number,
+    contact?.identifier,
+    contact?.contactIdentifier,
+    contact?.name,
+    customFields.phone,
+    customFields.Phone,
+    customFields.whatsapp,
+    customFields.WhatsApp,
+  ]
+    .map((value) => String(value || '').trim())
+    .find((value) => extractPhoneNumber(value))
+
+  if (directValue) {
+    return extractPhoneNumber(directValue)
+  }
+
+  const nestedValues = [
+    ...(Array.isArray(contact?.channels) ? contact.channels : []),
+    ...(Array.isArray(contact?.identifiers) ? contact.identifiers : []),
+  ]
+    .flatMap((item) => Object.values(item || {}))
+    .map((value) => String(value || '').trim())
+    .find((value) => extractPhoneNumber(value))
+
+  return nestedValues ? extractPhoneNumber(nestedValues) : ''
+}
+
 function getRespondContactBookingDetails(profile) {
   return profile?.bookingDetails || {}
+}
+
+function mergeRespondContactProfileFallbacks(profile, fallbacks = {}) {
+  if (!fallbacks.phone || profile?.bookingDetails?.phone) {
+    return profile
+  }
+
+  return {
+    ...profile,
+    bookingDetails: {
+      ...(profile?.bookingDetails || {}),
+      phone: fallbacks.phone,
+    },
+  }
 }
 
 function normalizeRespondState(value) {
@@ -915,7 +967,7 @@ async function handleRespondBookingAutomation({
   const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
 
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
-  if (existingBooking.offeredOption && isNegative(latestUserText)) {
+  if (existingBooking.offeredOption && isNegativeReply(latestUserText)) {
     const preferredTime = extractPreferredTimeText(latestUserText) || details.preferredTime
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
@@ -929,7 +981,7 @@ async function handleRespondBookingAutomation({
   }
 
   // When user rejects from a list, offer a fresh set of alternatives
-  if (existingBooking.options?.length > 1 && isNegative(latestUserText)) {
+  if (existingBooking.options?.length > 1 && isNegativeReply(latestUserText)) {
     const preferredTime = extractPreferredTimeText(latestUserText) || details.preferredTime
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
@@ -1019,7 +1071,7 @@ async function handleRespondBookingAutomation({
     }
   }
 
-  if (existingBooking.offeredOption && !isNegative(latestUserText)) {
+  if (existingBooking.offeredOption && !isNegativeReply(latestUserText)) {
     return null
   }
 
@@ -1346,6 +1398,16 @@ function isNegative(content) {
   return /\b(no|not|doesn'?t work|otro|otra|different|later|mas tarde|m[aá]s tarde)\b/i.test(content)
 }
 
+function isNegativeReply(content) {
+  const normalized = normalizeSearchText(content)
+
+  return (
+    /\b(no|nope|nah|not|doesn t work|doesnt work|otro|otra|different|later|mas tarde)\b/i.test(
+      normalized,
+    ) || isNegative(content)
+  )
+}
+
 function isBookingRequest(content) {
   return /\b(appointment|book|booking|schedule|scheduled|discovery call|call|cita|agendar|consulta)\b/i.test(
     content,
@@ -1386,7 +1448,7 @@ function isLikelyCustomerName(content) {
     return false
   }
 
-  if (isAffirmative(trimmed) || isNegative(trimmed) || isBookingRequest(trimmed)) {
+  if (isAffirmative(trimmed) || isNegativeReply(trimmed) || isBookingRequest(trimmed)) {
     return false
   }
 
@@ -1478,6 +1540,7 @@ function normalizeRespondWebhookEvent(body) {
       body.data?.channelId ||
       body.channel?.id ||
       '',
+    contactPhone: extractRespondContactPhone(contact, getRespondCustomFieldMap(contact)),
     isIncoming: !isOutgoing,
     skipReason: isOutgoing ? 'Ignoring outbound Respond message.' : '',
     text,
