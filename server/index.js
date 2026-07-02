@@ -4,6 +4,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage } from './booked.js'
 import { loadLocalEnv } from './env.js'
+import { isPrescribedTreatmentDeliveryState } from '../src/data/states.js'
 import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
@@ -810,6 +811,38 @@ async function handleRespondBookingAutomation({
   }
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
 
+  if (existingBooking.pendingField === 'state') {
+    const state = extractStateName(latestUserText) || latestUserText.trim()
+    const nextDetails = { ...details, state }
+
+    if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
+      return {
+        text: outOfStatePrescribedTemplate(customerLanguage),
+        booking: null,
+      }
+    }
+
+    if (!extractStateName(state)) {
+      return {
+        text: bookingCopy(customerLanguage, 'askState'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'state' },
+      }
+    }
+
+    if (!nextDetails.phone) {
+      return {
+        text: bookingCopy(customerLanguage, 'askPhone'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: '' },
+      }
+    }
+
+    return await offerSoonestRespondSlot({
+      booking: { ...existingBooking, bookingTeam, pendingField: '' },
+      details: nextDetails,
+      customerLanguage,
+    })
+  }
+
   if (existingBooking.pendingField === 'preferredTime') {
     const preferredTime = extractPreferredTimeText(latestUserText) || latestUserText.trim()
     const nextDetails = { ...details, preferredTime }
@@ -916,6 +949,20 @@ async function handleRespondBookingAutomation({
 
   if (!details.desiredTreatment && hasBookingSignal) {
     details.desiredTreatment = 'Weight Loss Injections'
+  }
+
+  if (shouldUseOutOfStatePrescribedTemplate(details)) {
+    return {
+      text: outOfStatePrescribedTemplate(customerLanguage),
+      booking: null,
+    }
+  }
+
+  if (!details.state) {
+    return {
+      text: bookingCopy(customerLanguage, 'askState'),
+      booking: { ...existingBooking, bookingTeam, details, pendingField: 'state' },
+    }
   }
 
   if (!details.phone) {
@@ -1026,6 +1073,53 @@ function buildRespondBookingFailure(booking, details, customerLanguage, error) {
   }
 }
 
+function shouldUseOutOfStatePrescribedTemplate(details) {
+  return Boolean(
+    details.state &&
+      !isPrescribedTreatmentDeliveryState(details.state) &&
+      !isAlternativeTreatment(details.desiredTreatment),
+  )
+}
+
+function isAlternativeTreatment(treatment) {
+  return /\b(nutrition|supplements?|suplementos?)\b/i.test(String(treatment || ''))
+}
+
+function outOfStatePrescribedTemplate(language) {
+  const langNorm = normalizeLanguageName(language)
+
+  if (langNorm === 'Latin American Spanish') {
+    return [
+      '💛✨ Por el momento no podemos enviar inyecciones de pérdida de peso a su estado😔.',
+      'Pero sí podemos ayudarte con nuestra línea de suplementos Dharma, diseñados para apoyar tu proceso de forma natural:',
+      '🔥 *Fat Burner*: acelera el metabolismo, da energía limpia y ayuda a quemar grasa durante el día.',
+      '🟠 *Berberine*: controla antojos, reduce azúcar en sangre y baja la inflamación abdominal.',
+      '💪 *Creatine*: mejora fuerza, tonifica más rápido y acelera la recuperación para verte más fit.',
+      '*Puedes ver todo aquí* 👉 [https://dharmanutritionclinic.com/collections/supplements](https://dharmanutritionclinic.com/collections/supplements)',
+    ].join('\n')
+  }
+
+  if (langNorm === 'Portuguese') {
+    return [
+      '💛✨ No momento, não podemos enviar injeções de perda de peso para o seu estado😔.',
+      'Mas podemos ajudar você com nossa linha de suplementos Dharma, desenvolvida para apoiar seu processo de forma natural:',
+      '🔥 *Fat Burner*: acelera o metabolismo, dá energia limpa e ajuda a queimar gordura durante o dia.',
+      '🟠 *Berberine*: controla desejos, reduz o açúcar no sangue e diminui a inflamação abdominal.',
+      '💪 *Creatine*: melhora a força, tonifica mais rápido e acelera a recuperação para você ficar mais fit.',
+      '*Você pode ver tudo aqui* 👉 [https://dharmanutritionclinic.com/collections/supplements](https://dharmanutritionclinic.com/collections/supplements)',
+    ].join('\n')
+  }
+
+  return [
+    '💛✨ At the moment, we cannot ship weight loss injections to your state😔.',
+    'But we can help you with our Dharma supplement line, designed to support your journey naturally:',
+    '🔥 *Fat Burner*: speeds up metabolism, provides clean energy, and helps burn fat throughout the day.',
+    '🟠 *Berberine*: controls cravings, reduces blood sugar, and lowers abdominal inflammation.',
+    '💪 *Creatine*: improves strength, tones faster, and speeds up recovery so you look more fit.',
+    '*You can view everything here* 👉 [https://dharmanutritionclinic.com/collections/supplements](https://dharmanutritionclinic.com/collections/supplements)',
+  ].join('\n')
+}
+
 function extractRespondBookingDetails(messages) {
   const userMessages = messages.filter((item) => item.role === 'user').map((item) => item.content || '')
   const joined = userMessages.join('\n')
@@ -1074,6 +1168,11 @@ function bookingCopy(language, key, values = {}) {
   }
 
   const copy = {
+    askState: tri(
+      '📍Please tell us which state you live in to find out if we ship to your state?',
+      '📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?',
+      '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
+    ),
     askPhone: tri(
       'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
       'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada.',
@@ -1396,7 +1495,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
     'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name occasionally when known, especially when they return after several hours or days.',
-    'Emoji style: use friendly, relevant emojis in the initial messages and later in the conversation when they add warmth, clarity, or emphasis. Do not overdo it; one or two fitting emojis is usually enough, and keep serious medical/support messages calm.',
+    'Emoji style for model-generated chat replies: include exactly one friendly, relevant emoji in every normal generated customer-facing reply. Choose an emoji that fits the message, such as 📍 for state, 📲 for phone, 💛 for warmth, or ✨ for encouragement. Do not add extra emojis. This rule applies only to generated chat replies; do not rewrite or add emojis to fixed application templates.',
     'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist.',
