@@ -504,6 +504,11 @@ async function processRespondIncomingMessage(event) {
         { role: 'agent', content: getInitialGreeting(preferredLanguage) },
         { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
       ],
+      booking: {
+        bookingTeam: getBookingTeamForRespondContact(respondContactProfile),
+        details: getRespondContactBookingDetails(respondContactProfile),
+        pendingField: 'state',
+      },
       respondContactProfile,
     })
     return
@@ -526,6 +531,11 @@ async function processRespondIncomingMessage(event) {
         { role: 'agent', content: getInitialGreeting(preferredLanguage) },
         { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
       ].slice(-12),
+      booking: {
+        bookingTeam: getBookingTeamForRespondContact(respondContactProfile),
+        details: getRespondContactBookingDetails(respondContactProfile),
+        pendingField: 'state',
+      },
       respondContactProfile,
     })
     return
@@ -587,7 +597,7 @@ async function processRespondIncomingMessage(event) {
     instructions,
     input,
   })
-  const text = preventUnconfirmedBookingReply(generatedText, customerLanguage, messages)
+  const text = preventUnconfirmedBookingReply(generatedText, customerLanguage, messages, session)
 
   await sendRespondTextMessage({
     contactId: event.contactId,
@@ -881,20 +891,25 @@ async function handleRespondBookingAutomation({
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
 
   if (existingBooking.pendingField === 'state') {
-    const state = extractStateName(latestUserText) || latestUserText.trim()
+    const state = extractStateName(latestUserText)
+
+    if (!state) {
+      const text = isGreetingOnly(latestUserText)
+        ? `${acknowledgeGreeting(customerLanguage)} ${bookingCopy(customerLanguage, 'askState')}`
+        : bookingCopy(customerLanguage, 'askState')
+
+      return {
+        text,
+        booking: { ...existingBooking, bookingTeam, details, pendingField: 'state' },
+      }
+    }
+
     const nextDetails = { ...details, state }
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
         text: outOfStatePrescribedTemplate(customerLanguage),
         booking: null,
-      }
-    }
-
-    if (!extractStateName(state)) {
-      return {
-        text: bookingCopy(customerLanguage, 'askState'),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'state' },
       }
     }
 
@@ -1418,6 +1433,26 @@ function isActiveBookingContinuation(booking, latestUserText) {
   return isBookingRequest(latestUserText)
 }
 
+function isGreetingOnly(content) {
+  const normalized = normalizeSearchText(content)
+
+  return /^(hi|hello|hey|hola|buenas|buenos dias|buenas tardes|buenas noches|ola|oi)$/.test(normalized)
+}
+
+function acknowledgeGreeting(language) {
+  const langNorm = normalizeLanguageName(language)
+
+  if (langNorm === 'Latin American Spanish') {
+    return 'Hola, con gusto. ✨'
+  }
+
+  if (langNorm === 'Portuguese') {
+    return 'Olá, com prazer. ✨'
+  }
+
+  return 'Hello, happy to help. ✨'
+}
+
 function isAffirmative(content) {
   const normalized = normalizeSearchText(content)
 
@@ -1613,7 +1648,11 @@ function extractRespondWebhookText(message) {
   return ''
 }
 
-function preventUnconfirmedBookingReply(text, customerLanguage, messages = []) {
+function preventUnconfirmedBookingReply(text, customerLanguage, messages = [], session = {}) {
+  if (hasCustomerAvailabilityQuestion(text) && hasBookingContext({ messages, session })) {
+    return bookingCopy(customerLanguage, 'checking')
+  }
+
   if (!hasUnconfirmedBookingLanguage(text)) {
     return text
   }
@@ -1630,6 +1669,33 @@ function preventUnconfirmedBookingReply(text, customerLanguage, messages = []) {
   }
 
   return 'Please send the best phone number for the call. 📲'
+}
+
+function hasCustomerAvailabilityQuestion(text) {
+  const normalized = normalizeSearchText(text)
+
+  return [
+    /\b(what|which)\b[\s\S]{0,40}\b(day|date|time)\b[\s\S]{0,40}\b(work|works|available|free|best)\b/,
+    /\bwhen\b[\s\S]{0,60}\b(available|free|work|works)\b/,
+    /\bbest\b[\s\S]{0,30}\b(day|date|time|availability)\b/,
+    /\bque\b[\s\S]{0,40}\b(dia|fecha|hora|horario)\b[\s\S]{0,40}\b(conviene|funciona|disponible)\b/,
+    /\bcuando\b[\s\S]{0,50}\b(disponible|puedes|podrias|te funciona)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function hasBookingContext({ messages = [], session = {} }) {
+  const details = extractRespondBookingDetails(messages)
+  const booking = session.booking || {}
+
+  return Boolean(
+    booking.pendingField ||
+      booking.offeredOption ||
+      booking.options?.length ||
+      details.state ||
+      details.desiredTreatment ||
+      details.phone ||
+      messages.some((item) => item.role === 'user' && isBookingRequest(item.content || '')),
+  )
 }
 
 
@@ -1664,7 +1730,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Emoji style for model-generated chat replies: include exactly one friendly, relevant emoji in every normal generated customer-facing reply. Choose an emoji that fits the message, such as 📍 for state, 📲 for phone, 💛 for warmth, or ✨ for encouragement. Do not add extra emojis. This rule applies only to generated chat replies; do not rewrite or add emojis to fixed application templates.',
     'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
-    'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved.',
+    'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved. When returning to scheduling, never ask what day or time works best for the customer; instead say you will check the next available time or continue collecting the next required booking detail so the application can offer real calendar slots.',
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
