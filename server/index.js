@@ -15,6 +15,7 @@ import {
   getRespondContact,
   sendRespondImageMessage,
   sendRespondTextMessage,
+  triggerRespondEvaluationSchedule,
   updateRespondContact,
 } from './respondService.js'
 
@@ -535,6 +536,7 @@ async function processRespondIncomingMessage(event) {
   }
 
   const bookingResponse = await handleRespondBookingAutomation({
+    contactId: event.contactId,
     session,
     messages,
     customerLanguage,
@@ -795,6 +797,7 @@ function getBookingTeamForRespondContact(profile) {
 }
 
 async function handleRespondBookingAutomation({
+  contactId,
   session,
   messages,
   customerLanguage,
@@ -834,6 +837,7 @@ async function handleRespondBookingAutomation({
     }
 
     return await bookAcceptedRespondSlot({
+      contactId,
       booking: { ...existingBooking, bookingTeam },
       details: nextDetails,
       customerLanguage,
@@ -889,6 +893,7 @@ async function handleRespondBookingAutomation({
     }
 
     return await bookAcceptedRespondSlot({
+      contactId,
       booking: { ...existingBooking, bookingTeam, offeredOption: option },
       details,
       customerLanguage,
@@ -985,7 +990,7 @@ async function offerSoonestRespondSlot({
   }
 }
 
-async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
+async function bookAcceptedRespondSlot({ contactId, booking, details, customerLanguage }) {
   const option = booking.offeredOption || booking.options?.[0]
 
   if (!option) {
@@ -999,9 +1004,20 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
     booking.bookingTeam === 'customer_service'
       ? bookCustomerServiceMeeting
       : bookPrioritySellerMeeting
+  const customer = buildRespondBookingCustomer(details, customerLanguage)
   const booked = await bookMeeting({
-    customer: buildRespondBookingCustomer(details, customerLanguage),
+    customer,
     option,
+  })
+
+  await triggerRespondEvaluationSchedule({
+    contactId,
+    bookingTeam: booking.bookingTeam,
+    option,
+    booked,
+    customer,
+  }).catch((error) => {
+    console.warn(`Unable to trigger Respond evaluation schedule workflow: ${error.message}`)
   })
 
   return {

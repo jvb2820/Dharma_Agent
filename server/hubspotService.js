@@ -431,6 +431,8 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
     ...data,
     dealSync,
     sellerName: seller.name,
+    sellerFieldValue: seller.fieldValue,
+    sellerSlug: seller.slug,
     display: formatSpecialistSlot({
       specialistName: seller.name,
       timestamp: option.startTime,
