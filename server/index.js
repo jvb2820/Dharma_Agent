@@ -2,6 +2,7 @@ import http from 'node:http'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
+import { buildBookedMessage } from './booked.js'
 import { loadLocalEnv } from './env.js'
 import {
   bookCustomerServiceMeeting,
@@ -15,7 +16,6 @@ import {
   getRespondContact,
   sendRespondImageMessage,
   sendRespondTextMessage,
-  triggerRespondEvaluationSchedule,
   updateRespondContact,
 } from './respondService.js'
 
@@ -536,7 +536,6 @@ async function processRespondIncomingMessage(event) {
   }
 
   const bookingResponse = await handleRespondBookingAutomation({
-    contactId: event.contactId,
     session,
     messages,
     customerLanguage,
@@ -797,7 +796,6 @@ function getBookingTeamForRespondContact(profile) {
 }
 
 async function handleRespondBookingAutomation({
-  contactId,
   session,
   messages,
   customerLanguage,
@@ -837,7 +835,6 @@ async function handleRespondBookingAutomation({
     }
 
     return await bookAcceptedRespondSlot({
-      contactId,
       booking: { ...existingBooking, bookingTeam },
       details: nextDetails,
       customerLanguage,
@@ -893,7 +890,6 @@ async function handleRespondBookingAutomation({
     }
 
     return await bookAcceptedRespondSlot({
-      contactId,
       booking: { ...existingBooking, bookingTeam, offeredOption: option },
       details,
       customerLanguage,
@@ -990,7 +986,7 @@ async function offerSoonestRespondSlot({
   }
 }
 
-async function bookAcceptedRespondSlot({ contactId, booking, details, customerLanguage }) {
+async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
   const option = booking.offeredOption || booking.options?.[0]
 
   if (!option) {
@@ -1010,20 +1006,12 @@ async function bookAcceptedRespondSlot({ contactId, booking, details, customerLa
     option,
   })
 
-  await triggerRespondEvaluationSchedule({
-    contactId,
-    bookingTeam: booking.bookingTeam,
-    option,
-    booked,
-    customer,
-  }).catch((error) => {
-    console.warn(`Unable to trigger Respond evaluation schedule workflow: ${error.message}`)
-  })
-
   return {
-    text: bookingCopy(customerLanguage, 'booked', {
-      slot: formatCustomerSlot(option.startTime, option.timezone),
-      bookedDisplay: booked.display,
+    text: buildBookedMessage({
+      bookingTeam: booking.bookingTeam,
+      option,
+      booked,
+      customer,
     }),
     booking: null,
   }
