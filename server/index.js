@@ -1263,7 +1263,11 @@ function formatCustomerSlot(timestamp, timezone = 'America/New_York') {
 
 function formatNumberedSlots(options = []) {
   return options
-    .map((option, index) => `${index + 1}. ${formatCustomerSlot(option.startTime, option.timezone)}`)
+    .map((option, index) => {
+      const specialistName = option.sellerName ? `Specialist ${option.sellerName} - ` : ''
+
+      return `${index + 1}. ${specialistName}${formatCustomerSlot(option.startTime, option.timezone)}`
+    })
     .join('\n')
 }
 

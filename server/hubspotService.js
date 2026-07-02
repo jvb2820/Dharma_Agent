@@ -953,7 +953,7 @@ function formatSpecialistSlot({ specialistName, timestamp, timezone }) {
     timeZoneName: 'short',
   })
 
-  return `Specialist ${specialistName} is available ${formatter.format(new Date(timestamp))}`
+  return `Specialist ${specialistName} - ${formatter.format(new Date(timestamp))}`
 }
 
 function resolveLocale(language) {
