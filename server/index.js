@@ -829,6 +829,42 @@ async function handleRespondBookingAutomation({
       }
     }
 
+    if (!nextDetails.desiredTreatment) {
+      return {
+        text: bookingCopy(customerLanguage, 'askGoals'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'goals' },
+      }
+    }
+
+    if (!nextDetails.phone) {
+      return {
+        text: bookingCopy(customerLanguage, 'askPhone'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: '' },
+      }
+    }
+
+    return await offerSoonestRespondSlot({
+      booking: { ...existingBooking, bookingTeam, pendingField: '' },
+      details: nextDetails,
+      customerLanguage,
+    })
+  }
+
+  if (existingBooking.pendingField === 'goals') {
+    const desiredTreatment = extractDesiredTreatmentName(latestUserText) || guessDesiredTreatmentFromGoal(latestUserText)
+    const nextDetails = {
+      ...details,
+      desiredTreatment,
+      treatmentGoal: latestUserText.trim(),
+    }
+
+    if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
+      return {
+        text: outOfStatePrescribedTemplate(customerLanguage),
+        booking: null,
+      }
+    }
+
     if (!nextDetails.phone) {
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
@@ -955,10 +991,6 @@ async function handleRespondBookingAutomation({
     return null
   }
 
-  if (!details.desiredTreatment && hasBookingSignal) {
-    details.desiredTreatment = 'Weight Loss Injections'
-  }
-
   if (shouldUseOutOfStatePrescribedTemplate(details)) {
     return {
       text: outOfStatePrescribedTemplate(customerLanguage),
@@ -970,6 +1002,13 @@ async function handleRespondBookingAutomation({
     return {
       text: bookingCopy(customerLanguage, 'askState'),
       booking: { ...existingBooking, bookingTeam, details, pendingField: 'state' },
+    }
+  }
+
+  if (!details.desiredTreatment) {
+    return {
+      text: bookingCopy(customerLanguage, 'askGoals'),
+      booking: { ...existingBooking, bookingTeam, details, pendingField: 'goals' },
     }
   }
 
@@ -1180,6 +1219,11 @@ function bookingCopy(language, key, values = {}) {
       '📍Please tell us which state you live in to find out if we ship to your state?',
       '📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?',
       '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
+    ),
+    askGoals: tri(
+      '✨ What are your main goals right now? For example, weight loss, nutrition guidance, supplements, or peptide support.',
+      '✨ Cuales son tus metas principales en este momento? Por ejemplo, bajar de peso, guia nutricional, suplementos o apoyo con peptidos.',
+      '✨ Quais sao seus principais objetivos neste momento? Por exemplo, perda de peso, orientacao nutricional, suplementos ou apoio com peptideos.',
     ),
     askPhone: tri(
       'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
@@ -1862,6 +1906,32 @@ function extractDesiredTreatmentName(content) {
   }
 
   return ''
+}
+
+function guessDesiredTreatmentFromGoal(content) {
+  const searchable = normalizeSearchText(content)
+
+  if (
+    /\b(muscle|recovery|strength|performance|energy|tone|toning|fit|fitness|creatine|entreno|gym|gimnasio|forca|recuperacion|recuperacao)\b/.test(
+      searchable,
+    )
+  ) {
+    return 'Supplements'
+  }
+
+  if (/\b(appetite|craving|cravings|antojo|antojos|azucar|sugar|metabolism|metabolismo|natural)\b/.test(searchable)) {
+    return 'Supplements'
+  }
+
+  if (/\b(eat|eating|food|diet|meal|habits|habitos|comer|comida|plan|nutrition|nutricion|nutricao)\b/.test(searchable)) {
+    return 'Nutrition Consultation'
+  }
+
+  if (/\b(hormone|hormonal|anti aging|antiaging|skin|sleep|libido|wellness|wellbeing|peptide|peptido)\b/.test(searchable)) {
+    return 'Other peptides'
+  }
+
+  return 'Weight Loss Injections'
 }
 
 function normalizeSearchText(value) {
