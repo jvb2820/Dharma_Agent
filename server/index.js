@@ -463,8 +463,8 @@ async function processRespondIncomingMessage(event) {
     message: event.text,
   })
   const preferredLanguage =
-    session.customerLanguage ||
     detectedLanguage ||
+    session.customerLanguage ||
     respondContactProfile?.bookingDetails?.preferredLanguage ||
     ''
 
