@@ -735,11 +735,12 @@ function buildRespondContactSignalSummary({ customFields, tags, contact }) {
 
 function buildRespondContactBookingDetails({ contact, customFields }) {
   const phone = extractRespondContactPhone(contact, customFields)
+  const contactName = extractRespondContactName(contact, customFields)
 
   return Object.fromEntries(
     Object.entries({
-      firstName: contact?.firstName,
-      lastName: contact?.lastName,
+      firstName: contact?.firstName || contactName.firstName,
+      lastName: contact?.lastName || contactName.lastName,
       phone,
       email: isPlaceholderEmail(contact?.email) ? '' : contact?.email,
       state: normalizeRespondState(customFields.state || customFields.state1),
@@ -747,6 +748,22 @@ function buildRespondContactBookingDetails({ contact, customFields }) {
       preferredLanguage: normalizeRespondContactLanguage(contact?.language),
     }).filter(([, value]) => Boolean(value)),
   )
+}
+
+function extractRespondContactName(contact, customFields = {}) {
+  const directName = [
+    contact?.fullName,
+    contact?.name,
+    contact?.displayName,
+    customFields.full_name,
+    customFields.fullName,
+    customFields.name,
+    customFields.Name,
+  ]
+    .map((value) => String(value || '').trim())
+    .find((value) => isLikelyCustomerName(value) && !extractPhoneNumber(value))
+
+  return directName ? splitCustomerName(directName) : {}
 }
 
 function extractRespondContactPhone(contact, customFields = {}) {
@@ -1452,8 +1469,18 @@ function isLikelyCustomerName(content) {
     return false
   }
 
+  if (isGoalOrTreatmentStatement(normalized)) {
+    return false
+  }
+
   return !/\b(yes|yeah|yep|ok|okay|sure|works|does|good|fine|perfect|confirm|book|appointment|call|time|slot|tomorrow|today|morning|afternoon|evening|quiero|cita|si|claro|pero|solo|hablo|espanol|ingles|portuguese|portugues)\b/.test(
     normalized,
+  )
+}
+
+function isGoalOrTreatmentStatement(normalizedContent) {
+  return /\b(i|i m|im|me|my|wanna|want|need|goal|goals|lose|losing|weight|fat|bajar|perder|peso|nutrition|nutricion|supplement|supplements|suplemento|suplementos|peptide|peptides|peptido|peptidos|injection|injections|shot|shots|semaglutide|tirzepatide|zepbound)\b/.test(
+    normalizedContent,
   )
 }
 
