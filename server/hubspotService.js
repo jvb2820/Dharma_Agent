@@ -83,6 +83,10 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '' }) {
 
     const futureSlots = slots.filter((slot) => slot.startMillisUtc > Date.now() + 5 * 60 * 1000)
     const candidateSlots = futureSlots.filter((slot) => {
+      if (preference.dateKey && getDateKey(slot.startMillisUtc, timezone) !== preference.dateKey) {
+        return false
+      }
+
       if (weekday === null) {
         return true
       }

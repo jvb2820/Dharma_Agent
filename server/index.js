@@ -880,20 +880,28 @@ async function handleRespondBookingAutomation({
 
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegative(latestUserText)) {
+    const preferredTime = extractPreferredTimeText(latestUserText) || details.preferredTime
+    const nextDetails = preferredTime ? { ...details, preferredTime } : details
+
     return await offerSoonestRespondSlot({
       booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
-      details,
+      details: nextDetails,
       customerLanguage,
+      preferredTime,
       closest: true,
     })
   }
 
   // When user rejects from a list, offer a fresh set of alternatives
   if (existingBooking.options?.length > 1 && isNegative(latestUserText)) {
+    const preferredTime = extractPreferredTimeText(latestUserText) || details.preferredTime
+    const nextDetails = preferredTime ? { ...details, preferredTime } : details
+
     return await offerSoonestRespondSlot({
       booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
-      details,
+      details: nextDetails,
       customerLanguage,
+      preferredTime,
       closest: true,
     })
   }
@@ -1189,7 +1197,7 @@ function bookingCopy(language, key, values = {}) {
       'Perfeito, já tenho seu número. Qual nome completo devo usar para verificar e agendar a consulta?',
     ),
     offerSlot: tri(
-      `I have this available time for your free discovery call: ${values.slot}. Does that work for you?`,
+      `📅 I have this available time for your free discovery call: ${values.slot}. Does that work for you?`,
       `Tengo este horario disponible para tu llamada gratuita de análisis: ${values.slot}. Te funciona?`,
       `Tenho este horário disponível para sua chamada gratuita de análise: ${values.slot}. Funciona para você?`,
     ),
@@ -1204,7 +1212,7 @@ function bookingCopy(language, key, values = {}) {
       `Não vejo exatamente esse horário, mas este é o espaço mais próximo disponível: ${values.slot}. Funciona para você?`,
     ),
     offerClosestSlots: tri(
-      `I do not have that exact time available, but these are the closest schedules based on your desired time:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+      `📅 I do not have that exact time available, but these are the closest schedules based on your desired time:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
       `No tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
       `Não tenho exatamente esse horário disponível, mas estes são os horários mais próximos conforme sua preferência:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
     ),
@@ -1214,7 +1222,7 @@ function bookingCopy(language, key, values = {}) {
       `Esse horário não funciona. Estes são os próximos horários disponíveis:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
     ),
     offerFallbackSlots: tri(
-      `I do not have availability for that requested time right now, but these are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+      `📅 I do not have availability for that requested time right now, but these are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
       `No tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
       `Não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
     ),
