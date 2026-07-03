@@ -33,9 +33,6 @@ const RESPOND_AGENT = {
 }
 const SESSION_RESTART_WINDOW_MS =
   Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
-const LANGUAGE_QUESTION =
-  process.env.RESPOND_LANGUAGE_QUESTION ||
-  '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English, Spanish or Portuguese?'
 const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
@@ -472,48 +469,34 @@ async function processRespondIncomingMessage(event) {
     ''
 
   if (shouldRestartRespondConversation(session)) {
-    if (!preferredLanguage) {
-      await sendRespondTextMessage({
-        contactId: event.contactId,
-        channelId: event.channelId,
-        text: LANGUAGE_QUESTION,
-      })
+    const initialLanguage = preferredLanguage || 'English'
 
-      respondSessions.set(event.contactId, {
-        customerLanguage: '',
-        languageAsked: true,
-        lastInteractionAt: Date.now(),
-        messages: [userMessage, { role: 'agent', content: LANGUAGE_QUESTION }],
-        respondContactProfile,
-      })
-      return
-    }
+    await sendInitialRespondSequence({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      customerLanguage: initialLanguage,
+    })
 
-    if (shouldSendRestartIntro({ text: event.text, respondContactProfile })) {
-      await sendInitialRespondSequence({
-        contactId: event.contactId,
-        channelId: event.channelId,
-        customerLanguage: preferredLanguage,
-      })
-
-      respondSessions.set(event.contactId, {
-        customerLanguage: preferredLanguage,
-        languageAsked: false,
-        lastInteractionAt: Date.now(),
-        messages: [
-          userMessage,
-          { role: 'agent', content: getInitialGreeting(preferredLanguage) },
-          { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
-        ],
-        booking: {
-          bookingTeam: getBookingTeamForRespondContact(respondContactProfile),
-          details: getRespondContactBookingDetails(respondContactProfile),
-          pendingField: 'state',
+    respondSessions.set(event.contactId, {
+      customerLanguage: initialLanguage,
+      languageAsked: false,
+      lastInteractionAt: Date.now(),
+      messages: [
+        userMessage,
+        { role: 'agent', content: getInitialGreeting(initialLanguage) },
+        { role: 'agent', content: getInitialStateQuestion(initialLanguage) },
+      ],
+      booking: {
+        bookingTeam: getBookingTeamForRespondContact(respondContactProfile),
+        details: {
+          ...getRespondContactBookingDetails(respondContactProfile),
+          ...extractRespondBookingDetailsFromText(event.text),
         },
-        respondContactProfile,
-      })
-      return
-    }
+        pendingField: 'state',
+      },
+      respondContactProfile,
+    })
+    return
   }
 
   if (session.languageAsked && preferredLanguage) {
@@ -895,7 +878,7 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'state') {
-    const state = latestSignals.state
+    const state = latestSignals.state || details.state
 
     if (!state) {
       const text = isGreetingOnly(latestUserText)
@@ -945,7 +928,8 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'goals') {
-    const desiredTreatment = latestSignals.desiredTreatment || guessDesiredTreatmentFromGoal(latestUserText)
+    const desiredTreatment =
+      latestSignals.desiredTreatment || details.desiredTreatment || guessDesiredTreatmentFromGoal(latestUserText)
     const nextDetails = {
       ...details,
       desiredTreatment,
@@ -1612,20 +1596,6 @@ function shouldRestartRespondConversation(session) {
       session.lastInteractionAt > 0 &&
       Date.now() - session.lastInteractionAt >= SESSION_RESTART_WINDOW_MS)
   )
-}
-
-function shouldSendRestartIntro({ text, respondContactProfile }) {
-  if (isBookingFlowSignal(text)) {
-    return false
-  }
-
-  if (respondContactProfile?.status && respondContactProfile.status !== 'new_or_no_record') {
-    return false
-  }
-
-  const bookingDetails = getRespondContactBookingDetails(respondContactProfile)
-
-  return !bookingDetails.state && !bookingDetails.desiredTreatment && !bookingDetails.phone
 }
 
 async function sendInitialRespondSequence({ contactId, channelId, customerLanguage }) {
