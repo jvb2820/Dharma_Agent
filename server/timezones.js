@@ -112,6 +112,20 @@ export function formatCustomerStateTime(timestamp, state, fallbackTimezone = DEF
   }).format(new Date(timestamp))
 }
 
+export function getCustomerStateHour(timestamp, state, fallbackTimezone = DEFAULT_TIMEZONE) {
+  if (!timestamp) {
+    return null
+  }
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    hourCycle: 'h23',
+    timeZone: getStateTimeZone(state, fallbackTimezone),
+  }).formatToParts(new Date(timestamp))
+
+  return Number(parts.find((part) => part.type === 'hour')?.value ?? NaN)
+}
+
 function normalizeStateName(state) {
   return String(state || '').trim()
 }

@@ -4,7 +4,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage } from './booked.js'
 import { loadLocalEnv } from './env.js'
-import { formatCustomerStateSlot } from './timezones.js'
+import { formatCustomerStateSlot, getCustomerStateHour } from './timezones.js'
 import { US_STATES, isPrescribedTreatmentDeliveryState } from '../src/data/states.js'
 import {
   bookCustomerServiceMeeting,
@@ -1073,6 +1073,18 @@ async function handleRespondBookingAutomation({
     return null
   }
 
+  if (hasActiveSlotOffer && latestSignals.preferredTime) {
+    const nextDetails = { ...details, ...latestSignals }
+
+    return await offerSoonestRespondSlot({
+      booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
+      details: nextDetails,
+      customerLanguage,
+      preferredTime: latestSignals.preferredTime,
+      closest: true,
+    })
+  }
+
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegativeReply(latestUserText)) {
     const preferredTime = extractPreferredTimeText(latestUserText) || details.preferredTime
@@ -1211,15 +1223,26 @@ async function offerSoonestRespondSlot({
     booking.bookingTeam === 'customer_service'
       ? getCustomerServiceAvailability
       : getPrioritySellerAvailability
+  const hasTimeConstraint = hasAvailabilityTimeConstraint(details)
   const options = await getAvailability({
-    limit: closest ? 4 : 1,
+    limit: closest || hasTimeConstraint ? 24 : 1,
     preferredTime,
   })
   const fallbackOptions =
     closest && options.length === 0
-      ? await getAvailability({ limit: 4 })
+      ? await getAvailability({ limit: 24 })
       : []
-  const availableOptions = options.length ? options : fallbackOptions
+  let availableOptions = filterOptionsByAvailabilityPreference(
+    options.length ? options : fallbackOptions,
+    details,
+  )
+
+  if (hasTimeConstraint && availableOptions.length === 0) {
+    availableOptions = filterOptionsByAvailabilityPreference(
+      await getAvailability({ limit: 24 }),
+      details,
+    )
+  }
   const offeredOption = availableOptions[0]
 
   if (!offeredOption) {
@@ -1229,7 +1252,9 @@ async function offerSoonestRespondSlot({
     }
   }
 
-  const nextOptions = closest ? availableOptions : [offeredOption]
+  const nextOptions = closest
+    ? selectBalancedAvailabilityOptions(availableOptions, details.state)
+    : [offeredOption]
 
   return {
     text: closest
@@ -1249,6 +1274,55 @@ async function offerSoonestRespondSlot({
       pendingField: '',
     },
   }
+}
+
+function hasAvailabilityTimeConstraint(details = {}) {
+  return Number.isInteger(details.earliestHour)
+}
+
+function filterOptionsByAvailabilityPreference(options = [], details = {}) {
+  if (!hasAvailabilityTimeConstraint(details)) {
+    return options
+  }
+
+  return options.filter((option) => {
+    const localHour = getCustomerStateHour(option.startTime, details.state, option.timezone)
+
+    return localHour != null && localHour >= details.earliestHour
+  })
+}
+
+function selectBalancedAvailabilityOptions(options = [], state = '') {
+  const sortedOptions = [...options].sort((left, right) => left.startTime - right.startTime)
+  const morningOptions = sortedOptions.filter((option) => {
+    const localHour = getCustomerStateHour(option.startTime, state, option.timezone)
+
+    return localHour != null && localHour < 12
+  })
+  const afternoonOptions = sortedOptions.filter((option) => {
+    const localHour = getCustomerStateHour(option.startTime, state, option.timezone)
+
+    return localHour != null && localHour >= 12
+  })
+
+  if (morningOptions.length && afternoonOptions.length) {
+    const perDayPart = morningOptions.length >= 3 && afternoonOptions.length >= 3 ? 3 : 2
+    const balanced = [
+      ...morningOptions.slice(0, perDayPart),
+      ...afternoonOptions.slice(0, perDayPart),
+    ].sort((left, right) => left.startTime - right.startTime)
+
+    if (balanced.length >= 4 || sortedOptions.length <= balanced.length) {
+      return balanced
+    }
+
+    const selected = new Set(balanced)
+    const fill = sortedOptions.filter((option) => !selected.has(option)).slice(0, 4 - balanced.length)
+
+    return [...balanced, ...fill].sort((left, right) => left.startTime - right.startTime)
+  }
+
+  return sortedOptions.slice(0, Math.min(4, sortedOptions.length))
 }
 
 async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
@@ -1346,23 +1420,33 @@ function extractRespondBookingDetails(messages) {
   const latestState = [...userMessages].reverse().map(extractStateName).find(Boolean)
   const latestTreatment = [...userMessages].reverse().map(extractDesiredTreatmentName).find(Boolean)
   const latestPreferredTime = [...userMessages].reverse().map(extractPreferredTimeText).find(Boolean)
+  const latestAvailabilityPreference = [...userMessages]
+    .reverse()
+    .map(extractAvailabilityPreference)
+    .find((preference) => preference.hasPreference)
 
   return Object.fromEntries(
     Object.entries({
       state: latestState,
       desiredTreatment: latestTreatment,
-      preferredTime: latestPreferredTime,
+      preferredTime: latestAvailabilityPreference?.preferredTime || latestPreferredTime,
+      earliestHour: latestAvailabilityPreference?.earliestHour,
+      dayPart: latestAvailabilityPreference?.dayPart,
       phone: extractPhoneNumber(joined),
     }).filter(([, value]) => Boolean(value)),
   )
 }
 
 function extractRespondBookingDetailsFromText(content) {
+  const availabilityPreference = extractAvailabilityPreference(content)
+
   return Object.fromEntries(
     Object.entries({
       state: extractStateName(content),
       desiredTreatment: extractDesiredTreatmentName(content),
-      preferredTime: extractPreferredTimeText(content),
+      preferredTime: availabilityPreference.preferredTime || extractPreferredTimeText(content),
+      earliestHour: availabilityPreference.earliestHour,
+      dayPart: availabilityPreference.dayPart,
       phone: extractPhoneNumber(content),
     }).filter(([, value]) => Boolean(value)),
   )
@@ -1496,7 +1580,14 @@ function formatNumberedSlots(options = [], state = '') {
 }
 
 function pickRespondAvailabilityOption(content, options = []) {
-  const selectedId = String(content || '').match(/\d+/)?.[0]
+  if (extractAvailabilityPreference(content).hasPreference || extractPreferredTimeText(content)) {
+    return null
+  }
+
+  const normalized = normalizeSearchText(content)
+  const selectedId =
+    normalized.match(/^(?:option|number|slot|opcion|opción|numero|número|la|el)?\s*(\d{1,2})$/)?.[1] ||
+    normalized.match(/\b(?:option|number|slot|opcion|opción|numero|número|la|el)\s+(\d{1,2})\b/)?.[1]
 
   return options.find((option) => option.id === selectedId) || null
 }
@@ -1563,6 +1654,10 @@ function isNegativeReply(content) {
     return false
   }
 
+  if (extractAvailabilityPreference(content).hasPreference) {
+    return false
+  }
+
   return (
     /\b(no|nope|nah|not|doesn t work|doesnt work|otro|otra|different|later|mas tarde)\b/i.test(
       normalized,
@@ -1582,6 +1677,90 @@ function isOutOfFlowInfoQuestion(content) {
     /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido)\b/.test(normalized),
     /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo)\b/.test(normalized),
   ].some(Boolean)
+}
+
+function extractAvailabilityPreference(content) {
+  const normalized = normalizeSearchText(content)
+
+  if (!normalized) {
+    return { hasPreference: false }
+  }
+
+  const afterHourPatterns = [
+    /\b(?:after|later than|from)\s+(?:las\s+)?(\d{1,2})(?::\d{2})?\s*(am|pm)?\b/,
+    /\b(?:despues de|despues de las|a partir de|a partir de las|mas tarde de|mas tarde de las|despues)\s+(\d{1,2})(?::\d{2})?\s*(am|pm)?\b/,
+    /\b(?:después de|después de las|más tarde de|más tarde de las)\s+(\d{1,2})(?::\d{2})?\s*(am|pm)?\b/i,
+  ]
+
+  for (const pattern of afterHourPatterns) {
+    const match = String(content || '').match(pattern)
+
+    if (match) {
+      const earliestHour = normalizeAvailabilityHour(Number(match[1]), match[2])
+
+      if (earliestHour != null) {
+        return {
+          hasPreference: true,
+          preferredTime: `after ${formatPreferenceHour(earliestHour)}`,
+          earliestHour,
+          dayPart: earliestHour >= 12 ? 'afternoon' : 'morning',
+        }
+      }
+    }
+  }
+
+  if (
+    /\b(afternoon only|only afternoon|in the afternoon|not morning|no morning|later because i work|later because of work)\b/.test(
+      normalized,
+    ) ||
+    /\b(solo en la tarde|por la tarde|en la tarde|no en la manana|no en la mañana|mas tarde porque trabajo|más tarde porque trabajo|tarde porque trabajo)\b/.test(
+      normalized,
+    )
+  ) {
+    return {
+      hasPreference: true,
+      preferredTime: 'afternoon',
+      earliestHour: 12,
+      dayPart: 'afternoon',
+    }
+  }
+
+  if (/\b(evening only|in the evening|evening|noche|en la noche|por la noche)\b/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'evening',
+      earliestHour: 17,
+      dayPart: 'evening',
+    }
+  }
+
+  return { hasPreference: false }
+}
+
+function normalizeAvailabilityHour(hour, period = '') {
+  if (!Number.isInteger(hour) || hour < 1 || hour > 12) {
+    return null
+  }
+
+  const normalizedPeriod = String(period || '').toLowerCase()
+
+  if (normalizedPeriod === 'am') {
+    return hour === 12 ? 0 : hour
+  }
+
+  if (normalizedPeriod === 'pm') {
+    return hour === 12 ? 12 : hour + 12
+  }
+
+  return hour >= 1 && hour <= 7 ? hour + 12 : hour
+}
+
+function formatPreferenceHour(hour) {
+  const normalizedHour = Number(hour)
+  const period = normalizedHour >= 12 ? 'pm' : 'am'
+  const displayHour = normalizedHour % 12 || 12
+
+  return `${displayHour}${period}`
 }
 
 function isBookingRequest(content) {
