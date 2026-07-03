@@ -1,3 +1,10 @@
+import {
+  formatCustomerStateDate,
+  formatCustomerStateTime,
+  getStateTimeLabel,
+  getStateTimeZone,
+} from './timezones.js'
+
 const FLORIDA_TIMEZONE = 'America/New_York'
 
 const BOOKING_SPECIALIST_NAMES = {
@@ -45,21 +52,23 @@ export const AIRCALL_MEMBER_NUMBERS = {
 
 export function buildBookedMessage({ bookingTeam, option, booked, customer = {} }) {
   const scheduledAt = option?.startTime || booked?.startTime
-  const timezone = option?.timezone || FLORIDA_TIMEZONE
+  const timezone = getStateTimeZone(customer.state, option?.timezone || FLORIDA_TIMEZONE)
+  const timeLabel = getStateTimeLabel(customer.state)
   const specialistName = resolveBookedSpecialistName({ bookingTeam, option, booked })
   const phone = formatPhoneForBookedMessage(
     AIRCALL_MEMBER_NUMBERS[specialistName] || customer.phone,
   )
 
   return [
-    `📲 Your call is scheduled for ${formatBookedDate(scheduledAt, timezone)} AT ${formatBookedTime(
+    `📲 Your call is scheduled for ${formatCustomerStateDate(
       scheduledAt,
+      customer.state,
       timezone,
-    )} with ${specialistName}🥰.`,
+    )} AT ${formatCustomerStateTime(scheduledAt, customer.state, timezone)} with ${specialistName}🥰.`,
     '',
     `📞 Our Dharma's expert will reach out to you via regular phone call at ${phone}.`,
     '',
-    "⏰ Remember it's EST Time.",
+    `⏰ Remember it's ${timeLabel}.`,
     '',
     "⚠️*To secure your discount, ensure availability for your initial evaluation call. Our schedule fills quickly; rescheduling on the same day is not guaranteed if the call is missed.*",
   ].join('\n')
@@ -86,34 +95,6 @@ function resolveBookedSpecialistName({ bookingTeam, option, booked }) {
   }
 
   return String(booked?.sellerName || option?.sellerName || 'DHARMA').toUpperCase()
-}
-
-function formatBookedDate(timestamp, timezone) {
-  if (!timestamp) {
-    return ''
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: timezone,
-  })
-    .format(new Date(timestamp))
-    .replace(', ', ',')
-}
-
-function formatBookedTime(timestamp, timezone) {
-  if (!timestamp) {
-    return ''
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: timezone,
-  }).format(new Date(timestamp))
 }
 
 function formatPhoneForBookedMessage(phone) {

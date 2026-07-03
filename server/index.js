@@ -4,6 +4,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage } from './booked.js'
 import { loadLocalEnv } from './env.js'
+import { formatCustomerStateSlot } from './timezones.js'
 import { US_STATES, isPrescribedTreatmentDeliveryState } from '../src/data/states.js'
 import {
   bookCustomerServiceMeeting,
@@ -868,10 +869,14 @@ function formatBookingContextForPrompt(booking = {}) {
     details.desiredTreatment ? `Known desired treatment/goal: ${details.desiredTreatment}.` : '',
     details.phone ? 'Customer phone is already known from Respond/contact context.' : '',
     offeredOption
-      ? `Already offered slot: ${formatCustomerSlot(offeredOption.startTime, offeredOption.timezone)}.`
+      ? `Already offered slot: ${formatCustomerStateSlot(
+          offeredOption.startTime,
+          details.state,
+          offeredOption.timezone,
+        )}.`
       : '',
     options.length
-      ? `Already offered numbered slots:\n${formatNumberedSlots(options)}`
+      ? `Already offered numbered slots:\n${formatNumberedSlots(options, details.state)}`
       : '',
     'If the latest customer message asks an information question, answer it from company knowledge first. Then briefly return to the current booking flow without asking for details already known or inventing availability.',
   ].filter(Boolean)
@@ -1200,10 +1205,10 @@ async function offerSoonestRespondSlot({
   return {
     text: closest
       ? bookingCopy(customerLanguage, options.length ? 'offerClosestSlots' : 'offerFallbackSlots', {
-          slots: formatNumberedSlots(nextOptions),
+          slots: formatNumberedSlots(nextOptions, details.state),
         })
       : bookingCopy(customerLanguage, 'offerSlot', {
-          slot: formatCustomerSlot(offeredOption.startTime, offeredOption.timezone),
+          slot: formatCustomerStateSlot(offeredOption.startTime, details.state, offeredOption.timezone),
         }),
     booking: {
       details,
@@ -1440,24 +1445,16 @@ function bookingCopy(language, key, values = {}) {
 }
 
 
-function formatCustomerSlot(timestamp, timezone = 'America/New_York') {
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: timezone,
-    timeZoneName: 'short',
-  }).format(new Date(timestamp))
-}
-
-function formatNumberedSlots(options = []) {
+function formatNumberedSlots(options = [], state = '') {
   return options
     .map((option, index) => {
       const specialistName = option.sellerName ? `Specialist ${option.sellerName} - ` : ''
 
-      return `${index + 1}. ${specialistName}${formatCustomerSlot(option.startTime, option.timezone)}`
+      return `${index + 1}. ${specialistName}${formatCustomerStateSlot(
+        option.startTime,
+        state,
+        option.timezone,
+      )}`
     })
     .join('\n')
 }
