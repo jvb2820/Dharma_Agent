@@ -1979,6 +1979,7 @@ function extractStateName(content) {
   const aliases = new Map([
     ['dc', 'District of Columbia'],
     ['d c', 'District of Columbia'],
+    ['pr', 'Puerto Rico'],
     ['washington dc', 'District of Columbia'],
     ['washington d c', 'District of Columbia'],
   ])
