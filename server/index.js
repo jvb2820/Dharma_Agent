@@ -471,11 +471,16 @@ async function processRespondIncomingMessage(event) {
 
   if (shouldRestartRespondConversation(session)) {
     const initialLanguage = preferredLanguage || 'English'
+    const initialDetails = {
+      ...getRespondContactBookingDetails(respondContactProfile),
+      ...extractRespondBookingDetailsFromText(event.text),
+    }
 
     await sendInitialRespondSequence({
       contactId: event.contactId,
       channelId: event.channelId,
       customerLanguage: initialLanguage,
+      firstName: getCustomerFirstName(initialDetails, respondContactProfile),
     })
 
     respondSessions.set(event.contactId, {
@@ -484,15 +489,18 @@ async function processRespondIncomingMessage(event) {
       lastInteractionAt: Date.now(),
       messages: [
         userMessage,
-        { role: 'agent', content: getInitialGreeting(initialLanguage) },
+        {
+          role: 'agent',
+          content: getInitialGreeting(
+            initialLanguage,
+            getCustomerFirstName(initialDetails, respondContactProfile),
+          ),
+        },
         { role: 'agent', content: getInitialStateQuestion(initialLanguage) },
       ],
       booking: {
         bookingTeam: getBookingTeamForRespondContact(respondContactProfile),
-        details: {
-          ...getRespondContactBookingDetails(respondContactProfile),
-          ...extractRespondBookingDetailsFromText(event.text),
-        },
+        details: initialDetails,
         pendingField: 'state',
       },
       respondContactProfile,
@@ -505,6 +513,7 @@ async function processRespondIncomingMessage(event) {
       contactId: event.contactId,
       channelId: event.channelId,
       customerLanguage: preferredLanguage,
+      firstName: getCustomerFirstName(getRespondContactBookingDetails(respondContactProfile), respondContactProfile),
     })
 
     respondSessions.set(event.contactId, {
@@ -514,7 +523,13 @@ async function processRespondIncomingMessage(event) {
       messages: [
         ...session.messages,
         userMessage,
-        { role: 'agent', content: getInitialGreeting(preferredLanguage) },
+        {
+          role: 'agent',
+          content: getInitialGreeting(
+            preferredLanguage,
+            getCustomerFirstName(getRespondContactBookingDetails(respondContactProfile), respondContactProfile),
+          ),
+        },
         { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
       ].slice(-12),
       booking: {
@@ -798,6 +813,12 @@ function getRespondContactBookingDetails(profile) {
   return profile?.bookingDetails || {}
 }
 
+function getCustomerFirstName(details = {}, profile = {}) {
+  return String(details.firstName || profile?.bookingDetails?.firstName || '')
+    .split(/\s+/)[0]
+    .trim()
+}
+
 function mergeRespondContactProfileFallbacks(profile, fallbacks = {}) {
   if (!fallbacks.phone || profile?.bookingDetails?.phone) {
     return profile
@@ -841,6 +862,7 @@ function isPlaceholderEmail(email) {
 }
 
 function formatRespondContactProfileForPrompt(profile) {
+  const firstName = getCustomerFirstName(profile?.bookingDetails, profile)
   const fields = profile.fields
     ? Object.entries(profile.fields)
         .map(([key, value]) => `${key}=${value}`)
@@ -851,6 +873,7 @@ function formatRespondContactProfileForPrompt(profile) {
     'Respond contact profile context:',
     `Contact status identifier: ${profile.status} (${profile.label}).`,
     `Reason: ${profile.reason}`,
+    firstName ? `Customer first name: ${firstName}. Use it naturally sometimes, especially in explanatory or out-of-flow replies, but do not repeat it in every message.` : '',
     fields ? `Current Respond signals: ${fields}` : '',
     'Use this only for routing and tone. Do not mention internal field names or IDs to the customer.',
   ]
@@ -860,10 +883,12 @@ function formatRespondContactProfileForPrompt(profile) {
 
 function formatBookingContextForPrompt(booking = {}) {
   const details = booking.details || {}
+  const firstName = getCustomerFirstName(details)
   const offeredOption = booking.offeredOption
   const options = booking.options || []
   const lines = [
     'Current booking flow context:',
+    firstName ? `Customer first name: ${firstName}.` : '',
     booking.pendingField ? `Pending field: ${booking.pendingField}.` : '',
     details.state ? `Known state: ${details.state}.` : '',
     details.desiredTreatment ? `Known desired treatment/goal: ${details.desiredTreatment}.` : '',
@@ -923,7 +948,7 @@ async function handleRespondBookingAutomation({
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
-        text: outOfStatePrescribedTemplate(customerLanguage),
+        text: outOfStatePrescribedTemplate(customerLanguage, getCustomerFirstName(nextDetails, respondContactProfile)),
         booking: {
           ...existingBooking,
           bookingTeam,
@@ -936,7 +961,9 @@ async function handleRespondBookingAutomation({
 
     if (!nextDetails.desiredTreatment) {
       return {
-        text: bookingCopy(customerLanguage, 'askGoals'),
+        text: bookingCopy(customerLanguage, 'askGoals', {
+          firstName: getCustomerFirstName(nextDetails, respondContactProfile),
+        }),
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'goals' },
       }
     }
@@ -971,7 +998,7 @@ async function handleRespondBookingAutomation({
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
-        text: outOfStatePrescribedTemplate(customerLanguage),
+        text: outOfStatePrescribedTemplate(customerLanguage, getCustomerFirstName(nextDetails, respondContactProfile)),
         booking: {
           ...existingBooking,
           bookingTeam,
@@ -1126,7 +1153,7 @@ async function handleRespondBookingAutomation({
 
   if (shouldUseOutOfStatePrescribedTemplate(details)) {
     return {
-      text: outOfStatePrescribedTemplate(customerLanguage),
+      text: outOfStatePrescribedTemplate(customerLanguage, getCustomerFirstName(details, respondContactProfile)),
       booking: {
         ...existingBooking,
         bookingTeam,
@@ -1146,7 +1173,9 @@ async function handleRespondBookingAutomation({
 
   if (!details.desiredTreatment) {
     return {
-      text: bookingCopy(customerLanguage, 'askGoals'),
+      text: bookingCopy(customerLanguage, 'askGoals', {
+        firstName: getCustomerFirstName(details, respondContactProfile),
+      }),
       booking: { ...existingBooking, bookingTeam, details, pendingField: 'goals' },
     }
   }
@@ -1205,9 +1234,11 @@ async function offerSoonestRespondSlot({
   return {
     text: closest
       ? bookingCopy(customerLanguage, options.length ? 'offerClosestSlots' : 'offerFallbackSlots', {
+          firstName: getCustomerFirstName(details),
           slots: formatNumberedSlots(nextOptions, details.state),
         })
       : bookingCopy(customerLanguage, 'offerSlot', {
+          firstName: getCustomerFirstName(details),
           slot: formatCustomerStateSlot(offeredOption.startTime, details.state, offeredOption.timezone),
         }),
     booking: {
@@ -1272,12 +1303,14 @@ function isAlternativeTreatment(treatment) {
   return /\b(nutrition|supplements?|suplementos?)\b/i.test(String(treatment || ''))
 }
 
-function outOfStatePrescribedTemplate(language) {
+function outOfStatePrescribedTemplate(language, firstName = '') {
   const langNorm = normalizeLanguageName(language)
+  const namePrefix = firstName ? `${firstName}, ` : ''
+  const named = (withName, withoutName) => (firstName ? `${namePrefix}${withName}` : withoutName)
 
   if (langNorm === 'Latin American Spanish') {
     return [
-      '💛✨ Por el momento no podemos enviar inyecciones de pérdida de peso a su estado😔.',
+      `💛✨ ${named('por el momento no podemos enviar inyecciones de pérdida de peso a su estado😔.', 'Por el momento no podemos enviar inyecciones de pérdida de peso a su estado😔.')}`,
       'Pero sí podemos ayudarte con nuestra línea de suplementos Dharma, diseñados para apoyar tu proceso de forma natural:',
       '🔥 *Fat Burner*: acelera el metabolismo, da energía limpia y ayuda a quemar grasa durante el día.',
       '🟠 *Berberine*: controla antojos, reduce azúcar en sangre y baja la inflamación abdominal.',
@@ -1288,7 +1321,7 @@ function outOfStatePrescribedTemplate(language) {
 
   if (langNorm === 'Portuguese') {
     return [
-      '💛✨ No momento, não podemos enviar injeções de perda de peso para o seu estado😔.',
+      `💛✨ ${named('no momento, não podemos enviar injeções de perda de peso para o seu estado😔.', 'No momento, não podemos enviar injeções de perda de peso para o seu estado😔.')}`,
       'Mas podemos ajudar você com nossa linha de suplementos Dharma, desenvolvida para apoiar seu processo de forma natural:',
       '🔥 *Fat Burner*: acelera o metabolismo, dá energia limpa e ajuda a queimar gordura durante o dia.',
       '🟠 *Berberine*: controla desejos, reduz o açúcar no sangue e diminui a inflamação abdominal.',
@@ -1298,7 +1331,7 @@ function outOfStatePrescribedTemplate(language) {
   }
 
   return [
-    '💛✨ At the moment, we cannot ship weight loss injections to your state😔.',
+    `💛✨ ${named('at the moment, we cannot ship weight loss injections to your state😔.', 'At the moment, we cannot ship weight loss injections to your state😔.')}`,
     'But we can help you with our Dharma supplement line, designed to support your journey naturally:',
     '🔥 *Fat Burner*: speeds up metabolism, provides clean energy, and helps burn fat throughout the day.',
     '🟠 *Berberine*: controls cravings, reduces blood sugar, and lowers abdominal inflammation.',
@@ -1351,6 +1384,9 @@ function bookingCopy(language, key, values = {}) {
   const langNorm = normalizeLanguageName(language)
   const spanish = langNorm === 'Latin American Spanish'
   const portuguese = langNorm === 'Portuguese'
+  const firstName = String(values.firstName || '').trim()
+  const nameLead = firstName ? `${firstName}, ` : ''
+  const named = (withName, withoutName) => (firstName ? `${nameLead}${withName}` : withoutName)
 
   function tri(en, es, pt) {
     if (spanish) return es
@@ -1365,9 +1401,9 @@ function bookingCopy(language, key, values = {}) {
       '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
     ),
     askGoals: tri(
-      '✨ What are your main goals right now? For example, weight loss, nutrition guidance, supplements, or peptide support.',
-      '✨ Cuales son tus metas principales en este momento? Por ejemplo, bajar de peso, guia nutricional, suplementos o apoyo con peptidos.',
-      '✨ Quais sao seus principais objetivos neste momento? Por exemplo, perda de peso, orientacao nutricional, suplementos ou apoio com peptideos.',
+      `✨ ${named('what are your main goals right now?', 'What are your main goals right now?')} For example, weight loss, nutrition guidance, supplements, or peptide support.`,
+      `✨ ${named('cuales son tus metas principales en este momento?', 'Cuales son tus metas principales en este momento?')} Por ejemplo, bajar de peso, guia nutricional, suplementos o apoyo con peptidos.`,
+      `✨ ${named('quais sao seus principais objetivos neste momento?', 'Quais sao seus principais objetivos neste momento?')} Por exemplo, perda de peso, orientacao nutricional, suplementos ou apoio com peptideos.`,
     ),
     askPhone: tri(
       'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
@@ -1385,9 +1421,9 @@ function bookingCopy(language, key, values = {}) {
       'Perfeito, já tenho seu número. Qual nome completo devo usar para verificar e agendar a consulta?',
     ),
     offerSlot: tri(
-      `📅 I have this available time for your free discovery call: ${values.slot}. Does that work for you?`,
-      `Tengo este horario disponible para tu llamada gratuita de análisis: ${values.slot}. Te funciona?`,
-      `Tenho este horário disponível para sua chamada gratuita de análise: ${values.slot}. Funciona para você?`,
+      `📅 ${named('I have this available time for your free discovery call:', 'I have this available time for your free discovery call:')} ${values.slot}. Does that work for you?`,
+      `${named('tengo este horario disponible para tu llamada gratuita de análisis:', 'Tengo este horario disponible para tu llamada gratuita de análisis:')} ${values.slot}. Te funciona?`,
+      `${named('tenho este horário disponível para sua chamada gratuita de análise:', 'Tenho este horário disponível para sua chamada gratuita de análise:')} ${values.slot}. Funciona para você?`,
     ),
     askPreferredTime: tri(
       'Of course, no problem. What day and time works best for the call?',
@@ -1400,9 +1436,9 @@ function bookingCopy(language, key, values = {}) {
       `Não vejo exatamente esse horário, mas este é o espaço mais próximo disponível: ${values.slot}. Funciona para você?`,
     ),
     offerClosestSlots: tri(
-      `📅 I do not have that exact time available, but these are the closest schedules based on your desired time:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
-      `No tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
-      `Não tenho exatamente esse horário disponível, mas estes são os horários mais próximos conforme sua preferência:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
+      `📅 ${named('I do not have that exact time available, but these are the closest schedules based on your desired time:', 'I do not have that exact time available, but these are the closest schedules based on your desired time:')}\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+      `${named('no tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:', 'No tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:')}\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
+      `${named('não tenho exatamente esse horário disponível, mas estes são os horários mais próximos conforme sua preferência:', 'Não tenho exatamente esse horário disponível, mas estes são os horários mais próximos conforme sua preferência:')}\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
     ),
     offerAlternativeSlots: tri(
       `That time does not work. Here are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
@@ -1410,9 +1446,9 @@ function bookingCopy(language, key, values = {}) {
       `Esse horário não funciona. Estes são os próximos horários disponíveis:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
     ),
     offerFallbackSlots: tri(
-      `📅 I do not have availability for that requested time right now, but these are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
-      `No tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
-      `Não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
+      `📅 ${named('I do not have availability for that requested time right now, but these are the next available openings:', 'I do not have availability for that requested time right now, but these are the next available openings:')}\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+      `${named('no tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:', 'No tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:')}\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
+      `${named('não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:', 'Não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:')}\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
     ),
     askChooseOption: tri(
       'Which option works best? Please reply with the number so I can book it.',
@@ -1646,8 +1682,8 @@ function shouldRestartRespondConversation(session) {
   )
 }
 
-async function sendInitialRespondSequence({ contactId, channelId, customerLanguage }) {
-  const greeting = getInitialGreeting(customerLanguage)
+async function sendInitialRespondSequence({ contactId, channelId, customerLanguage, firstName = '' }) {
+  const greeting = getInitialGreeting(customerLanguage, firstName)
   const stateQuestion = getInitialStateQuestion(customerLanguage)
 
   if (INITIAL_IMAGE_URL) {
@@ -1664,11 +1700,26 @@ async function sendInitialRespondSequence({ contactId, channelId, customerLangua
   await sendRespondTextMessage({ contactId, channelId, text: stateQuestion })
 }
 
-function getInitialGreeting(customerLanguage) {
-  return (
+function getInitialGreeting(customerLanguage, firstName = '') {
+  const greeting =
     INITIAL_GREETING_BY_LANGUAGE[normalizeLanguageName(customerLanguage)] ||
     INITIAL_GREETING_BY_LANGUAGE.English
-  )
+
+  if (!firstName) {
+    return greeting
+  }
+
+  const langNorm = normalizeLanguageName(customerLanguage)
+
+  if (langNorm === 'Latin American Spanish') {
+    return greeting.replace(/^Hola,/, `Hola ${firstName},`)
+  }
+
+  if (langNorm === 'Portuguese') {
+    return greeting.replace(/^Olá,|^OlÃ¡,/, `Olá ${firstName},`)
+  }
+
+  return greeting.replace(/^Hi,/, `Hi ${firstName},`)
 }
 
 function getInitialStateQuestion(customerLanguage) {
@@ -1836,7 +1887,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Never ask for the customer full address or shipping address during lead qualification or discovery-call booking. State is enough for delivery qualification.',
     'When the customer is in the booking flow or gives scheduling intent, do not ask whether they need more information before booking. Continue to the next missing booking detail or offer a real available calendar slot.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
-    'Use the Respond contact profile context when present. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
+    'Use the Respond contact profile context when present. If a customer first name is provided, use only the first name naturally and often enough to feel personal, especially in explanatory or out-of-flow replies and when returning to the booking flow. Do not force the name into every message. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
     'Booking routing rule: new_or_no_record contacts are booked with the sellers team. returning_client, returning_lead, existing_hubspot_contact, and returning_conversation contacts are booked with the CS Team. Do not tell the customer this internal routing logic.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
