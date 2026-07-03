@@ -4,7 +4,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage } from './booked.js'
 import { loadLocalEnv } from './env.js'
-import { isPrescribedTreatmentDeliveryState } from '../src/data/states.js'
+import { US_STATES, isPrescribedTreatmentDeliveryState } from '../src/data/states.js'
 import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
@@ -489,29 +489,31 @@ async function processRespondIncomingMessage(event) {
       return
     }
 
-    await sendInitialRespondSequence({
-      contactId: event.contactId,
-      channelId: event.channelId,
-      customerLanguage: preferredLanguage,
-    })
+    if (shouldSendRestartIntro({ text: event.text, respondContactProfile })) {
+      await sendInitialRespondSequence({
+        contactId: event.contactId,
+        channelId: event.channelId,
+        customerLanguage: preferredLanguage,
+      })
 
-    respondSessions.set(event.contactId, {
-      customerLanguage: preferredLanguage,
-      languageAsked: false,
-      lastInteractionAt: Date.now(),
-      messages: [
-        userMessage,
-        { role: 'agent', content: getInitialGreeting(preferredLanguage) },
-        { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
-      ],
-      booking: {
-        bookingTeam: getBookingTeamForRespondContact(respondContactProfile),
-        details: getRespondContactBookingDetails(respondContactProfile),
-        pendingField: 'state',
-      },
-      respondContactProfile,
-    })
-    return
+      respondSessions.set(event.contactId, {
+        customerLanguage: preferredLanguage,
+        languageAsked: false,
+        lastInteractionAt: Date.now(),
+        messages: [
+          userMessage,
+          { role: 'agent', content: getInitialGreeting(preferredLanguage) },
+          { role: 'agent', content: getInitialStateQuestion(preferredLanguage) },
+        ],
+        booking: {
+          bookingTeam: getBookingTeamForRespondContact(respondContactProfile),
+          details: getRespondContactBookingDetails(respondContactProfile),
+          pendingField: 'state',
+        },
+        respondContactProfile,
+      })
+      return
+    }
   }
 
   if (session.languageAsked && preferredLanguage) {
@@ -883,15 +885,17 @@ async function handleRespondBookingAutomation({
 }) {
   const existingBooking = session.booking || {}
   const bookingTeam = existingBooking.bookingTeam || getBookingTeamForRespondContact(respondContactProfile)
+  const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
+  const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
   const details = {
     ...getRespondContactBookingDetails(respondContactProfile),
     ...(existingBooking.details || {}),
     ...extractRespondBookingDetails(messages),
+    ...latestSignals,
   }
-  const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
 
   if (existingBooking.pendingField === 'state') {
-    const state = extractStateName(latestUserText)
+    const state = latestSignals.state
 
     if (!state) {
       const text = isGreetingOnly(latestUserText)
@@ -909,7 +913,13 @@ async function handleRespondBookingAutomation({
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
         text: outOfStatePrescribedTemplate(customerLanguage),
-        booking: null,
+        booking: {
+          ...existingBooking,
+          bookingTeam,
+          details: nextDetails,
+          pendingField: 'state',
+          outOfStateNotified: true,
+        },
       }
     }
 
@@ -935,7 +945,7 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'goals') {
-    const desiredTreatment = extractDesiredTreatmentName(latestUserText) || guessDesiredTreatmentFromGoal(latestUserText)
+    const desiredTreatment = latestSignals.desiredTreatment || guessDesiredTreatmentFromGoal(latestUserText)
     const nextDetails = {
       ...details,
       desiredTreatment,
@@ -945,7 +955,13 @@ async function handleRespondBookingAutomation({
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
         text: outOfStatePrescribedTemplate(customerLanguage),
-        booking: null,
+        booking: {
+          ...existingBooking,
+          bookingTeam,
+          details: nextDetails,
+          pendingField: 'state',
+          outOfStateNotified: true,
+        },
       }
     }
 
@@ -998,7 +1014,13 @@ async function handleRespondBookingAutomation({
 
   const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
 
-  if (!isActiveBookingContinuation(existingBooking, latestUserText)) {
+  if (
+    !isActiveBookingContinuation(existingBooking, latestUserText) &&
+    !isBookingFlowSignal(latestUserText) &&
+    !latestSignals.state &&
+    !latestSignals.desiredTreatment &&
+    !latestSignals.preferredTime
+  ) {
     return null
   }
 
@@ -1071,7 +1093,10 @@ async function handleRespondBookingAutomation({
   const hasBookingSignal =
     existingBooking.offeredOption ||
     existingBooking.pendingField ||
-    isBookingRequest(latestUserText)
+    isBookingRequest(latestUserText) ||
+    isBookingFlowSignal(latestUserText) ||
+    Boolean(latestSignals.state || latestSignals.desiredTreatment || latestSignals.preferredTime) ||
+    Boolean(details.state && details.desiredTreatment)
 
   if (!hasBookingSignal) {
     return null
@@ -1080,7 +1105,13 @@ async function handleRespondBookingAutomation({
   if (shouldUseOutOfStatePrescribedTemplate(details)) {
     return {
       text: outOfStatePrescribedTemplate(customerLanguage),
-      booking: null,
+      booking: {
+        ...existingBooking,
+        bookingTeam,
+        details,
+        pendingField: 'state',
+        outOfStateNotified: true,
+      },
     }
   }
 
@@ -1114,6 +1145,7 @@ async function handleRespondBookingAutomation({
     booking: { ...existingBooking, bookingTeam },
     details,
     customerLanguage,
+    preferredTime: latestSignals.preferredTime || details.preferredTime,
   })
 }
 
@@ -1256,23 +1288,27 @@ function outOfStatePrescribedTemplate(language) {
 function extractRespondBookingDetails(messages) {
   const userMessages = messages.filter((item) => item.role === 'user').map((item) => item.content || '')
   const joined = userMessages.join('\n')
-  // Only try to extract a name from messages that do NOT contain a phone number,
-  // to avoid treating extra words in a phone message (e.g. "pero solo hablo espanol") as the name.
-  const likelyName = [...userMessages].reverse().map(cleanLikelyName).find((text) => {
-    const trimmed = text.trim()
-    if (extractPhoneNumber(trimmed)) {
-      return false
-    }
-    return isLikelyCustomerName(trimmed)
-  })
-  const nameDetails = likelyName ? splitCustomerName(likelyName) : {}
+  const latestState = [...userMessages].reverse().map(extractStateName).find(Boolean)
+  const latestTreatment = [...userMessages].reverse().map(extractDesiredTreatmentName).find(Boolean)
+  const latestPreferredTime = [...userMessages].reverse().map(extractPreferredTimeText).find(Boolean)
 
   return Object.fromEntries(
     Object.entries({
-      ...nameDetails,
-      state: extractStateName(joined),
-      desiredTreatment: extractDesiredTreatmentName(joined),
+      state: latestState,
+      desiredTreatment: latestTreatment,
+      preferredTime: latestPreferredTime,
       phone: extractPhoneNumber(joined),
+    }).filter(([, value]) => Boolean(value)),
+  )
+}
+
+function extractRespondBookingDetailsFromText(content) {
+  return Object.fromEntries(
+    Object.entries({
+      state: extractStateName(content),
+      desiredTreatment: extractDesiredTreatmentName(content),
+      preferredTime: extractPreferredTimeText(content),
+      phone: extractPhoneNumber(content),
     }).filter(([, value]) => Boolean(value)),
   )
 }
@@ -1481,9 +1517,23 @@ function isNegativeReply(content) {
 }
 
 function isBookingRequest(content) {
-  return /\b(appointment|book|booking|schedule|scheduled|discovery call|call|cita|agendar|consulta)\b/i.test(
-    content,
+  const normalized = normalizeSearchText(content)
+
+  return /\b(appointment|appointments|book|booking|schedule|scheduled|scheduling|availability|available|slot|slots|calendar|discovery call|call|meeting|today|tomorrow|cita|citas|agendar|agenda|agendame|horario|horarios|disponible|disponibilidad|consulta|llamada|reunion|marcar|marcame)\b/i.test(
+    normalized,
   )
+}
+
+function isBookingFlowSignal(content) {
+  const normalized = normalizeSearchText(content)
+
+  return [
+    extractStateName(content),
+    extractDesiredTreatmentName(content),
+    extractPreferredTimeText(content),
+    /\b(weight loss|lose weight|losing weight|bajar de peso|perder peso|semaglutide|tirzepatide|zepbound|glp 1|injection|injections|supplements|nutrition|peptide|peptides)\b/.test(normalized),
+    /\b(today|tomorrow|morning|afternoon|evening|am|pm|july|jul|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(normalized),
+  ].some(Boolean)
 }
 
 function splitCustomerName(content) {
@@ -1514,9 +1564,25 @@ function isLikelyCustomerName(content) {
   const trimmed = String(content || '').trim()
   const normalized = normalizeSearchText(trimmed)
   const parts = trimmed.split(/\s+/).filter(Boolean)
+  const nonNamePhrases = [
+    /\bporque\b/,
+    /\bpor que\b/,
+    /\bbecause\b/,
+    /\btrabajo\b/,
+    /\bwork\b/,
+    /\bi work\b/,
+    /\bmy work\b/,
+    /\bno puedo\b/,
+    /\bi can t\b/,
+    /\bi cannot\b/,
+  ]
 
   // Support accented Latin characters (Spanish, Portuguese names)
   if (!/^[\p{L}][\p{L}' -]+$/u.test(trimmed) || parts.length < 2 || parts.length > 4) {
+    return false
+  }
+
+  if (nonNamePhrases.some((pattern) => pattern.test(normalized))) {
     return false
   }
 
@@ -1546,6 +1612,20 @@ function shouldRestartRespondConversation(session) {
       session.lastInteractionAt > 0 &&
       Date.now() - session.lastInteractionAt >= SESSION_RESTART_WINDOW_MS)
   )
+}
+
+function shouldSendRestartIntro({ text, respondContactProfile }) {
+  if (isBookingFlowSignal(text)) {
+    return false
+  }
+
+  if (respondContactProfile?.status && respondContactProfile.status !== 'new_or_no_record') {
+    return false
+  }
+
+  const bookingDetails = getRespondContactBookingDetails(respondContactProfile)
+
+  return !bookingDetails.state && !bookingDetails.desiredTreatment && !bookingDetails.phone
 }
 
 async function sendInitialRespondSequence({ contactId, channelId, customerLanguage }) {
@@ -1735,6 +1815,8 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
+    'Never ask for the customer full address or shipping address during lead qualification or discovery-call booking. State is enough for delivery qualification.',
+    'When the customer is in the booking flow or gives scheduling intent, do not ask whether they need more information before booking. Continue to the next missing booking detail or offer a real available calendar slot.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'Use the Respond contact profile context when present. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
     'Booking routing rule: new_or_no_record contacts are booked with the sellers team. returning_client, returning_lead, existing_hubspot_contact, and returning_conversation contacts are booked with the CS Team. Do not tell the customer this internal routing logic.',
@@ -1923,61 +2005,27 @@ function extractPriorQuestions(agentMessages) {
 }
 
 function extractStateName(content) {
-  const states = [
-    'Alabama',
-    'Alaska',
-    'Arizona',
-    'Arkansas',
-    'California',
-    'Colorado',
-    'Connecticut',
-    'Delaware',
-    'Florida',
-    'Georgia',
-    'Hawaii',
-    'Idaho',
-    'Illinois',
-    'Indiana',
-    'Iowa',
-    'Kansas',
-    'Kentucky',
-    'Louisiana',
-    'Maine',
-    'Maryland',
-    'Massachusetts',
-    'Michigan',
-    'Minnesota',
-    'Mississippi',
-    'Missouri',
-    'Montana',
-    'Nebraska',
-    'Nevada',
-    'New Hampshire',
-    'New Jersey',
-    'New Mexico',
-    'New York',
-    'North Carolina',
-    'North Dakota',
-    'Ohio',
-    'Oklahoma',
-    'Oregon',
-    'Pennsylvania',
-    'Rhode Island',
-    'South Carolina',
-    'South Dakota',
-    'Tennessee',
-    'Texas',
-    'Utah',
-    'Vermont',
-    'Virginia',
-    'Washington',
-    'West Virginia',
-    'Wisconsin',
-    'Wyoming',
-  ]
-  const normalized = content.toLowerCase()
+  const normalized = normalizeSearchText(content)
+  const aliases = new Map([
+    ['dc', 'District of Columbia'],
+    ['d c', 'District of Columbia'],
+    ['washington dc', 'District of Columbia'],
+    ['washington d c', 'District of Columbia'],
+  ])
 
-  return states.find((state) => normalized.includes(state.toLowerCase())) || ''
+  for (const [alias, state] of aliases.entries()) {
+    if (new RegExp(`\\b${escapeRegExp(alias)}\\b`).test(normalized)) {
+      return state
+    }
+  }
+
+  return (
+    US_STATES.find((state) => {
+      const normalizedState = normalizeSearchText(state)
+
+      return new RegExp(`\\b${escapeRegExp(normalizedState)}\\b`).test(normalized)
+    }) || ''
+  )
 }
 
 function extractPreferredLanguageName(content) {
@@ -2118,6 +2166,10 @@ function normalizeSearchText(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function resolveCustomerLanguage({ messages = [], message, customerLanguage }) {
