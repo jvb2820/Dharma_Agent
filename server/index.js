@@ -576,6 +576,7 @@ async function processRespondIncomingMessage(event) {
     redundancyControl,
     context: ragContext,
     respondContactProfile,
+    booking: session.booking,
   })
   const generatedText = await createOpenAIResponseText({
     model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
@@ -856,6 +857,28 @@ function formatRespondContactProfileForPrompt(profile) {
     .join('\n')
 }
 
+function formatBookingContextForPrompt(booking = {}) {
+  const details = booking.details || {}
+  const offeredOption = booking.offeredOption
+  const options = booking.options || []
+  const lines = [
+    'Current booking flow context:',
+    booking.pendingField ? `Pending field: ${booking.pendingField}.` : '',
+    details.state ? `Known state: ${details.state}.` : '',
+    details.desiredTreatment ? `Known desired treatment/goal: ${details.desiredTreatment}.` : '',
+    details.phone ? 'Customer phone is already known from Respond/contact context.' : '',
+    offeredOption
+      ? `Already offered slot: ${formatCustomerSlot(offeredOption.startTime, offeredOption.timezone)}.`
+      : '',
+    options.length
+      ? `Already offered numbered slots:\n${formatNumberedSlots(options)}`
+      : '',
+    'If the latest customer message asks an information question, answer it from company knowledge first. Then briefly return to the current booking flow without asking for details already known or inventing availability.',
+  ].filter(Boolean)
+
+  return lines.join('\n')
+}
+
 function getBookingTeamForRespondContact(profile) {
   return profile?.status && profile.status !== 'new_or_no_record' ? 'customer_service' : 'sales'
 }
@@ -936,6 +959,11 @@ async function handleRespondBookingAutomation({
       treatmentGoal: latestUserText.trim(),
     }
 
+    if (isOutOfFlowInfoQuestion(latestUserText)) {
+      existingBooking.details = nextDetails
+      return null
+    }
+
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
         text: outOfStatePrescribedTemplate(customerLanguage),
@@ -997,6 +1025,7 @@ async function handleRespondBookingAutomation({
   }
 
   const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
+  const hasActiveSlotOffer = Boolean(existingBooking.offeredOption || existingBooking.options?.length)
 
   if (
     !isActiveBookingContinuation(existingBooking, latestUserText) &&
@@ -1005,6 +1034,10 @@ async function handleRespondBookingAutomation({
     !latestSignals.desiredTreatment &&
     !latestSignals.preferredTime
   ) {
+    return null
+  }
+
+  if (hasActiveSlotOffer && !selectedOption && isOutOfFlowInfoQuestion(latestUserText)) {
     return null
   }
 
@@ -1493,11 +1526,29 @@ function isNegative(content) {
 function isNegativeReply(content) {
   const normalized = normalizeSearchText(content)
 
+  if (isOutOfFlowInfoQuestion(content)) {
+    return false
+  }
+
   return (
     /\b(no|nope|nah|not|doesn t work|doesnt work|otro|otra|different|later|mas tarde)\b/i.test(
       normalized,
     ) || isNegative(content)
   )
+}
+
+function isOutOfFlowInfoQuestion(content) {
+  const normalized = normalizeSearchText(content)
+
+  if (!normalized) {
+    return false
+  }
+
+  return [
+    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide)\b/.test(normalized),
+    /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido)\b/.test(normalized),
+    /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo)\b/.test(normalized),
+  ].some(Boolean)
 }
 
 function isBookingRequest(content) {
@@ -1780,7 +1831,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Emoji style for model-generated chat replies: include exactly one friendly, relevant emoji in every normal generated customer-facing reply. Choose an emoji that fits the message, such as 📍 for state, 📲 for phone, 💛 for warmth, or ✨ for encouragement. Do not add extra emojis. This rule applies only to generated chat replies; do not rewrite or add emojis to fixed application templates.',
     'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
-    'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved. When returning to scheduling, never ask what day or time works best for the customer; instead say you will check the next available time or continue collecting the next required booking detail so the application can offer real calendar slots.',
+    'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. If they ask "what is it about?", "tell me more", "how does it work", pricing, product, company, safety, side-effect, or similar questions while a slot or flow step is active, answer that question before asking them to choose or confirm. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved. When returning to scheduling, never ask what day or time works best for the customer; instead say you will check the next available time or continue collecting the next required booking detail so the application can offer real calendar slots.',
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
@@ -1836,6 +1887,7 @@ function buildInput({
   customerLanguage,
   redundancyControl,
   respondContactProfile,
+  booking,
 }) {
   const parts = []
 
@@ -1849,6 +1901,10 @@ function buildInput({
 
   if (respondContactProfile) {
     parts.push(formatRespondContactProfileForPrompt(respondContactProfile))
+  }
+
+  if (booking) {
+    parts.push(formatBookingContextForPrompt(booking))
   }
 
   if (context) {
