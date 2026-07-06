@@ -19,7 +19,7 @@ function App() {
           </Routes>
         </BrowserRouter>
       </ChatProvider>
-    </AgentProvider>s
+    </AgentProvider>
   )
 }
 
