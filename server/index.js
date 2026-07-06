@@ -1388,7 +1388,7 @@ function selectSpreadAvailabilityOptions(options = [], limit = 4) {
   const sortedOptions = [...options].sort((left, right) => left.startTime - right.startTime)
 
   if (sortedOptions.length <= limit) {
-    return sortedOptions
+    return reduceBackToBackSpecialistOptions(sortedOptions)
   }
 
   const selectedIndexes = new Set([0, sortedOptions.length - 1])
@@ -1420,6 +1420,30 @@ function selectSpreadAvailabilityOptions(options = [], limit = 4) {
   return [...selectedIndexes]
     .sort((left, right) => left - right)
     .map((index) => sortedOptions[index])
+    .reduce((selected, option) => addOptionWithSpecialistVariety(selected, option, sortedOptions, limit), [])
+}
+
+function reduceBackToBackSpecialistOptions(options = []) {
+  return options.reduce(
+    (selected, option) => addOptionWithSpecialistVariety(selected, option, options, options.length),
+    [],
+  )
+}
+
+function addOptionWithSpecialistVariety(selected, option, options, limit) {
+  const previous = selected[selected.length - 1]
+
+  if (!previous || previous.sellerSlug !== option.sellerSlug || selected.length >= limit) {
+    return [...selected, option]
+  }
+
+  const replacement = options.find(
+    (candidate) =>
+      candidate.sellerSlug !== option.sellerSlug &&
+      !selected.some((selectedOption) => getAvailabilityOptionKey(selectedOption) === getAvailabilityOptionKey(candidate)),
+  )
+
+  return [...selected, replacement || option]
 }
 
 function buildBookingWithExcludedOptions(booking = {}) {
