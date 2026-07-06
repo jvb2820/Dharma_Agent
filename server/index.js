@@ -4,7 +4,11 @@ import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage } from './booked.js'
 import { loadLocalEnv } from './env.js'
-import { formatCustomerStateSlot, getCustomerStateHour } from './timezones.js'
+import {
+  formatCustomerStateSlot,
+  formatCustomerStateTime,
+  getCustomerStateHour,
+} from './timezones.js'
 import {
   NON_SERVICEABLE_LOCATIONS,
   US_STATES,
@@ -1022,12 +1026,44 @@ async function handleRespondBookingAutomation({
     const nextDetails = { ...details, preferredTime }
 
     return await offerSoonestRespondSlot({
-      booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
+      booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
       details: nextDetails,
       customerLanguage,
       preferredTime,
       closest: true,
     })
+  }
+
+  if (existingBooking.pendingField === 'phone') {
+    const phone = latestSignals.phone || extractPhoneNumber(latestUserText)
+    const nextDetails = phone ? { ...details, phone } : details
+
+    if (!nextDetails.phone) {
+      return {
+        text: bookingCopy(customerLanguage, 'askPhone'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+      }
+    }
+
+    if (!nextDetails.firstName || !nextDetails.lastName) {
+      return {
+        text: bookingCopy(customerLanguage, 'askName'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+      }
+    }
+
+    return await bookAcceptedRespondSlot({
+      booking: { ...existingBooking, bookingTeam, pendingField: '' },
+      details: nextDetails,
+      customerLanguage,
+    }).catch((error) =>
+      buildRespondBookingFailure(
+        { ...existingBooking, bookingTeam, pendingField: '' },
+        nextDetails,
+        customerLanguage,
+        error,
+      ),
+    )
   }
 
   if (existingBooking.pendingField === 'name') {
@@ -1041,6 +1077,13 @@ async function handleRespondBookingAutomation({
       }
     }
 
+    if (!nextDetails.phone) {
+      return {
+        text: bookingCopy(customerLanguage, 'askPhone'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+      }
+    }
+
     return await bookAcceptedRespondSlot({
       booking: { ...existingBooking, bookingTeam },
       details: nextDetails,
@@ -1050,7 +1093,11 @@ async function handleRespondBookingAutomation({
     )
   }
 
-  const selectedOption = pickRespondAvailabilityOption(latestUserText, existingBooking.options)
+  const selectedOption = pickRespondAvailabilityOption(
+    latestUserText,
+    existingBooking.options,
+    details.state,
+  )
   const hasActiveSlotOffer = Boolean(existingBooking.offeredOption || existingBooking.options?.length)
 
   if (
@@ -1071,7 +1118,7 @@ async function handleRespondBookingAutomation({
     const nextDetails = { ...details, ...latestSignals }
 
     return await offerSoonestRespondSlot({
-      booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
+      booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
       details: nextDetails,
       customerLanguage,
       preferredTime: latestSignals.preferredTime,
@@ -1085,7 +1132,7 @@ async function handleRespondBookingAutomation({
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
-      booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
+      booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
       details: nextDetails,
       customerLanguage,
       preferredTime,
@@ -1099,7 +1146,7 @@ async function handleRespondBookingAutomation({
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
-      booking: { ...existingBooking, bookingTeam, offeredOption: null, options: [] },
+      booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
       details: nextDetails,
       customerLanguage,
       preferredTime,
@@ -1127,6 +1174,19 @@ async function handleRespondBookingAutomation({
           details,
           offeredOption: option,
           pendingField: 'name',
+        },
+      }
+    }
+
+    if (!details.phone) {
+      return {
+        text: bookingCopy(customerLanguage, 'askPhone'),
+        booking: {
+          ...existingBooking,
+          bookingTeam,
+          details,
+          offeredOption: option,
+          pendingField: 'phone',
         },
       }
     }
@@ -1223,12 +1283,14 @@ async function offerSoonestRespondSlot({
     options.length ? options : fallbackOptions,
     details,
   )
+  availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
 
   if (hasTimeConstraint && availableOptions.length === 0) {
     availableOptions = filterOptionsByAvailabilityPreference(
       await getAvailability({ limit: 24 }),
       details,
     )
+    availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
   }
   const offeredOption = availableOptions[0]
 
@@ -1240,7 +1302,7 @@ async function offerSoonestRespondSlot({
   }
 
   const nextOptions = closest
-    ? selectBalancedAvailabilityOptions(availableOptions, details.state)
+    ? selectSpreadAvailabilityOptions(availableOptions)
     : [offeredOption]
 
   return {
@@ -1257,6 +1319,7 @@ async function offerSoonestRespondSlot({
       options: nextOptions,
       offeredOption: closest ? null : offeredOption,
       pendingField: '',
+      excludedOptions: booking.excludedOptions || [],
     },
   }
 }
@@ -1277,37 +1340,79 @@ function filterOptionsByAvailabilityPreference(options = [], details = {}) {
   })
 }
 
-function selectBalancedAvailabilityOptions(options = [], state = '') {
+function selectSpreadAvailabilityOptions(options = [], limit = 4) {
   const sortedOptions = [...options].sort((left, right) => left.startTime - right.startTime)
-  const morningOptions = sortedOptions.filter((option) => {
-    const localHour = getCustomerStateHour(option.startTime, state, option.timezone)
 
-    return localHour != null && localHour < 12
-  })
-  const afternoonOptions = sortedOptions.filter((option) => {
-    const localHour = getCustomerStateHour(option.startTime, state, option.timezone)
-
-    return localHour != null && localHour >= 12
-  })
-
-  if (morningOptions.length && afternoonOptions.length) {
-    const perDayPart = morningOptions.length >= 3 && afternoonOptions.length >= 3 ? 3 : 2
-    const balanced = [
-      ...morningOptions.slice(0, perDayPart),
-      ...afternoonOptions.slice(0, perDayPart),
-    ].sort((left, right) => left.startTime - right.startTime)
-
-    if (balanced.length >= 4 || sortedOptions.length <= balanced.length) {
-      return balanced
-    }
-
-    const selected = new Set(balanced)
-    const fill = sortedOptions.filter((option) => !selected.has(option)).slice(0, 4 - balanced.length)
-
-    return [...balanced, ...fill].sort((left, right) => left.startTime - right.startTime)
+  if (sortedOptions.length <= limit) {
+    return sortedOptions
   }
 
-  return sortedOptions.slice(0, Math.min(4, sortedOptions.length))
+  const selectedIndexes = new Set([0, sortedOptions.length - 1])
+  const targetCount = Math.min(limit, sortedOptions.length)
+
+  while (selectedIndexes.size < targetCount) {
+    const sortedIndexes = [...selectedIndexes].sort((left, right) => left - right)
+    let widestGap = { left: 0, right: sortedOptions.length - 1, size: -1 }
+
+    for (let index = 0; index < sortedIndexes.length - 1; index += 1) {
+      const left = sortedIndexes[index]
+      const right = sortedIndexes[index + 1]
+      const size = right - left
+
+      if (size > widestGap.size) {
+        widestGap = { left, right, size }
+      }
+    }
+
+    const nextIndex = Math.round((widestGap.left + widestGap.right) / 2)
+
+    if (selectedIndexes.has(nextIndex)) {
+      break
+    }
+
+    selectedIndexes.add(nextIndex)
+  }
+
+  return [...selectedIndexes]
+    .sort((left, right) => left - right)
+    .map((index) => sortedOptions[index])
+}
+
+function buildBookingWithExcludedOptions(booking = {}) {
+  const excludedOptions = [
+    ...(booking.excludedOptions || []),
+    booking.offeredOption,
+    ...(booking.options || []),
+  ].filter(Boolean)
+
+  return {
+    ...booking,
+    offeredOption: null,
+    options: [],
+    excludedOptions,
+  }
+}
+
+function filterPreviouslyOfferedOptions(options = [], booking = {}) {
+  const offeredKeys = new Set(
+    [
+      booking.offeredOption,
+      ...(booking.options || []),
+      ...(booking.excludedOptions || []),
+    ]
+      .filter(Boolean)
+      .map(getAvailabilityOptionKey),
+  )
+
+  if (!offeredKeys.size) {
+    return options
+  }
+
+  return options.filter((option) => !offeredKeys.has(getAvailabilityOptionKey(option)))
+}
+
+function getAvailabilityOptionKey(option = {}) {
+  return `${option.sellerSlug || ''}:${option.startTime || ''}`
 }
 
 async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
@@ -1346,7 +1451,11 @@ function buildRespondBookingFailure(booking, details, customerLanguage, error) {
 
   return {
     text: bookingCopy(customerLanguage, 'bookingFailed'),
-    booking: { ...booking, details },
+    booking: {
+      ...buildBookingWithExcludedOptions(booking),
+      details,
+      lastBookingError: error.message,
+    },
   }
 }
 
@@ -1592,17 +1701,133 @@ function formatNumberedSlots(options = [], state = '') {
     .join('\n')
 }
 
-function pickRespondAvailabilityOption(content, options = []) {
-  if (extractAvailabilityPreference(content).hasPreference || extractPreferredTimeText(content)) {
-    return null
-  }
-
+function pickRespondAvailabilityOption(content, options = [], state = '') {
   const normalized = normalizeSearchText(content)
   const selectedId =
     normalized.match(/^(?:option|number|slot|opcion|opción|numero|número|la|el)?\s*(\d{1,2})$/)?.[1] ||
     normalized.match(/\b(?:option|number|slot|opcion|opción|numero|número|la|el)\s+(\d{1,2})\b/)?.[1]
 
-  return options.find((option) => option.id === selectedId) || null
+  return options.find((option) => option.id === selectedId) ||
+    pickRespondAvailabilityOptionByTime(content, options, state) ||
+    null
+}
+
+function pickRespondAvailabilityOptionByTime(content, options = [], state = '') {
+  if (!options.length) {
+    return null
+  }
+
+  if (extractAvailabilityPreference(content).hasPreference) {
+    return null
+  }
+
+  const requestedTime = extractRequestedSlotTime(content)
+
+  if (!requestedTime) {
+    return null
+  }
+
+  const requestedDate = extractRequestedSlotDate(content)
+  const requestedWeekday = extractRequestedSlotWeekday(content)
+  const candidateOptions = options.filter((option) => {
+    const optionTime = getOptionCustomerTime(option, state)
+
+    if (!optionTime || optionTime.hour !== requestedTime.hour) {
+      return false
+    }
+
+    if (requestedTime.minute != null && optionTime.minute !== requestedTime.minute) {
+      return false
+    }
+
+    if (requestedDate && requestedDate !== getOptionCustomerDateKey(option, state)) {
+      return false
+    }
+
+    if (requestedWeekday && requestedWeekday !== getOptionCustomerWeekdayKey(option, state)) {
+      return false
+    }
+
+    return true
+  })
+
+  return candidateOptions.length === 1 ? candidateOptions[0] : null
+}
+
+function extractRequestedSlotTime(content) {
+  const match = String(content || '').match(/\b(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)\b/i)
+
+  if (!match) {
+    return null
+  }
+
+  let hour = Number(match[1])
+  const minute = match[2] == null ? null : Number(match[2])
+  const period = match[3].toLowerCase()
+
+  if (period === 'pm' && hour < 12) {
+    hour += 12
+  }
+
+  if (period === 'am' && hour === 12) {
+    hour = 0
+  }
+
+  return { hour, minute }
+}
+
+function extractRequestedSlotDate(content) {
+  const monthDayMatch = String(content || '').match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
+  )
+
+  return monthDayMatch
+    ? `${monthDayMatch[1].slice(0, 3).toLowerCase()} ${Number(monthDayMatch[2])}`
+    : ''
+}
+
+function extractRequestedSlotWeekday(content) {
+  const match = String(content || '').match(
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|domingo|lunes|martes|miercoles|mi[eÃ©]rcoles|jueves|viernes|sabado|s[aÃ¡]bado)\b/i,
+  )
+
+  return match ? normalizeSearchText(match[1]) : ''
+}
+
+function getOptionCustomerTime(option, state = '') {
+  const timeText = formatCustomerStateTime(option.startTime, state, option.timezone)
+  const match = timeText.match(/\b(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)\b/i)
+
+  if (!match) {
+    return null
+  }
+
+  let hour = Number(match[1])
+  const minute = Number(match[2] || 0)
+  const period = match[3].toLowerCase()
+
+  if (period === 'pm' && hour < 12) {
+    hour += 12
+  }
+
+  if (period === 'am' && hour === 12) {
+    hour = 0
+  }
+
+  return { hour, minute }
+}
+
+function getOptionCustomerDateKey(option, state = '') {
+  const slotText = formatCustomerStateSlot(option.startTime, state, option.timezone)
+  const match = slotText.match(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})\b/i,
+  )
+
+  return match ? `${match[1].slice(0, 3).toLowerCase()} ${Number(match[2])}` : ''
+}
+
+function getOptionCustomerWeekdayKey(option, state = '') {
+  return normalizeSearchText(formatCustomerStateSlot(option.startTime, state, option.timezone).split(',')[0])
 }
 
 function isActiveBookingContinuation(booking, latestUserText) {
@@ -1612,7 +1837,7 @@ function isActiveBookingContinuation(booking, latestUserText) {
 
   if (booking.options?.length > 0 || booking.offeredOption) {
     return (
-      pickRespondAvailabilityOption(latestUserText, booking.options) ||
+      pickRespondAvailabilityOption(latestUserText, booking.options, booking.details?.state) ||
       isAffirmative(latestUserText) ||
       isNegativeReply(latestUserText) ||
       extractPreferredTimeText(latestUserText) ||
