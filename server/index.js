@@ -661,8 +661,10 @@ function classifyRespondContact(contact) {
   const bookingDetails = buildRespondContactBookingDetails({ contact, customFields })
   const leadStatus = customFields.lead_status || ''
   const classification = customFields.classification || ''
+  const contactStatus = getRespondContactStatus(customFields, contact)
   const hubspotId = customFields.hubspot_id || ''
   const statusText = [
+    contactStatus,
     leadStatus,
     classification,
     contact.lifecycle,
@@ -737,6 +739,7 @@ function getRespondTagNames(contact) {
 
 function buildRespondContactSignalSummary({ customFields, tags, contact }) {
   const phone = extractRespondContactPhone(contact, customFields)
+  const contactStatus = getRespondContactStatus(customFields, contact)
 
   return Object.fromEntries(
     Object.entries({
@@ -746,10 +749,21 @@ function buildRespondContactSignalSummary({ customFields, tags, contact }) {
       hasPhone: Boolean(phone),
       state: customFields.state || customFields.state1,
       treatment: customFields.treatment || customFields.desired_treatment_form,
-      contactStatus: contact?.status,
+      contactStatus,
       lifecycle: contact?.lifecycle,
       tags: tags.length ? tags.join(', ') : '',
     }).filter(([, value]) => Boolean(value)),
+  )
+}
+
+function getRespondContactStatus(customFields = {}, contact = {}) {
+  return (
+    customFields.contact_status ||
+    customFields.ContactStatus ||
+    customFields['Contact Status'] ||
+    customFields.status ||
+    contact?.status ||
+    ''
   )
 }
 
@@ -918,7 +932,9 @@ function formatBookingContextForPrompt(booking = {}) {
 }
 
 function getBookingTeamForRespondContact(profile) {
-  return profile?.status && profile.status !== 'new_or_no_record' ? 'customer_service' : 'sales'
+  const contactStatus = String(profile?.fields?.contactStatus || '').trim()
+
+  return /^client$/i.test(contactStatus) ? 'customer_service' : 'sales'
 }
 
 async function handleRespondBookingAutomation({
@@ -2305,7 +2321,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'When the customer is in the booking flow or gives scheduling intent, do not ask whether they need more information before booking. Continue to the next missing booking detail or offer a real available calendar slot.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'Use the Respond contact profile context when present. If a customer first name is provided, use only the first name and use it sparingly. Prefer no name in routine booking, slot, and follow-up messages, especially if the prior agent reply already used it. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
-    'Booking routing rule: new_or_no_record contacts are booked with the sellers team. returning_client, returning_lead, existing_hubspot_contact, and returning_conversation contacts are booked with the CS Team. Do not tell the customer this internal routing logic.',
+    'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
     'Price follow-up rule: if the customer asks about price or cost again (even if you have shared pricing before), always share the full price list again politely and naturally without saying you already shared it. After sharing the pricing, always follow up immediately with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
