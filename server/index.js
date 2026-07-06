@@ -1323,7 +1323,7 @@ async function offerSoonestRespondSlot({
   }
 
   const nextOptions = closest || shouldOfferMultipleSlots
-    ? selectSpreadAvailabilityOptions(availableOptions, 6)
+    ? selectSpreadAvailabilityOptions(availableOptions, 6, details.state)
     : [offeredOption]
 
   return {
@@ -1384,8 +1384,9 @@ function filterOptionsByAvailabilityPreference(options = [], details = {}) {
   })
 }
 
-function selectSpreadAvailabilityOptions(options = [], limit = 4) {
-  const sortedOptions = [...options].sort((left, right) => left.startTime - right.startTime)
+function selectSpreadAvailabilityOptions(options = [], limit = 4, state = '') {
+  const sortedOptions = dedupeOptionsByDisplayedTime(options, state)
+    .sort((left, right) => left.startTime - right.startTime)
 
   if (sortedOptions.length <= limit) {
     return reduceBackToBackSpecialistOptions(sortedOptions)
@@ -1421,13 +1422,31 @@ function selectSpreadAvailabilityOptions(options = [], limit = 4) {
     .sort((left, right) => left - right)
     .map((index) => sortedOptions[index])
     .reduce((selected, option) => addOptionWithSpecialistVariety(selected, option, sortedOptions, limit), [])
+    .sort((left, right) => left.startTime - right.startTime)
 }
 
 function reduceBackToBackSpecialistOptions(options = []) {
-  return options.reduce(
+  return dedupeOptionsByDisplayedTime(options).reduce(
     (selected, option) => addOptionWithSpecialistVariety(selected, option, options, options.length),
     [],
-  )
+  ).sort((left, right) => left.startTime - right.startTime)
+}
+
+function dedupeOptionsByDisplayedTime(options = [], state = '') {
+  const seenTimes = new Set()
+
+  return [...options]
+    .sort((left, right) => left.startTime - right.startTime || left.sellerPriority - right.sellerPriority)
+    .filter((option) => {
+      const key = formatCustomerStateSlot(option.startTime, state, option.timezone)
+
+      if (seenTimes.has(key)) {
+        return false
+      }
+
+      seenTimes.add(key)
+      return true
+    })
 }
 
 function addOptionWithSpecialistVariety(selected, option, options, limit) {
