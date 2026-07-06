@@ -952,12 +952,10 @@ async function handleRespondBookingAutomation({
     const nextDetails = withDefaultRespondDesiredTreatment({ ...details, state })
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
-      const firstName = getCustomerFirstName(nextDetails, respondContactProfile)
-
       return {
         text: shouldUseRepeatOutOfStateTemplate(existingBooking, nextDetails)
-          ? outOfStatePrescribedRepeatTemplate(customerLanguage, firstName)
-          : outOfStatePrescribedTemplate(customerLanguage, firstName),
+          ? outOfStatePrescribedRepeatTemplate(customerLanguage)
+          : outOfStatePrescribedTemplate(customerLanguage),
         booking: {
           ...existingBooking,
           bookingTeam,
@@ -991,12 +989,10 @@ async function handleRespondBookingAutomation({
     }
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
-      const firstName = getCustomerFirstName(nextDetails, respondContactProfile)
-
       return {
         text: shouldUseRepeatOutOfStateTemplate(existingBooking, nextDetails)
-          ? outOfStatePrescribedRepeatTemplate(customerLanguage, firstName)
-          : outOfStatePrescribedTemplate(customerLanguage, firstName),
+          ? outOfStatePrescribedRepeatTemplate(customerLanguage)
+          : outOfStatePrescribedTemplate(customerLanguage),
         booking: {
           ...existingBooking,
           bookingTeam,
@@ -1162,12 +1158,10 @@ async function handleRespondBookingAutomation({
   }
 
   if (shouldUseOutOfStatePrescribedTemplate(details)) {
-    const firstName = getCustomerFirstName(details, respondContactProfile)
-
     return {
       text: shouldUseRepeatOutOfStateTemplate(existingBooking, details)
-        ? outOfStatePrescribedRepeatTemplate(customerLanguage, firstName)
-        : outOfStatePrescribedTemplate(customerLanguage, firstName),
+        ? outOfStatePrescribedRepeatTemplate(customerLanguage)
+        : outOfStatePrescribedTemplate(customerLanguage),
       booking: {
         ...existingBooking,
         bookingTeam,
@@ -1252,11 +1246,9 @@ async function offerSoonestRespondSlot({
   return {
     text: closest
       ? bookingCopy(customerLanguage, options.length ? 'offerClosestSlots' : 'offerFallbackSlots', {
-          firstName: getCustomerFirstName(details),
           slots: formatNumberedSlots(nextOptions, details.state),
         })
       : bookingCopy(customerLanguage, 'offerSlot', {
-          firstName: getCustomerFirstName(details),
           slot: formatCustomerStateSlot(offeredOption.startTime, details.state, offeredOption.timezone),
         }),
     booking: {
@@ -2075,7 +2067,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Use retrieved company knowledge as supporting context when it is relevant. Do not mention internal source names unless asked. If context is missing, ask a clarifying question or route to a human instead of inventing facts.',
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
-    'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name occasionally when known, especially when they return after several hours or days.',
+    'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name sparingly when known, mainly in the first warm greeting or after a longer gap. Do not use the name in consecutive replies.',
     'Emoji style for model-generated chat replies: include exactly one friendly, relevant emoji in every normal generated customer-facing reply. Choose an emoji that fits the message, such as 📍 for state, 📲 for phone, 💛 for warmth, or ✨ for encouragement. Do not add extra emojis. This rule applies only to generated chat replies; do not rewrite or add emojis to fixed application templates.',
     'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
@@ -2087,7 +2079,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Never ask for the customer full address or shipping address during lead qualification or discovery-call booking. State is enough for delivery qualification.',
     'When the customer is in the booking flow or gives scheduling intent, do not ask whether they need more information before booking. Continue to the next missing booking detail or offer a real available calendar slot.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
-    'Use the Respond contact profile context when present. If a customer first name is provided, use only the first name naturally and often enough to feel personal, especially in explanatory or out-of-flow replies and when returning to the booking flow. Do not force the name into every message. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
+    'Use the Respond contact profile context when present. If a customer first name is provided, use only the first name and use it sparingly. Prefer no name in routine booking, slot, and follow-up messages, especially if the prior agent reply already used it. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
     'Booking routing rule: new_or_no_record contacts are booked with the sellers team. returning_client, returning_lead, existing_hubspot_contact, and returning_conversation contacts are booked with the CS Team. Do not tell the customer this internal routing logic.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
