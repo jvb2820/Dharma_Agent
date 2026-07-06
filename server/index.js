@@ -1282,7 +1282,11 @@ async function offerSoonestRespondSlot({
   preferredTime = details.preferredTime,
   closest = false,
 }) {
-  const shouldOfferMultipleSlots = true
+  const shouldOfferMultipleSlots = shouldOfferMultipleScheduleOptions({
+    closest,
+    details,
+    preferredTime,
+  })
   const getAvailability =
     booking.bookingTeam === 'customer_service'
       ? getCustomerServiceAvailability
@@ -1343,6 +1347,29 @@ async function offerSoonestRespondSlot({
 
 function hasAvailabilityTimeConstraint(details = {}) {
   return Number.isInteger(details.earliestHour)
+}
+
+function shouldOfferMultipleScheduleOptions({ closest = false, details = {}, preferredTime = '' } = {}) {
+  if (closest || hasAvailabilityTimeConstraint(details)) {
+    return true
+  }
+
+  const normalized = normalizeSearchText(preferredTime || details.preferredTime)
+
+  if (!normalized) {
+    return false
+  }
+
+  return [
+    /\b(today|tomorrow|next day|the next day|next available day|day after tomorrow)\b/,
+    /\b(hoy|manana|manaña|dia siguiente|proximo dia|pasado manana|pasado manaña)\b/,
+    /\b(hoje|amanha|depois de amanha)\b/,
+    /\b(morning|afternoon|evening|later today|later on today)\b/,
+    /\b(ma[nñ]ana|tarde|noche|manha|manh[aã]|noite)\b/,
+    /\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}\b/,
+    /\b\d{1,2}(st|nd|rd|th)\b/,
+    /\b\d{1,2}[/-]\d{1,2}\b/,
+  ].some((pattern) => pattern.test(normalized))
 }
 
 function filterOptionsByAvailabilityPreference(options = [], details = {}) {
@@ -1962,7 +1989,7 @@ function extractAvailabilityPreference(content) {
     }
   }
 
-  if (/\b(later today|later on today|mas tarde hoy|mas tarde hoje)\b/.test(normalized)) {
+  if (/\b(later|later today|later on today|mas tarde|mas tarde hoy|mas tarde hoje)\b/.test(normalized)) {
     return {
       hasPreference: true,
       preferredTime: 'afternoon',
