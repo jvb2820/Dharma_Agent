@@ -952,8 +952,12 @@ async function handleRespondBookingAutomation({
     const nextDetails = withDefaultRespondDesiredTreatment({ ...details, state })
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
+      const firstName = getCustomerFirstName(nextDetails, respondContactProfile)
+
       return {
-        text: outOfStatePrescribedTemplate(customerLanguage, getCustomerFirstName(nextDetails, respondContactProfile)),
+        text: shouldUseRepeatOutOfStateTemplate(existingBooking, nextDetails)
+          ? outOfStatePrescribedRepeatTemplate(customerLanguage, firstName)
+          : outOfStatePrescribedTemplate(customerLanguage, firstName),
         booking: {
           ...existingBooking,
           bookingTeam,
@@ -987,8 +991,12 @@ async function handleRespondBookingAutomation({
     }
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
+      const firstName = getCustomerFirstName(nextDetails, respondContactProfile)
+
       return {
-        text: outOfStatePrescribedTemplate(customerLanguage, getCustomerFirstName(nextDetails, respondContactProfile)),
+        text: shouldUseRepeatOutOfStateTemplate(existingBooking, nextDetails)
+          ? outOfStatePrescribedRepeatTemplate(customerLanguage, firstName)
+          : outOfStatePrescribedTemplate(customerLanguage, firstName),
         booking: {
           ...existingBooking,
           bookingTeam,
@@ -1154,8 +1162,12 @@ async function handleRespondBookingAutomation({
   }
 
   if (shouldUseOutOfStatePrescribedTemplate(details)) {
+    const firstName = getCustomerFirstName(details, respondContactProfile)
+
     return {
-      text: outOfStatePrescribedTemplate(customerLanguage, getCustomerFirstName(details, respondContactProfile)),
+      text: shouldUseRepeatOutOfStateTemplate(existingBooking, details)
+        ? outOfStatePrescribedRepeatTemplate(customerLanguage, firstName)
+        : outOfStatePrescribedTemplate(customerLanguage, firstName),
       booking: {
         ...existingBooking,
         bookingTeam,
@@ -1354,6 +1366,13 @@ function shouldUseOutOfStatePrescribedTemplate(details) {
   )
 }
 
+function shouldUseRepeatOutOfStateTemplate(booking, details) {
+  return Boolean(
+    booking?.outOfStateNotified &&
+      normalizeSearchText(booking.details?.state) === normalizeSearchText(details.state),
+  )
+}
+
 function isAlternativeTreatment(treatment) {
   return /\b(nutrition|supplements?|suplementos?)\b/i.test(String(treatment || ''))
 }
@@ -1402,6 +1421,21 @@ function outOfStatePrescribedTemplate(language, firstName = '') {
     '💪 *Creatine*: improves strength, tones faster, and speeds up recovery so you look more fit.',
     '*You can view everything here* 👉 [https://dharmanutritionclinic.com/collections/supplements](https://dharmanutritionclinic.com/collections/supplements)',
   ].join('\n')
+}
+
+function outOfStatePrescribedRepeatTemplate(language, firstName = '') {
+  const langNorm = normalizeLanguageName(language)
+  const namePrefix = firstName ? `${firstName}, ` : ''
+
+  if (langNorm === 'Latin American Spanish') {
+    return `${namePrefix}si, para inyecciones de perdida de peso todavia no podemos enviar a ese estado. Podemos ayudarte con suplementos Dharma o guia nutricional si quieres seguir por esa opcion.`
+  }
+
+  if (langNorm === 'Portuguese') {
+    return `${namePrefix}sim, para injeções de perda de peso ainda não conseguimos enviar para esse estado. Podemos ajudar com suplementos Dharma ou orientação nutricional se quiser seguir por essa opção.`
+  }
+
+  return `${namePrefix}Yes, for weight loss injections we still cannot ship to that location. We can help with Dharma supplements or nutrition guidance if you would like to continue that way.`
 }
 
 function extractRespondBookingDetails(messages) {

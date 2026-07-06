@@ -224,6 +224,13 @@ function shouldUseOutOfStatePrescribedSnippet(details) {
   )
 }
 
+function shouldUseRepeatOutOfStateSnippet(booking, details) {
+  return Boolean(
+    booking?.outOfStateNotified &&
+      normalizeTreatmentSearchText(booking.details?.state) === normalizeTreatmentSearchText(details.state),
+  )
+}
+
 function isAlternativeTreatment(treatment) {
   return /\b(nutrition|supplements?)\b/i.test(String(treatment || ''))
 }
@@ -250,6 +257,14 @@ function outOfStatePrescribedText(language) {
     '💪 *Creatine*: mejora fuerza, tonifica más rápido y acelera la recuperación para verte más fit.',
     '*Puedes ver todo aquí* 👉 https://dharmanutritionclinic.com/collections/supplements',
   ].join('\n')
+}
+
+function outOfStatePrescribedRepeatText(language) {
+  if (!isSpanishSession(language)) {
+    return 'Yes, for prescribed weight-loss injections we still cannot ship to that location. We can help with Dharma supplements or a nutrition consultation if you would like to continue that way.'
+  }
+
+  return 'Si, para inyecciones de perdida de peso todavia no podemos enviar a ese estado. Podemos ayudarte con suplementos Dharma o una consulta nutricional si quieres seguir por esa opcion.'
 }
 
 async function handleBookingMessage(content, booking, memory, messages, customerLanguage) {
@@ -382,7 +397,9 @@ async function handleBookingMessage(content, booking, memory, messages, customer
         details: nextDetails,
         outOfStateNotified: true,
       },
-      message: outOfStatePrescribedText(customerLanguage),
+      message: shouldUseRepeatOutOfStateSnippet(booking, nextDetails)
+        ? outOfStatePrescribedRepeatText(customerLanguage)
+        : outOfStatePrescribedText(customerLanguage),
     }
   }
 
@@ -1015,6 +1032,8 @@ export function ChatProvider({ children }) {
         setBookingMemory(nextBookingMemory)
 
         if (shouldUseOutOfStatePrescribedSnippet(nextBookingMemory)) {
+          const repeatOutOfState = shouldUseRepeatOutOfStateSnippet(booking, nextBookingMemory)
+
           setBooking((currentBooking) => ({
             ...currentBooking,
             active: true,
@@ -1023,7 +1042,12 @@ export function ChatProvider({ children }) {
           }))
           setMessages((currentMessages) => [
             ...currentMessages,
-            createMessage('agent', outOfStatePrescribedText(nextSessionLanguage)),
+            createMessage(
+              'agent',
+              repeatOutOfState
+                ? outOfStatePrescribedRepeatText(nextSessionLanguage)
+                : outOfStatePrescribedText(nextSessionLanguage),
+            ),
           ])
           return
         }
