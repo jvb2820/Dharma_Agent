@@ -1282,13 +1282,14 @@ async function offerSoonestRespondSlot({
   preferredTime = details.preferredTime,
   closest = false,
 }) {
+  const shouldOfferMultipleSlots = true
   const getAvailability =
     booking.bookingTeam === 'customer_service'
       ? getCustomerServiceAvailability
       : getPrioritySellerAvailability
   const hasTimeConstraint = hasAvailabilityTimeConstraint(details)
   const options = await getAvailability({
-    limit: closest || hasTimeConstraint ? 24 : 1,
+    limit: closest || hasTimeConstraint || shouldOfferMultipleSlots ? 24 : 1,
     preferredTime,
   })
   const fallbackOptions =
@@ -1317,13 +1318,13 @@ async function offerSoonestRespondSlot({
     }
   }
 
-  const nextOptions = closest
-    ? selectSpreadAvailabilityOptions(availableOptions)
+  const nextOptions = closest || shouldOfferMultipleSlots
+    ? selectSpreadAvailabilityOptions(availableOptions, 6)
     : [offeredOption]
 
   return {
-    text: closest
-      ? bookingCopy(customerLanguage, options.length ? 'offerClosestSlots' : 'offerFallbackSlots', {
+    text: closest || shouldOfferMultipleSlots
+      ? bookingCopy(customerLanguage, closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
           slots: formatNumberedSlots(nextOptions, details.state),
         })
       : bookingCopy(customerLanguage, 'offerSlot', {
@@ -1333,7 +1334,7 @@ async function offerSoonestRespondSlot({
       details,
       bookingTeam: booking.bookingTeam || 'sales',
       options: nextOptions,
-      offeredOption: closest ? null : offeredOption,
+      offeredOption: closest || shouldOfferMultipleSlots ? null : offeredOption,
       pendingField: '',
       excludedOptions: booking.excludedOptions || [],
     },
@@ -1647,6 +1648,11 @@ function bookingCopy(language, key, values = {}) {
       `${named('tengo este horario disponible para tu llamada gratuita de análisis:', 'Tengo este horario disponible para tu llamada gratuita de análisis:')} ${values.slot}. Te funciona?`,
       `${named('tenho este horário disponível para sua chamada gratuita de análise:', 'Tenho este horário disponível para sua chamada gratuita de análise:')} ${values.slot}. Funciona para você?`,
     ),
+    offerSlots: tri(
+      `These are the next available options for your free discovery call:\n${values.slots}\n\nWhich option works best? You can reply with the number or the time.`,
+      `Estos son los proximos horarios disponibles para tu llamada gratuita:\n${values.slots}\n\nCual opcion te funciona mejor? Puedes responder con el numero o la hora.`,
+      `Estes sao os proximos horarios disponiveis para sua chamada gratuita:\n${values.slots}\n\nQual opcao funciona melhor? Voce pode responder com o numero ou o horario.`,
+    ),
     askPreferredTime: tri(
       'Of course, no problem. What day and time works best for the call?',
       'Claro, no hay problema. Que dia y hora te queda mejor para la llamada?',
@@ -1673,7 +1679,7 @@ function bookingCopy(language, key, values = {}) {
       `${named('não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:', 'Não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:')}\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
     ),
     askChooseOption: tri(
-      'Which option works best? Please reply with the number so I can book it.',
+      'Which option works best? Please reply with the number or the time so I can book it.',
       'Cual opcion te funciona mejor? Responde con el numero para agendarla.',
       'Qual opção funciona melhor? Responda com o número para que eu possa agendar.',
     ),
@@ -1938,6 +1944,31 @@ function extractAvailabilityPreference(content) {
 
   if (!normalized) {
     return { hasPreference: false }
+  }
+
+  if (/\b(day after tomorrow|pasado manana|pasado manaña|depois de amanha)\b/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'day after tomorrow',
+      dayPart: '',
+    }
+  }
+
+  if (/\b(tomorrow|next day|the next day|next available day|manana|manaña|dia siguiente|proximo dia|amanha)\b/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'tomorrow',
+      dayPart: '',
+    }
+  }
+
+  if (/\b(later today|later on today|mas tarde hoy|mas tarde hoje)\b/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'afternoon',
+      earliestHour: 12,
+      dayPart: 'afternoon',
+    }
   }
 
   const afterHourPatterns = [

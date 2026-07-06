@@ -209,6 +209,12 @@ function parsePreferredTime(value, timezone) {
 }
 
 function parsePreferredDateKey(value, timezone) {
+  const relativeDateKey = parseRelativePreferredDateKey(value, timezone)
+
+  if (relativeDateKey) {
+    return relativeDateKey
+  }
+
   const monthMatch = value.match(
     /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
   )
@@ -230,6 +236,35 @@ function parsePreferredDateKey(value, timezone) {
   }
 
   return ''
+}
+
+function parseRelativePreferredDateKey(value, timezone) {
+  const normalized = normalizeTreatmentSearchText(value)
+
+  if (/\b(today|hoy|hoje)\b/.test(normalized)) {
+    return getDateKey(Date.now(), timezone)
+  }
+
+  if (/\b(day after tomorrow|pasado manana|pasado maÃ±ana|depois de amanha|depois de amanh[aÃ£])\b/.test(normalized)) {
+    return buildRelativeDateKey(2, timezone)
+  }
+
+  if (
+    /\b(tomorrow|next day|the next day|next available day|manana|maÃ±ana|dia siguiente|proximo dia|pr[oÃ³]ximo dia|amanha|amanh[aÃ£])\b/.test(
+      normalized,
+    )
+  ) {
+    return buildRelativeDateKey(1, timezone)
+  }
+
+  return ''
+}
+
+function buildRelativeDateKey(dayOffset, timezone) {
+  const target = new Date(Date.now() + dayOffset * 24 * 60 * 60 * 1000)
+  const parts = getDateParts(target.getTime(), timezone)
+
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`
 }
 
 function buildDateKeyFromMonthDay(monthName, day, timezone) {
