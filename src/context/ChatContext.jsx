@@ -34,7 +34,8 @@ const BOOKING_FIELDS = [
   },
 ]
 
-const AVAILABILITY_FIELD_KEYS = ['desiredTreatment', 'state']
+const DEFAULT_DESIRED_TREATMENT = 'Weight Loss Injections'
+const AVAILABILITY_FIELD_KEYS = ['state']
 const FINAL_BOOKING_FIELD_KEYS = ['name', 'phone', 'preferredLanguage']
 
 const INITIAL_BOOKING = {
@@ -180,8 +181,8 @@ function bookingText(language, key, values = {}) {
       ? `Mucho gusto, ${values.firstName}. En que idioma te sentirias mas comodo para la consulta: ingles o espanol?`
       : `Nice to meet you, ${values.firstName}. What language would you feel most comfortable using for the consultation: English or Spanish?`,
     desiredTreatment: spanish
-      ? 'Entendido. Para guiarte bien, tu objetivo principal es bajar de peso, suplementos o guia nutricional?'
-      : 'Got it. To guide you correctly, is your main goal weight loss, supplements, or nutrition guidance?',
+      ? 'Entendido. Voy a usar bajar de peso como tu objetivo y revisar disponibilidad para tu consulta gratuita.'
+      : 'Got it. I will use weight loss as your goal and check availability for your free consultation.',
     state: spanish
       ? 'Dime por favor en que estado vives para saber si hacemos envios a tu estado.'
       : 'What state do you live in so I can confirm whether we deliver there?',
@@ -192,8 +193,8 @@ function bookingText(language, key, values = {}) {
       ? `Tiene sentido. Para ${values.desiredTreatment}, voy a revisar los proximos horarios disponibles para tu consulta gratuita.`
       : `That makes sense. For ${values.desiredTreatment}, I will check the next available times for your free consultation.`,
     clarifyDesiredTreatment: spanish
-      ? `Te entiendo. Para guiarte bien, cuando dices "${values.content}", tu objetivo principal es bajar de peso, suplementos o guia nutricional?`
-      : `I hear you. Just so I guide you the right way, when you say "${values.content}", is your main goal weight loss, supplements, or nutrition guidance?`,
+      ? `Te entiendo. Voy a usar bajar de peso como tu objetivo y revisar disponibilidad para tu consulta gratuita.`
+      : `I hear you. I will use weight loss as your goal and check availability for your free consultation.`,
     availabilityFallback: spanish
       ? 'Claro. Si esos horarios no te funcionan, reviso otra opcion disponible. Tambien puedo resolver cualquier pregunta antes de buscar otro espacio.'
       : 'Of course. If those times do not work, I can check another available option. I can also answer any questions before looking for another slot.',
@@ -272,6 +273,8 @@ async function handleBookingMessage(content, booking, memory, messages, customer
       details = lookup.details
       hubspotContact = lookup.contact
     }
+
+    details = withDefaultDesiredTreatment(details)
 
     const nextMissingFieldIndex = findMissingBookingFieldIndex(details, AVAILABILITY_FIELD_KEYS)
 
@@ -370,6 +373,7 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     field.key,
     content,
   )
+  nextDetails = withDefaultDesiredTreatment(nextDetails)
 
   if (shouldUseOutOfStatePrescribedSnippet(nextDetails)) {
     return {
@@ -575,6 +579,13 @@ function mergeBookingDetails(currentDetails, nextDetails) {
   return merged
 }
 
+function withDefaultDesiredTreatment(details) {
+  return {
+    ...details,
+    desiredTreatment: details.desiredTreatment || DEFAULT_DESIRED_TREATMENT,
+  }
+}
+
 function collectBookingField(details, key, content) {
   const nextDetails = { ...details }
 
@@ -636,7 +647,7 @@ function hasBookingField(details, key) {
 }
 
 function normalizeBookingDetails(details) {
-  const bookingDetails = withBookingEmail(details)
+  const bookingDetails = withBookingEmail(withDefaultDesiredTreatment(details))
 
   return {
     firstName: bookingDetails.firstName,

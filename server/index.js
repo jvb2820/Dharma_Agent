@@ -923,12 +923,13 @@ async function handleRespondBookingAutomation({
   const bookingTeam = existingBooking.bookingTeam || getBookingTeamForRespondContact(respondContactProfile)
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
   const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
-  const details = {
+  let details = {
     ...getRespondContactBookingDetails(respondContactProfile),
     ...(existingBooking.details || {}),
     ...extractRespondBookingDetails(messages),
     ...latestSignals,
   }
+  details = withDefaultRespondDesiredTreatment(details)
 
   if (existingBooking.pendingField === 'state') {
     const state = latestSignals.state || details.state
@@ -944,7 +945,7 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    const nextDetails = { ...details, state }
+    const nextDetails = withDefaultRespondDesiredTreatment({ ...details, state })
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
@@ -956,15 +957,6 @@ async function handleRespondBookingAutomation({
           pendingField: 'state',
           outOfStateNotified: true,
         },
-      }
-    }
-
-    if (!nextDetails.desiredTreatment) {
-      return {
-        text: bookingCopy(customerLanguage, 'askGoals', {
-          firstName: getCustomerFirstName(nextDetails, respondContactProfile),
-        }),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'goals' },
       }
     }
 
@@ -983,13 +975,7 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'goals') {
-    const desiredTreatment =
-      latestSignals.desiredTreatment || details.desiredTreatment || guessDesiredTreatmentFromGoal(latestUserText)
-    const nextDetails = {
-      ...details,
-      desiredTreatment,
-      treatmentGoal: latestUserText.trim(),
-    }
+    const nextDetails = withDefaultRespondDesiredTreatment(details)
 
     if (isOutOfFlowInfoQuestion(latestUserText)) {
       existingBooking.details = nextDetails
@@ -1183,15 +1169,6 @@ async function handleRespondBookingAutomation({
     }
   }
 
-  if (!details.desiredTreatment) {
-    return {
-      text: bookingCopy(customerLanguage, 'askGoals', {
-        firstName: getCustomerFirstName(details, respondContactProfile),
-      }),
-      booking: { ...existingBooking, bookingTeam, details, pendingField: 'goals' },
-    }
-  }
-
   if (!details.phone) {
     return {
       text: bookingCopy(customerLanguage, 'askPhone'),
@@ -1377,6 +1354,15 @@ function isAlternativeTreatment(treatment) {
   return /\b(nutrition|supplements?|suplementos?)\b/i.test(String(treatment || ''))
 }
 
+const DEFAULT_RESPOND_DESIRED_TREATMENT = 'Weight Loss Injections'
+
+function withDefaultRespondDesiredTreatment(details) {
+  return {
+    ...details,
+    desiredTreatment: details.desiredTreatment || DEFAULT_RESPOND_DESIRED_TREATMENT,
+  }
+}
+
 function outOfStatePrescribedTemplate(language, firstName = '') {
   const langNorm = normalizeLanguageName(language)
   const namePrefix = firstName ? `${firstName}, ` : ''
@@ -1453,14 +1439,16 @@ function extractRespondBookingDetailsFromText(content) {
 }
 
 function buildRespondBookingCustomer(details, customerLanguage) {
+  const bookingDetails = withDefaultRespondDesiredTreatment(details)
+
   return {
-    firstName: details.firstName || 'New',
-    lastName: details.lastName || 'Lead',
-    email: createDummyEmailFromPhone(details.phone),
-    phone: details.phone,
+    firstName: bookingDetails.firstName || 'New',
+    lastName: bookingDetails.lastName || 'Lead',
+    email: createDummyEmailFromPhone(bookingDetails.phone),
+    phone: bookingDetails.phone,
     preferredLanguage: customerLanguage,
-    desiredTreatment: details.desiredTreatment,
-    state: details.state,
+    desiredTreatment: bookingDetails.desiredTreatment,
+    state: bookingDetails.state,
   }
 }
 
@@ -1483,11 +1471,6 @@ function bookingCopy(language, key, values = {}) {
       '📍Please tell us which state you live in to find out if we ship to your state?',
       '📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?',
       '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
-    ),
-    askGoals: tri(
-      `✨ ${named('what are your main goals right now?', 'What are your main goals right now?')} For example, weight loss, nutrition guidance, supplements, or peptide support.`,
-      `✨ ${named('cuales son tus metas principales en este momento?', 'Cuales son tus metas principales en este momento?')} Por ejemplo, bajar de peso, guia nutricional, suplementos o apoyo con peptidos.`,
-      `✨ ${named('quais sao seus principais objetivos neste momento?', 'Quais sao seus principais objetivos neste momento?')} Por exemplo, perda de peso, orientacao nutricional, suplementos ou apoio com peptideos.`,
     ),
     askPhone: tri(
       'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
@@ -2050,7 +2033,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
       : '',
     redundancyControl,
     'Redundancy control is mandatory: do not ask for a detail the customer already provided in this conversation, and do not repeat prices, product lists, or onboarding explanations already shown unless the customer explicitly asks for them again. If a prior agent message asked for multiple details and the customer supplied one of them, acknowledge the supplied detail and ask only for the missing detail.',
-    'If the customer says they want to lose weight, bajar de peso, weight loss, or similar, treat that as a complete enough goal for weight-loss qualification. Do not ask another version of the same goal question, such as appetite control, energy boost, or specific benefit, unless the customer asks for help comparing options.',
+    'For booking qualification, default the customer goal to weight loss. After collecting state, move directly to availability or the next required booking detail. Do not ask a separate main-goals question unless the customer asks for help comparing non-weight-loss options.',
     'Use retrieved company knowledge as supporting context when it is relevant. Do not mention internal source names unless asked. If context is missing, ask a clarifying question or route to a human instead of inventing facts.',
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
@@ -2385,32 +2368,6 @@ function extractDesiredTreatmentName(content) {
   }
 
   return ''
-}
-
-function guessDesiredTreatmentFromGoal(content) {
-  const searchable = normalizeSearchText(content)
-
-  if (
-    /\b(muscle|recovery|strength|performance|energy|tone|toning|fit|fitness|creatine|entreno|gym|gimnasio|forca|recuperacion|recuperacao)\b/.test(
-      searchable,
-    )
-  ) {
-    return 'Supplements'
-  }
-
-  if (/\b(appetite|craving|cravings|antojo|antojos|azucar|sugar|metabolism|metabolismo|natural)\b/.test(searchable)) {
-    return 'Supplements'
-  }
-
-  if (/\b(eat|eating|food|diet|meal|habits|habitos|comer|comida|plan|nutrition|nutricion|nutricao)\b/.test(searchable)) {
-    return 'Nutrition Consultation'
-  }
-
-  if (/\b(hormone|hormonal|anti aging|antiaging|skin|sleep|libido|wellness|wellbeing|peptide|peptido)\b/.test(searchable)) {
-    return 'Other peptides'
-  }
-
-  return 'Weight Loss Injections'
 }
 
 function normalizeSearchText(value) {
