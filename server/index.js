@@ -1130,7 +1130,7 @@ async function handleRespondBookingAutomation({
     return null
   }
 
-  if (hasActiveSlotOffer && latestSignals.preferredTime) {
+  if (hasActiveSlotOffer && !selectedOption && latestSignals.preferredTime) {
     const nextDetails = { ...details, ...latestSignals }
 
     return await offerSoonestRespondSlot({
@@ -1807,10 +1807,6 @@ function pickRespondAvailabilityOption(content, options = [], state = '') {
 
 function pickRespondAvailabilityOptionByTime(content, options = [], state = '') {
   if (!options.length) {
-    return null
-  }
-
-  if (extractAvailabilityPreference(content).hasPreference) {
     return null
   }
 
