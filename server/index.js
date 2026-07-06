@@ -1292,13 +1292,14 @@ async function offerSoonestRespondSlot({
       ? getCustomerServiceAvailability
       : getPrioritySellerAvailability
   const hasTimeConstraint = hasAvailabilityTimeConstraint(details)
+  const availabilityLimit = closest || hasTimeConstraint || shouldOfferMultipleSlots ? 100 : 1
   const options = await getAvailability({
-    limit: closest || hasTimeConstraint || shouldOfferMultipleSlots ? 24 : 1,
+    limit: availabilityLimit,
     preferredTime,
   })
   const fallbackOptions =
     closest && options.length === 0
-      ? await getAvailability({ limit: 24 })
+      ? await getAvailability({ limit: 100 })
       : []
   let availableOptions = filterOptionsByAvailabilityPreference(
     options.length ? options : fallbackOptions,
@@ -1308,7 +1309,7 @@ async function offerSoonestRespondSlot({
 
   if (hasTimeConstraint && availableOptions.length === 0) {
     availableOptions = filterOptionsByAvailabilityPreference(
-      await getAvailability({ limit: 24 }),
+      await getAvailability({ limit: 100 }),
       details,
     )
     availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
@@ -1389,47 +1390,63 @@ function selectSpreadAvailabilityOptions(options = [], limit = 4, state = '') {
     .sort((left, right) => left.startTime - right.startTime)
 
   if (sortedOptions.length <= limit) {
-    return reduceBackToBackSpecialistOptions(sortedOptions)
+    return sortedOptions
   }
 
-  const selectedIndexes = new Set([0, sortedOptions.length - 1])
-  const targetCount = Math.min(limit, sortedOptions.length)
+  const selected = []
+  addSpacedOption(selected, sortedOptions[0])
 
-  while (selectedIndexes.size < targetCount) {
-    const sortedIndexes = [...selectedIndexes].sort((left, right) => left - right)
-    let widestGap = { left: 0, right: sortedOptions.length - 1, size: -1 }
+  const afternoonOption = sortedOptions.find((option) => getCustomerStateHour(option.startTime, state, option.timezone) >= 12)
+  addSpacedOption(selected, afternoonOption)
 
-    for (let index = 0; index < sortedIndexes.length - 1; index += 1) {
-      const left = sortedIndexes[index]
-      const right = sortedIndexes[index + 1]
-      const size = right - left
-
-      if (size > widestGap.size) {
-        widestGap = { left, right, size }
-      }
-    }
-
-    const nextIndex = Math.round((widestGap.left + widestGap.right) / 2)
-
-    if (selectedIndexes.has(nextIndex)) {
+  for (const option of sortedOptions) {
+    if (selected.length >= limit) {
       break
     }
 
-    selectedIndexes.add(nextIndex)
+    addSpacedOption(selected, option)
   }
 
-  return [...selectedIndexes]
-    .sort((left, right) => left - right)
-    .map((index) => sortedOptions[index])
-    .reduce((selected, option) => addOptionWithSpecialistVariety(selected, option, sortedOptions, limit), [])
+  if (selected.length < limit) {
+    for (const option of sortedOptions) {
+      if (selected.length >= limit) {
+        break
+      }
+
+      addUniqueOption(selected, option)
+    }
+  }
+
+  return selected
     .sort((left, right) => left.startTime - right.startTime)
 }
 
-function reduceBackToBackSpecialistOptions(options = []) {
-  return dedupeOptionsByDisplayedTime(options).reduce(
-    (selected, option) => addOptionWithSpecialistVariety(selected, option, options, options.length),
-    [],
-  ).sort((left, right) => left.startTime - right.startTime)
+function addSpacedOption(selected, option, minSpacingMs = 55 * 60 * 1000) {
+  if (!option || selected.some((selectedOption) => getAvailabilityOptionKey(selectedOption) === getAvailabilityOptionKey(option))) {
+    return false
+  }
+
+  if (
+    selected.some((selectedOption) => Math.abs(Number(selectedOption.startTime) - Number(option.startTime)) < minSpacingMs)
+  ) {
+    return false
+  }
+
+  selected.push(option)
+  return true
+}
+
+function addUniqueOption(selected, option) {
+  if (!option || selected.some((selectedOption) => getAvailabilityOptionKey(selectedOption) === getAvailabilityOptionKey(option))) {
+    return false
+  }
+
+  if (selected.some((selectedOption) => selectedOption.startTime === option.startTime)) {
+    return false
+  }
+
+  selected.push(option)
+  return true
 }
 
 function dedupeOptionsByDisplayedTime(options = [], state = '') {
@@ -1447,22 +1464,6 @@ function dedupeOptionsByDisplayedTime(options = [], state = '') {
       seenTimes.add(key)
       return true
     })
-}
-
-function addOptionWithSpecialistVariety(selected, option, options, limit) {
-  const previous = selected[selected.length - 1]
-
-  if (!previous || previous.sellerSlug !== option.sellerSlug || selected.length >= limit) {
-    return [...selected, option]
-  }
-
-  const replacement = options.find(
-    (candidate) =>
-      candidate.sellerSlug !== option.sellerSlug &&
-      !selected.some((selectedOption) => getAvailabilityOptionKey(selectedOption) === getAvailabilityOptionKey(candidate)),
-  )
-
-  return [...selected, replacement || option]
 }
 
 function buildBookingWithExcludedOptions(booking = {}) {
