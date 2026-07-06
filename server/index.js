@@ -5,7 +5,11 @@ import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage } from './booked.js'
 import { loadLocalEnv } from './env.js'
 import { formatCustomerStateSlot, getCustomerStateHour } from './timezones.js'
-import { US_STATES, isPrescribedTreatmentDeliveryState } from '../src/data/states.js'
+import {
+  NON_SERVICEABLE_LOCATIONS,
+  US_STATES,
+  isPrescribedTreatmentDeliveryState,
+} from '../src/data/states.js'
 import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
@@ -2261,6 +2265,20 @@ function extractStateName(content) {
       const normalizedState = normalizeSearchText(state)
 
       return new RegExp(`\\b${escapeRegExp(normalizedState)}\\b`).test(normalized)
+    }) ||
+    extractNonServiceableLocationName(content) ||
+    ''
+  )
+}
+
+function extractNonServiceableLocationName(content) {
+  const normalized = normalizeSearchText(content)
+
+  return (
+    NON_SERVICEABLE_LOCATIONS.find((location) => {
+      const normalizedLocation = normalizeSearchText(location)
+
+      return new RegExp(`\\b${escapeRegExp(normalizedLocation)}\\b`).test(normalized)
     }) || ''
   )
 }

@@ -3,7 +3,7 @@ import { useAgent } from '../hooks/useAgent'
 import { hubspotService } from '../services/hubspotService'
 import { openaiService } from '../services/openaiService'
 import { respondService } from '../services/respondService'
-import { US_STATES, isPrescribedTreatmentDeliveryState } from '../data/states'
+import { NON_SERVICEABLE_LOCATIONS, US_STATES, isPrescribedTreatmentDeliveryState } from '../data/states'
 import { ChatContext } from './chat-context'
 
 const BOOKING_FIELDS = [
@@ -878,7 +878,23 @@ function extractPreferredTime(content) {
 function extractState(content) {
   const normalized = content.toLowerCase()
 
-  return US_STATES.find((state) => normalized.includes(state.toLowerCase())) || ''
+  return (
+    US_STATES.find((state) => normalized.includes(state.toLowerCase())) ||
+    extractNonServiceableLocation(content) ||
+    ''
+  )
+}
+
+function extractNonServiceableLocation(content) {
+  const searchable = normalizeTreatmentSearchText(content)
+
+  return (
+    NON_SERVICEABLE_LOCATIONS.find((location) => {
+      const normalizedLocation = normalizeTreatmentSearchText(location)
+
+      return new RegExp(`\\b${normalizedLocation}\\b`).test(searchable)
+    }) || ''
+  )
 }
 
 function bookingMemoryFromRespondContact(contact) {

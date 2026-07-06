@@ -97,6 +97,36 @@ export const SERVICEABLE_STATES = [
   'Wyoming',
 ]
 
+export const NON_SERVICEABLE_LOCATIONS = [
+  'Argentina',
+  'Australia',
+  'Brazil',
+  'Canada',
+  'Chile',
+  'China',
+  'Colombia',
+  'Costa Rica',
+  'Dominican Republic',
+  'Ecuador',
+  'El Salvador',
+  'France',
+  'Germany',
+  'Guatemala',
+  'Honduras',
+  'India',
+  'Italy',
+  'Japan',
+  'Mexico',
+  'Nicaragua',
+  'Panama',
+  'Peru',
+  'Philippines',
+  'Portugal',
+  'Spain',
+  'United Kingdom',
+  'Venezuela',
+]
+
 export function isPrescribedTreatmentDeliveryState(state) {
   return SERVICEABLE_STATES.some(
     (serviceableState) => serviceableState.toLowerCase() === String(state || '').toLowerCase(),
