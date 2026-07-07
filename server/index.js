@@ -700,8 +700,25 @@ async function finalizeRespondConversationAfterBooking({ contactId, booked, opti
     return
   }
 
-  await assignRespondConversation({ contactId, assignee })
-  await closeRespondConversation(contactId)
+  const assignmentResult = await assignRespondConversation({ contactId, assignee })
+    .then((result) => ({ ok: true, result }))
+    .catch((error) => ({ ok: false, error }))
+  const closeResult = await closeRespondConversation({
+    contactId,
+    closingNoteId: process.env.RESPOND_BOOKING_CLOSING_NOTE_ID,
+  })
+    .then((result) => ({ ok: true, result }))
+    .catch((error) => ({ ok: false, error }))
+
+  if (!assignmentResult.ok || !closeResult.ok) {
+    const failures = [
+      assignmentResult.ok ? '' : `assign failed: ${assignmentResult.error.message}`,
+      closeResult.ok ? '' : `close failed: ${closeResult.error.message}`,
+    ].filter(Boolean)
+
+    throw new Error(failures.join('; '))
+  }
+
   console.log('[respond-booking-finalized]', {
     contactId,
     assignee,
