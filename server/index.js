@@ -1166,8 +1166,21 @@ async function handleRespondBookingAutomation({
 
     if (!state) {
       if (isOutOfFlowInfoQuestion(latestUserText)) {
+        const answer = await generatePendingStateOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
+          booking: {
+            ...existingBooking,
+            bookingTeam,
+            details: { ...details, state: '' },
+            pendingField: 'state',
+          },
+        })
+
         return {
-          text: buildPendingStateOutOfFlowReply(latestUserText, customerLanguage),
+          text: buildPendingStateOutOfFlowReply(answer, customerLanguage),
           booking: {
             ...existingBooking,
             bookingTeam,
@@ -2244,8 +2257,49 @@ function getPendingStateRecoveryText(content, customerLanguage) {
   return askState
 }
 
-function buildPendingStateOutOfFlowReply(content, customerLanguage) {
-  const answer = getOutOfFlowAnswer(content, customerLanguage)
+async function generatePendingStateOutOfFlowAnswer({
+  messages,
+  latestUserText,
+  customerLanguage,
+  respondContactProfile,
+  booking,
+}) {
+  const fallbackAnswer = getOutOfFlowAnswer(latestUserText, customerLanguage)
+  const ragContext = await buildRagContext({
+    agent: RESPOND_AGENT,
+    messages,
+    message: latestUserText,
+  })
+  const instructions = buildInstructions({
+    agent: RESPOND_AGENT,
+    customerLanguage,
+    instructions: [
+      'The customer has not provided their state yet. Answer the latest customer question directly using retrieved company knowledge and the conversation context.',
+      'Do not ask for phone number, appointment availability, name, or booking confirmation in this answer.',
+      'Do not ask for state in this answer; the application will append the state question after your answer.',
+      'Do not start with a greeting. Keep it concise but specific enough to actually answer the question.',
+    ].join('\n'),
+  })
+  const input = buildInput({
+    messages,
+    message: latestUserText,
+    customerLanguage,
+    context: ragContext,
+    respondContactProfile,
+    booking,
+  })
+
+  return createOpenAIResponseText({
+    model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+    instructions,
+    input,
+  }).catch((error) => {
+    console.warn(`Unable to generate pending-state answer: ${error.message}`)
+    return fallbackAnswer
+  })
+}
+
+function buildPendingStateOutOfFlowReply(answer, customerLanguage) {
   const askState = bookingCopy(customerLanguage, 'askState')
 
   return answer ? `${answer}\n\n${askState}` : askState
