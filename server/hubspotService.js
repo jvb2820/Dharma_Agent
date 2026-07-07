@@ -5,6 +5,7 @@ const DEFAULT_DEAL_STAGE = '1013987700'
 const DEFAULT_DEAL_EVALUATION_DATE_PROPERTY = 'evaluation_date_and_hour_2'
 const DEFAULT_DEAL_NAME_PREFIX = 'Sellers'
 const DEFAULT_DISABLED_SELLER_SLUGS = ['diana-giron']
+const MIN_BOOKING_LEAD_TIME_MS = 60 * 60 * 1000
 
 const PRIORITY_SELLERS = [
   { slug: 'meribet-yazziet', name: 'Meribet', fieldValue: 'Meribet Sampson' },
@@ -81,7 +82,7 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '' }) {
 
     const slots = availability.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || []
 
-    const futureSlots = slots.filter((slot) => slot.startMillisUtc > Date.now() + 5 * 60 * 1000)
+    const futureSlots = slots.filter((slot) => slot.startMillisUtc >= Date.now() + MIN_BOOKING_LEAD_TIME_MS)
     const candidateSlots = futureSlots.filter((slot) => {
       if (preference.dateKey && getDateKey(slot.startMillisUtc, timezone) !== preference.dateKey) {
         return false

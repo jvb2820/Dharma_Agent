@@ -199,6 +199,89 @@ export async function unassignRespondConversation(contactId) {
   return data
 }
 
+export async function assignRespondConversation({ contactId, assignee }) {
+  if (!contactId) {
+    throw new Error('contactId is required to assign a Respond conversation.')
+  }
+
+  if (!assignee) {
+    throw new Error('assignee is required to assign a Respond conversation.')
+  }
+
+  return updateRespondConversationAssignee({
+    contactId,
+    assignee: normalizeRespondAssignee(assignee),
+  })
+}
+
+export async function closeRespondConversation(contactId) {
+  if (!contactId) {
+    throw new Error('contactId is required to close a Respond conversation.')
+  }
+
+  const token = process.env.RESPOND_API_TOKEN || process.env.RESPONDIO_API_KEY
+
+  if (!token) {
+    throw new Error('RESPOND_API_TOKEN is not configured.')
+  }
+
+  const response = await fetch(
+    `${RESPOND_API_BASE_URL}/v2/contact/${encodeURIComponent(`id:${contactId}`)}/conversation`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ status: 'close' }),
+    },
+  )
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data.message || `Respond conversation close failed with ${response.status}.`)
+  }
+
+  return data
+}
+
+async function updateRespondConversationAssignee({ contactId, assignee }) {
+  const token = process.env.RESPOND_API_TOKEN || process.env.RESPONDIO_API_KEY
+
+  if (!token) {
+    throw new Error('RESPOND_API_TOKEN is not configured.')
+  }
+
+  const response = await fetch(
+    `${RESPOND_API_BASE_URL}/v2/contact/${encodeURIComponent(`id:${contactId}`)}/conversation/assignee`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ assignee }),
+    },
+  )
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data.message || `Respond conversation assign failed with ${response.status}.`)
+  }
+
+  return data
+}
+
+function normalizeRespondAssignee(assignee) {
+  const value = String(assignee || '').trim()
+
+  if (value.includes(':')) {
+    return value
+  }
+
+  return value.includes('@') ? `email:${value}` : value
+}
+
 function buildContactUpdatePayload(fields) {
   const payload = {}
   const customFields = []

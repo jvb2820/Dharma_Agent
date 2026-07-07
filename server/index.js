@@ -23,6 +23,8 @@ import {
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
 import {
+  assignRespondConversation,
+  closeRespondConversation,
   getRespondContact,
   sendRespondImageMessage,
   sendRespondTextMessage,
@@ -577,7 +579,17 @@ async function processRespondIncomingMessage(event) {
       channelId: event.channelId,
       text: bookingResponse.text,
     })
-    await unassignRespondConversationAfterReply(event.contactId)
+    if (bookingResponse.postReplyRespondAction?.type === 'booked') {
+      await finalizeRespondConversationAfterBooking({
+        contactId: event.contactId,
+        booked: bookingResponse.postReplyRespondAction.booked,
+        option: bookingResponse.postReplyRespondAction.option,
+      }).catch((error) => {
+        console.warn(`Unable to finalize Respond conversation after booking: ${error.message}`)
+      })
+    } else {
+      await unassignRespondConversationAfterReply(event.contactId)
+    }
 
     respondSessions.set(event.contactId, {
       customerLanguage,
@@ -675,6 +687,70 @@ async function unassignRespondConversationAfterReply(contactId) {
   await unassignRespondConversation(contactId).catch((error) => {
     console.warn(`Unable to unassign Respond conversation: ${error.message}`)
   })
+}
+
+async function finalizeRespondConversationAfterBooking({ contactId, booked, option }) {
+  const assignee = getRespondAssigneeForBookedSpecialist(booked, option)
+
+  if (!assignee) {
+    console.warn(
+      `Unable to assign and close Respond conversation: no assignee configured for booked specialist ${booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName || 'unknown'}.`,
+    )
+    return
+  }
+
+  await assignRespondConversation({ contactId, assignee })
+  await closeRespondConversation(contactId)
+}
+
+function getRespondAssigneeForBookedSpecialist(booked = {}, option = {}) {
+  const assignees = parseRespondAssigneeMap(process.env.RESPOND_BOOKING_ASSIGNEES)
+  const keys = [
+    booked.sellerSlug,
+    option.sellerSlug,
+    booked.sellerFieldValue,
+    option.sellerFieldValue,
+    booked.sellerName,
+    option.sellerName,
+  ]
+    .map((value) => normalizeRespondAssigneeKey(value))
+    .filter(Boolean)
+
+  return keys.map((key) => assignees[key]).find(Boolean) || ''
+}
+
+function parseRespondAssigneeMap(value) {
+  const text = String(value || '').trim()
+
+  if (!text) {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(text)
+
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Object.fromEntries(
+        Object.entries(parsed)
+          .map(([key, assignee]) => [normalizeRespondAssigneeKey(key), String(assignee || '').trim()])
+          .filter(([key, assignee]) => key && assignee),
+      )
+    }
+  } catch {
+    // Allow a compact env format like "alice-f=alice@example.com,arles-martinez=arles@example.com".
+  }
+
+  return Object.fromEntries(
+    text
+      .split(',')
+      .map((item) => item.split('='))
+      .map(([key, assignee]) => [normalizeRespondAssigneeKey(key), String(assignee || '').trim()])
+      .filter(([key, assignee]) => key && assignee),
+  )
+}
+
+function normalizeRespondAssigneeKey(value) {
+  return normalizeSearchText(value).replace(/\s+/g, '-')
 }
 
 function logRespondRoutingDecision(stage, details = {}) {
@@ -1070,12 +1146,19 @@ async function handleRespondBookingAutomation({
   const bookingTeam = getCurrentRespondBookingTeam(existingBooking, respondContactProfile)
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
   const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
+  const latestPreferredTime = resolveRespondPreferredTime({
+    existingDetails: existingBooking.details,
+    latestSignals,
+    latestUserText,
+  })
   let details = {
     ...getRespondContactBookingDetails(respondContactProfile),
     ...(existingBooking.details || {}),
     ...extractRespondBookingDetails(messages),
     ...latestSignals,
+    ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
   }
+  details = applyAvailabilityConstraintFromPreferredTime(details)
   details = withDefaultRespondDesiredTreatment(details)
 
   if (existingBooking.pendingField === 'state') {
@@ -1117,16 +1200,30 @@ async function handleRespondBookingAutomation({
     }
 
     if (!nextDetails.phone) {
-      return {
+      return prependOutOfFlowAnswerIfNeeded({
+        response: {
         text: bookingCopy(customerLanguage, 'askPhone'),
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: '' },
-      }
+        },
+        latestUserText,
+        customerLanguage,
+        booking: existingBooking,
+        details: nextDetails,
+      })
     }
 
-    return await offerSoonestRespondSlot({
+    const offer = await offerSoonestRespondSlot({
       booking: { ...existingBooking, bookingTeam, pendingField: '' },
       details: nextDetails,
       customerLanguage,
+    })
+
+    return prependOutOfFlowAnswerIfNeeded({
+      response: offer,
+      latestUserText,
+      customerLanguage,
+      booking: existingBooking,
+      details: nextDetails,
     })
   }
 
@@ -1257,7 +1354,12 @@ async function handleRespondBookingAutomation({
   }
 
   if (hasActiveSlotOffer && !selectedOption && isOutOfFlowInfoQuestion(latestUserText)) {
-    return null
+    return buildOutOfFlowAnswerWithBookingContext({
+      latestUserText,
+      customerLanguage,
+      booking: existingBooking,
+      details,
+    })
   }
 
   if (hasActiveSlotOffer && !selectedOption && isConversationDeferralReply(latestUserText)) {
@@ -1265,13 +1367,17 @@ async function handleRespondBookingAutomation({
   }
 
   if (hasActiveSlotOffer && !selectedOption && latestSignals.preferredTime) {
-    const nextDetails = { ...details, ...latestSignals }
+    const nextDetails = {
+      ...details,
+      ...latestSignals,
+      ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
+    }
 
     return await offerSoonestRespondSlot({
       booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
       details: nextDetails,
       customerLanguage,
-      preferredTime: latestSignals.preferredTime,
+      preferredTime: nextDetails.preferredTime,
       closest: true,
     })
   }
@@ -1279,8 +1385,12 @@ async function handleRespondBookingAutomation({
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegativeReply(latestUserText)) {
     const extractedPreferredTime = extractPreferredTimeText(latestUserText)
-    const preferredTime = extractedPreferredTime ||
-      (isNegatedAvailabilityPreference(latestUserText) ? '' : details.preferredTime)
+    const preferredTime =
+      resolveRespondPreferredTime({
+        existingDetails: details,
+        latestSignals: { ...latestSignals, preferredTime: extractedPreferredTime },
+        latestUserText,
+      }) || (isUnavailableTodayReply(latestUserText) ? 'tomorrow' : '')
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
@@ -1295,8 +1405,12 @@ async function handleRespondBookingAutomation({
   // When user rejects from a list, offer a fresh set of alternatives
   if (existingBooking.options?.length > 1 && isNegativeReply(latestUserText)) {
     const extractedPreferredTime = extractPreferredTimeText(latestUserText)
-    const preferredTime = extractedPreferredTime ||
-      (isNegatedAvailabilityPreference(latestUserText) ? '' : details.preferredTime)
+    const preferredTime =
+      resolveRespondPreferredTime({
+        existingDetails: details,
+        latestSignals: { ...latestSignals, preferredTime: extractedPreferredTime },
+        latestUserText,
+      }) || (isUnavailableTodayReply(latestUserText) ? 'tomorrow' : '')
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
@@ -1487,18 +1601,18 @@ async function offerSoonestRespondSlot({
     : [offeredOption]
 
   return {
-    text: closest || shouldOfferMultipleSlots
-      ? bookingCopy(customerLanguage, closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
-          slots: formatNumberedSlots(nextOptions, details.state),
+    text: nextOptions.length === 1
+      ? bookingCopy(customerLanguage, closest ? 'offerClosestSlot' : 'offerSlot', {
+          slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone),
         })
-      : bookingCopy(customerLanguage, 'offerSlot', {
-          slot: formatCustomerStateSlot(offeredOption.startTime, details.state, offeredOption.timezone),
+      : bookingCopy(customerLanguage, closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
+          slots: formatNumberedSlots(nextOptions, details.state),
         }),
     booking: {
       details,
       bookingTeam: booking.bookingTeam || 'sales',
       options: nextOptions,
-      offeredOption: closest || shouldOfferMultipleSlots ? null : offeredOption,
+      offeredOption: nextOptions.length === 1 ? nextOptions[0] : null,
       pendingField: '',
       excludedOptions: booking.excludedOptions || [],
     },
@@ -1510,6 +1624,10 @@ function hasAvailabilityTimeConstraint(details = {}) {
 }
 
 function shouldOfferMultipleScheduleOptions({ closest = false, details = {}, preferredTime = '' } = {}) {
+  if (process.env.RESPOND_SINGLE_SLOT_OFFERS !== 'false') {
+    return false
+  }
+
   if (closest) {
     return false
   }
@@ -1666,6 +1784,99 @@ function getAvailabilityOptionKey(option = {}) {
   return `${option.sellerSlug || ''}:${option.startTime || ''}`
 }
 
+function prependOutOfFlowAnswerIfNeeded({
+  response,
+  latestUserText,
+  customerLanguage,
+  booking = {},
+  details = {},
+}) {
+  const answer = getOutOfFlowAnswer(latestUserText, customerLanguage)
+
+  if (!answer || !response?.text) {
+    return response
+  }
+
+  return {
+    ...response,
+    text: `${answer}\n\n${response.text}`,
+    booking: {
+      ...(response.booking || booking),
+      details: {
+        ...(response.booking?.details || details),
+      },
+    },
+  }
+}
+
+function buildOutOfFlowAnswerWithBookingContext({
+  latestUserText,
+  customerLanguage,
+  booking = {},
+  details = {},
+}) {
+  const answer = getOutOfFlowAnswer(latestUserText, customerLanguage)
+
+  if (!answer) {
+    return null
+  }
+
+  const option = booking.offeredOption || booking.options?.[0]
+
+  if (!option) {
+    return {
+      text: answer,
+      booking: { ...booking, details },
+    }
+  }
+
+  return {
+    text: `${answer}\n\n${bookingCopy(customerLanguage, 'reofferSlot', {
+      slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone),
+    })}`,
+    booking: { ...booking, details, offeredOption: option, options: [] },
+  }
+}
+
+function getOutOfFlowAnswer(content, customerLanguage) {
+  const normalized = normalizeSearchText(content)
+  const language = normalizeLanguageName(customerLanguage)
+  const spanish = language === 'Latin American Spanish'
+  const portuguese = language === 'Portuguese'
+
+  if (!normalized || !isOutOfFlowInfoQuestion(content)) {
+    return ''
+  }
+
+  if (/\b(cita|appointment|consulta|llamada)\b/.test(normalized) && /\b(precio|cuanto|cost|price|cuesta|custa)\b/.test(normalized)) {
+    if (spanish) return 'La llamada de analisis inicial es completamente gratis. En esa llamada te explican las opciones, precios y siguientes pasos sin compromiso.'
+    if (portuguese) return 'A chamada inicial de analise e completamente gratuita. Nessa chamada explicam as opcoes, precos e proximos passos sem compromisso.'
+    return 'The initial discovery call is completely free. During the call, the specialist explains options, pricing, and next steps with no obligation.'
+  }
+
+  if (/\b(price|cost|payment|precio|cuanto|cuesta|costo|pago|preco|quanto custa)\b/.test(normalized)) {
+    if (spanish) return 'El paquete personalizado GLP-1 para perdida de peso empieza en $589 por hasta 4 semanas, y el acceso a prescripcion de Zepbound cuesta $299. Los tratamientos mas largos dependen de tu meta.'
+    if (portuguese) return 'O pacote personalizado GLP-1 para perda de peso comeca em $589 por ate 4 semanas, e o acesso a prescricao de Zepbound custa $299. Tratamentos mais longos dependem do seu objetivo.'
+    return 'The personalized GLP-1 weight-loss package starts at $589 for up to 4 weeks, and Zepbound prescription access is $299. Longer treatments depend on your goal.'
+  }
+
+  if (/\b(doctor|doctors|provider|providers|doctor name|medico|medicos|doctor|doctores|nombre del doctor|proveedor|proveedores|doutor|medico)\b/.test(normalized)) {
+    if (spanish) return 'La llamada es con un especialista en nuestros tratamientos, no con un doctor. Dharma trabaja con una red de proveedores medicos licenciados en los estados donde ofrecemos servicio; despues de completar el formulario medico, tu caso se asigna a un proveedor autorizado segun tu estado.'
+    if (portuguese) return 'A chamada e com um especialista nos nossos tratamentos, nao com um medico. A Dharma trabalha com uma rede de provedores medicos licenciados nos estados atendidos; depois do formulario medico, seu caso e atribuido a um provedor autorizado conforme seu estado.'
+    return 'The call is with a treatment specialist, not a doctor. Dharma works with licensed medical providers in the states we serve; after the medical form, your case is assigned to an authorized provider for your state.'
+  }
+
+  if (/\b(treatment|program|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|tratamiento|medicamento|inyeccion|programa|injecao)\b/.test(normalized)) {
+    if (spanish) return 'El tratamiento de perdida de peso puede incluir opciones GLP-1 como Semaglutide o Tirzepatide cuando un proveedor medico determina que eres candidata. Primero hacemos una llamada gratis para revisar tu meta, explicar opciones y los siguientes pasos.'
+    if (portuguese) return 'O tratamento de perda de peso pode incluir opcoes GLP-1 como Semaglutide ou Tirzepatide quando um provedor medico determina que e adequado. Primeiro fazemos uma chamada gratuita para revisar seu objetivo, explicar opcoes e proximos passos.'
+    return 'Weight-loss treatment may include GLP-1 options such as Semaglutide or Tirzepatide when a licensed provider determines it is appropriate. First, we do a free call to review your goal, options, and next steps.'
+  }
+
+  if (spanish) return 'Claro, te explico brevemente: la llamada gratis es para revisar tu meta, responder tus dudas y orientarte sobre las opciones disponibles.'
+  if (portuguese) return 'Claro, explico brevemente: a chamada gratuita serve para revisar seu objetivo, responder suas duvidas e orientar sobre as opcoes disponiveis.'
+  return 'Of course. The free call is to review your goal, answer questions, and guide you through the available options.'
+}
+
 async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
   const option = booking.offeredOption || booking.options?.[0]
 
@@ -1694,6 +1905,11 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
       customer,
     }),
     booking: null,
+    postReplyRespondAction: {
+      type: 'booked',
+      booked,
+      option,
+    },
   }
 }
 
@@ -1881,6 +2097,11 @@ function bookingCopy(language, key, values = {}) {
       `📅 ${named('I have this available time for your free discovery call:', 'I have this available time for your free discovery call:')} ${values.slot}. Does that work for you?`,
       `${named('tengo este horario disponible para tu llamada gratuita de análisis:', 'Tengo este horario disponible para tu llamada gratuita de análisis:')} ${values.slot}. Te funciona?`,
       `${named('tenho este horário disponível para sua chamada gratuita de análise:', 'Tenho este horário disponível para sua chamada gratuita de análise:')} ${values.slot}. Funciona para você?`,
+    ),
+    reofferSlot: tri(
+      `The available time I have is ${values.slot}. Does that work for you?`,
+      `El horario disponible que tengo es ${values.slot}. Te funciona?`,
+      `O horario disponivel que tenho e ${values.slot}. Funciona para voce?`,
     ),
     offerSlots: tri(
       `These are the next available options for your free discovery call:\n${values.slots}\n\nWhich option works best? You can reply with the number or the time.`,
@@ -2265,6 +2486,11 @@ function isNegatedAvailabilityPreference(content) {
 function extractAvailabilityPreference(content) {
   const preferenceText = getPositiveAvailabilityPreferenceText(content)
   const normalized = normalizeSearchText(preferenceText)
+  const combinedTomorrowPart = getCombinedTomorrowDayPartPreference(normalized)
+
+  if (combinedTomorrowPart) {
+    return combinedTomorrowPart
+  }
 
   if (!normalized) {
     return { hasPreference: false }
@@ -2344,6 +2570,143 @@ function extractAvailabilityPreference(content) {
   }
 
   return { hasPreference: false }
+}
+
+function resolveRespondPreferredTime({ existingDetails = {}, latestSignals = {}, latestUserText = '' } = {}) {
+  const explicitPreferredTime = latestSignals.preferredTime || ''
+  const existingPreferredTime = existingDetails?.preferredTime || ''
+  const latestAvailabilityPreference = extractAvailabilityPreference(latestUserText)
+
+  if (isUnavailableTodayReply(latestUserText)) {
+    return 'tomorrow'
+  }
+
+  if (!explicitPreferredTime && !latestAvailabilityPreference.hasPreference) {
+    return existingPreferredTime
+  }
+
+  const datePart =
+    extractPreferredDatePhrase(explicitPreferredTime) ||
+    extractPreferredDatePhrase(latestUserText) ||
+    extractPreferredDatePhrase(existingPreferredTime)
+  const timePart =
+    extractPreferredClockOrDayPart(explicitPreferredTime) ||
+    extractPreferredClockOrDayPart(latestUserText)
+
+  if (datePart && timePart) {
+    return `${datePart} ${timePart}`.trim()
+  }
+
+  if (explicitPreferredTime && extractPreferredDatePhrase(explicitPreferredTime)) {
+    return explicitPreferredTime
+  }
+
+  if (explicitPreferredTime && extractPreferredClockOrDayPart(explicitPreferredTime) && datePart) {
+    return `${datePart} ${explicitPreferredTime}`.trim()
+  }
+
+  return explicitPreferredTime || existingPreferredTime
+}
+
+function applyAvailabilityConstraintFromPreferredTime(details = {}) {
+  const normalized = normalizeSearchText(details.preferredTime)
+
+  if (!normalized || Number.isInteger(details.earliestHour)) {
+    return details
+  }
+
+  if (/\b(after 5pm|5pm|5 pm|evening|noche)\b/.test(normalized)) {
+    return { ...details, earliestHour: 17, dayPart: 'evening' }
+  }
+
+  if (/\b(afternoon|tarde)\b/.test(normalized)) {
+    return { ...details, earliestHour: 12, dayPart: 'afternoon' }
+  }
+
+  return details
+}
+
+function getCombinedTomorrowDayPartPreference(normalized) {
+  if (!hasTomorrowSignal(normalized) || !/\b(afternoon|tarde|evening|noche|5pm|after 5|after five)\b/.test(normalized)) {
+    return null
+  }
+
+  const evening = /\b(evening|noche|5pm|after 5|after five)\b/.test(normalized)
+
+  return {
+    hasPreference: true,
+    preferredTime: evening ? 'tomorrow after 5pm' : 'tomorrow afternoon',
+    earliestHour: evening ? 17 : 12,
+    dayPart: evening ? 'evening' : 'afternoon',
+  }
+}
+
+function hasTomorrowSignal(normalized) {
+  return /\b(tomorrow|next day|the next day|next available day|manana|dia siguiente|proximo dia|amanha)\b/.test(
+    normalized,
+  )
+}
+
+function isUnavailableTodayReply(content) {
+  const normalized = normalizeSearchText(content)
+
+  return [
+    /\b(can t|cannot|cant|can not|not available|doesn t work|doesnt work|no)\b[\s\S]{0,40}\b(today)\b/,
+    /\b(no puedo|no podre|no podria|no me funciona|no estoy disponible|no)\b[\s\S]{0,40}\b(hoy)\b/,
+    /\b(nao posso|nao consigo|nao estou disponivel|nao funciona|nao)\b[\s\S]{0,40}\b(hoje)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function extractPreferredDatePhrase(content) {
+  const normalized = normalizeSearchText(content)
+
+  if (/\b(day after tomorrow|pasado manana|pasado manana|depois de amanha)\b/.test(normalized)) {
+    return 'day after tomorrow'
+  }
+
+  if (/\b(tomorrow|next day|the next day|next available day|manana|dia siguiente|proximo dia|amanha)\b/.test(normalized)) {
+    return 'tomorrow'
+  }
+
+  if (/\b(today|hoy|hoje)\b/.test(normalized)) {
+    return 'today'
+  }
+
+  const explicitDate = String(content || '').match(
+    /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?\b|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/i,
+  )
+
+  return explicitDate?.[0]?.trim() || ''
+}
+
+function extractPreferredClockOrDayPart(content) {
+  const normalized = normalizeSearchText(content)
+  const clock = String(content || '').match(/\b(?:around|about|like|como|a las|las|at)?\s*(1[0-2]|0?[1-9])(?::\d{2})?\s*(am|pm)\b/i)
+
+  if (clock) {
+    return clock[0].trim()
+  }
+
+  const bareHour = String(content || '').match(/\b(?:around|about|like|como|a las|las|at)\s+(1[0-2]|0?[1-9])\b/i)
+
+  if (bareHour) {
+    const hour = Number(bareHour[1])
+    return `${hour}${hour >= 8 && hour <= 11 ? 'am' : 'pm'}`
+  }
+
+  if (/\b(after 5|after five|5pm|evening|noche|por la noche|en la noche)\b/.test(normalized)) {
+    return 'after 5pm'
+  }
+
+  if (/\b(afternoon|por la tarde|en la tarde|tarde)\b/.test(normalized)) {
+    return 'afternoon'
+  }
+
+  if (/\b(morning|manana|por la manana|en la manana)\b/.test(normalized)) {
+    return 'morning'
+  }
+
+  return ''
 }
 
 function normalizeAvailabilityHour(hour, period = '') {
@@ -2648,6 +3011,8 @@ function hasUnconfirmedBookingLanguage(text) {
     /\bsubmit\b[\s\S]{0,80}\b(booking|form|reservation|appointment)\b/,
     /\b(i|we)\s+have\s+availability\b[\s\S]{0,80}\b(today|tomorrow|am|pm|est|edt|\d{1,2}:\d{2})\b/,
     /\bavailable slot\b[\s\S]{0,80}\b(today|tomorrow|am|pm|est|edt|\d{1,2}:\d{2})\b/,
+    /\b(confirm|confirmar|confirme|schedule|book|agendar|agendare|agendar[eÃ©]|programar)\b[\s\S]{0,120}\b(cita|appointment|llamada|call)\b/,
+    /\b(te|le)\s+(agendo|agendare|agendar[eÃ©]|confirmo|confirmare|confirmar[eÃ©])\b/,
   ].some((pattern) => pattern.test(normalized))
 }
 
@@ -2664,12 +3029,14 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
     'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name sparingly when known, mainly in the first warm greeting or after a longer gap. Do not use the name in consecutive replies. In an ongoing conversation, do not start routine replies with a fresh greeting such as "Hi", "Hello", "Hola", or "Olá"; just answer the message.',
+    'Mid-flow question rule: if the customer asks a question while a slot or booking step is active, answer directly without a greeting, then return to the same current booking step. Do not reset the conversation, and do not ask whether they have more questions before booking.',
     'Emoji style for model-generated chat replies: include exactly one friendly, relevant emoji in every normal generated customer-facing reply. Choose an emoji that fits the message, such as 📍 for state, 📲 for phone, 💛 for warmth, or ✨ for encouragement. Do not add extra emojis. This rule applies only to generated chat replies; do not rewrite or add emojis to fixed application templates.',
     'If a polite lead says they are not interested, says no thank you, asks to talk later, or says another time, ask whether they have any questions or concerns you can answer before booking or before they go. Keep it warm and do not immediately close the conversation.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
     'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. If they ask "what is it about?", "tell me more", "how does it work", pricing, product, company, safety, side-effect, or similar questions while a slot or flow step is active, answer that question before asking them to choose or confirm. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved. When returning to scheduling, never ask what day or time works best for the customer; instead say you will check the next available time or continue collecting the next required booking detail so the application can offer real calendar slots.',
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist. If the customer asks whether the appointment or discovery call costs money, answer clearly that the discovery call is free and the specialist will explain treatment options, pricing, and next steps during the call.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
+    'Offer only one appointment option at a time unless the application explicitly provides numbered options. Preserve the customer latest date preference when they refine time; for example, if they said tomorrow and then ask for afternoon or 5pm, keep searching tomorrow, not today.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
     'Never ask for the customer full address or shipping address during lead qualification or discovery-call booking. State is enough for delivery qualification.',
