@@ -690,17 +690,23 @@ async function unassignRespondConversationAfterReply(contactId) {
 }
 
 async function finalizeRespondConversationAfterBooking({ contactId, booked, option }) {
-  const assignee = getRespondAssigneeForBookedSpecialist(booked, option)
+  const assignment = getRespondAssigneeForBookedSpecialist(booked, option)
+  const assignee = assignment.assignee
 
   if (!assignee) {
     console.warn(
-      `Unable to assign and close Respond conversation: no assignee configured for booked specialist ${booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName || 'unknown'}.`,
+      `Unable to assign and close Respond conversation: no assignee configured for booked specialist ${booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName || 'unknown'}. Tried keys: ${assignment.keys.join(', ') || 'none'}. Configured keys: ${assignment.configuredKeys.join(', ') || 'none'}.`,
     )
     return
   }
 
   await assignRespondConversation({ contactId, assignee })
   await closeRespondConversation(contactId)
+  console.log('[respond-booking-finalized]', {
+    contactId,
+    assignee,
+    bookedSpecialist: booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName,
+  })
 }
 
 function getRespondAssigneeForBookedSpecialist(booked = {}, option = {}) {
@@ -716,7 +722,11 @@ function getRespondAssigneeForBookedSpecialist(booked = {}, option = {}) {
     .map((value) => normalizeRespondAssigneeKey(value))
     .filter(Boolean)
 
-  return keys.map((key) => assignees[key]).find(Boolean) || ''
+  return {
+    assignee: keys.map((key) => assignees[key]).find(Boolean) || '',
+    keys,
+    configuredKeys: Object.keys(assignees),
+  }
 }
 
 function parseRespondAssigneeMap(value) {
