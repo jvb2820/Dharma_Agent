@@ -556,13 +556,14 @@ async function processRespondIncomingMessage(event) {
   const messages = [...session.messages, userMessage].slice(-12)
   const customerLanguage = preferredLanguage || 'English'
   const state = extractStateName(event.text)
+  const activeBooking = getActiveRespondBookingForMessage(session.booking, state)
 
   if (state) {
     await updateRespondContactState(event.contactId, state)
   }
 
   const bookingResponse = await handleRespondBookingAutomation({
-    session,
+    session: { ...session, booking: activeBooking },
     messages,
     customerLanguage,
     respondContactProfile,
@@ -604,7 +605,7 @@ async function processRespondIncomingMessage(event) {
     redundancyControl,
     context: ragContext,
     respondContactProfile,
-    booking: session.booking,
+    booking: activeBooking,
   })
   const generatedText = await createOpenAIResponseText({
     model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
@@ -625,9 +626,23 @@ async function processRespondIncomingMessage(event) {
     languageAsked: false,
     lastInteractionAt: Date.now(),
     messages: [...messages, { role: 'agent', content: text }].slice(-12),
-    booking: session.booking || null,
+    booking: activeBooking || null,
     respondContactProfile,
   })
+}
+
+function getActiveRespondBookingForMessage(booking, latestState) {
+  if (!booking || booking.pendingField !== 'state' || latestState) {
+    return booking || null
+  }
+
+  return {
+    ...booking,
+    details: {
+      ...(booking.details || {}),
+      state: '',
+    },
+  }
 }
 
 async function unassignRespondConversationAfterReply(contactId) {
@@ -936,6 +951,9 @@ function formatBookingContextForPrompt(booking = {}) {
     options.length
       ? `Already offered numbered slots:\n${formatNumberedSlots(options, details.state)}`
       : '',
+    booking.pendingField === 'state' && !details.state
+      ? 'The next required flow step is the customer state. If the latest customer message asks a question or goes out of flow, answer it briefly first, then ask which state they live in before offering availability or asking for phone.'
+      : '',
     'If the latest customer message asks an information question, answer it from company knowledge first. Then briefly return to the current booking flow without asking for details already known or inventing availability.',
   ].filter(Boolean)
 
@@ -967,16 +985,23 @@ async function handleRespondBookingAutomation({
   details = withDefaultRespondDesiredTreatment(details)
 
   if (existingBooking.pendingField === 'state') {
-    const state = latestSignals.state || details.state
+    const state = latestSignals.state
 
     if (!state) {
-      const text = isGreetingOnly(latestUserText)
-        ? `${acknowledgeGreeting(customerLanguage)} ${bookingCopy(customerLanguage, 'askState')}`
-        : bookingCopy(customerLanguage, 'askState')
+      if (isOutOfFlowInfoQuestion(latestUserText)) {
+        return null
+      }
+
+      const text = getPendingStateRecoveryText(latestUserText, customerLanguage)
 
       return {
         text,
-        booking: { ...existingBooking, bookingTeam, details, pendingField: 'state' },
+        booking: {
+          ...existingBooking,
+          bookingTeam,
+          details: { ...details, state: '' },
+          pendingField: 'state',
+        },
       }
     }
 
@@ -1801,6 +1826,42 @@ function bookingCopy(language, key, values = {}) {
   }
 
   return copy[key] || ''
+}
+
+function getPendingStateRecoveryText(content, customerLanguage) {
+  const normalized = normalizeSearchText(content)
+  const askState = bookingCopy(customerLanguage, 'askState')
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (isGreetingOnly(content)) {
+    return `${acknowledgeGreeting(customerLanguage)} ${askState}`
+  }
+
+  if (isBookingRequest(content)) {
+    if (language === 'Latin American Spanish') {
+      return `Claro, te ayudo con los horarios. Primero necesito confirmar tu estado para revisar la disponibilidad correcta.\n\n${askState}`
+    }
+
+    if (language === 'Portuguese') {
+      return `Claro, eu te ajudo com os horarios. Primeiro preciso confirmar seu estado para verificar a disponibilidade correta.\n\n${askState}`
+    }
+
+    return `Of course, I can help with available times. First I need to confirm your state so I can check the right availability.\n\n${askState}`
+  }
+
+  if (isGoalOrTreatmentStatement(normalized) || extractDesiredTreatmentName(content)) {
+    if (language === 'Latin American Spanish') {
+      return `Claro, te podemos orientar con las opciones de tratamiento. Para confirmar si hacemos envios a tu estado, dime por favor en que estado vives?`
+    }
+
+    if (language === 'Portuguese') {
+      return `Claro, podemos te orientar com as opcoes de tratamento. Para confirmar se fazemos entregas no seu estado, por favor me diga em que estado voce mora?`
+    }
+
+    return `Of course, we can guide you through the treatment options. To confirm whether we ship to your state, please tell us which state you live in?`
+  }
+
+  return askState
 }
 
 
