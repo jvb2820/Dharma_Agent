@@ -1130,6 +1130,10 @@ async function handleRespondBookingAutomation({
     return null
   }
 
+  if (hasActiveSlotOffer && !selectedOption && isConversationDeferralReply(latestUserText)) {
+    return null
+  }
+
   if (hasActiveSlotOffer && !selectedOption && latestSignals.preferredTime) {
     const nextDetails = { ...details, ...latestSignals }
 
@@ -1144,7 +1148,9 @@ async function handleRespondBookingAutomation({
 
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegativeReply(latestUserText)) {
-    const preferredTime = extractPreferredTimeText(latestUserText) || details.preferredTime
+    const extractedPreferredTime = extractPreferredTimeText(latestUserText)
+    const preferredTime = extractedPreferredTime ||
+      (isNegatedAvailabilityPreference(latestUserText) ? '' : details.preferredTime)
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
@@ -1158,7 +1164,9 @@ async function handleRespondBookingAutomation({
 
   // When user rejects from a list, offer a fresh set of alternatives
   if (existingBooking.options?.length > 1 && isNegativeReply(latestUserText)) {
-    const preferredTime = extractPreferredTimeText(latestUserText) || details.preferredTime
+    const extractedPreferredTime = extractPreferredTimeText(latestUserText)
+    const preferredTime = extractedPreferredTime ||
+      (isNegatedAvailabilityPreference(latestUserText) ? '' : details.preferredTime)
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
@@ -1323,8 +1331,9 @@ async function offerSoonestRespondSlot({
     }
   }
 
+  const multipleOptionLimit = closest ? 1 : 6
   const nextOptions = closest || shouldOfferMultipleSlots
-    ? selectSpreadAvailabilityOptions(availableOptions, 6, details.state)
+    ? selectSpreadAvailabilityOptions(availableOptions, multipleOptionLimit, details.state)
     : [offeredOption]
 
   return {
@@ -1351,7 +1360,11 @@ function hasAvailabilityTimeConstraint(details = {}) {
 }
 
 function shouldOfferMultipleScheduleOptions({ closest = false, details = {}, preferredTime = '' } = {}) {
-  if (closest || hasAvailabilityTimeConstraint(details)) {
+  if (closest) {
+    return false
+  }
+
+  if (hasAvailabilityTimeConstraint(details)) {
     return true
   }
 
@@ -1735,9 +1748,9 @@ function bookingCopy(language, key, values = {}) {
       `Não vejo exatamente esse horário, mas este é o espaço mais próximo disponível: ${values.slot}. Funciona para você?`,
     ),
     offerClosestSlots: tri(
-      `📅 ${named('I do not have that exact time available, but these are the closest schedules based on your desired time:', 'I do not have that exact time available, but these are the closest schedules based on your desired time:')}\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
-      `${named('no tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:', 'No tengo ese horario exacto disponible, pero estos son los horarios mas cercanos segun tu preferencia:')}\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
-      `${named('não tenho exatamente esse horário disponível, mas estes são os horários mais próximos conforme sua preferência:', 'Não tenho exatamente esse horário disponível, mas estes são os horários mais próximos conforme sua preferência:')}\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
+      `📅 ${named('I do not have that exact time available, but I do have this option:', 'I do not have that exact time available, but I do have this option:')}\n${values.slots}\n\nDoes that work for you?`,
+      `${named('no tengo ese horario exacto disponible, pero tengo esta opcion:', 'No tengo ese horario exacto disponible, pero tengo esta opcion:')}\n${values.slots}\n\nTe funciona?`,
+      `${named('não tenho exatamente esse horário disponível, mas tenho esta opção:', 'Não tenho exatamente esse horário disponível, mas tenho esta opção:')}\n${values.slots}\n\nFunciona para você?`,
     ),
     offerAlternativeSlots: tri(
       `That time does not work. Here are the next available openings:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
@@ -1745,9 +1758,9 @@ function bookingCopy(language, key, values = {}) {
       `Esse horário não funciona. Estes são os próximos horários disponíveis:\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
     ),
     offerFallbackSlots: tri(
-      `📅 ${named('I do not have availability for that requested time right now, but these are the next available openings:', 'I do not have availability for that requested time right now, but these are the next available openings:')}\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
-      `${named('no tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:', 'No tengo disponibilidad para ese horario en este momento, pero estos son los proximos espacios disponibles:')}\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
-      `${named('não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:', 'Não tenho disponibilidade para esse horário agora, mas estes são os próximos horários disponíveis:')}\n${values.slots}\n\nQual opção funciona melhor? Responda com o número.`,
+      `📅 ${named('I do not have availability for that requested time right now, but I do have this option:', 'I do not have availability for that requested time right now, but I do have this option:')}\n${values.slots}\n\nDoes that work for you?`,
+      `${named('no tengo disponibilidad para ese horario en este momento, pero tengo esta opcion:', 'No tengo disponibilidad para ese horario en este momento, pero tengo esta opcion:')}\n${values.slots}\n\nTe funciona?`,
+      `${named('não tenho disponibilidade para esse horário agora, mas tenho esta opção:', 'Não tenho disponibilidade para esse horário agora, mas tenho esta opção:')}\n${values.slots}\n\nFunciona para você?`,
     ),
     askChooseOption: tri(
       'Which option works best? Please reply with the number or the time so I can book it.',
@@ -2000,14 +2013,53 @@ function isOutOfFlowInfoQuestion(content) {
   }
 
   return [
-    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide)\b/.test(normalized),
-    /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido)\b/.test(normalized),
-    /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo)\b/.test(normalized),
+    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide|doctor|doctors|provider|providers|fda|approved|review|reviews)\b/.test(normalized),
+    /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido|doctor|doctores|medico|medicos|proveedor|proveedores|fda|aprobado|resena|resenas)\b/.test(normalized),
+    /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo|doutor|doutores|medico|medicos|provedor|provedores|fda|aprovado|avaliacao|avaliacoes)\b/.test(normalized),
   ].some(Boolean)
 }
 
-function extractAvailabilityPreference(content) {
+function isConversationDeferralReply(content) {
   const normalized = normalizeSearchText(content)
+
+  return [
+    /\b(no thank you|no thanks|thanks but no|talk to you later|talk later|another time|some other time|not now|later maybe|i ll contact|i will contact)\b/,
+    /\b(no gracias|hablamos luego|te contacto luego|otro dia|otra ocasion|en otro momento|ahora no|luego veo|despues veo)\b/,
+    /\b(nao obrigada|nao obrigado|falo depois|volto a contactar|volto a contatar|outro dia|outra hora|outro momento|agora nao)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function getPositiveAvailabilityPreferenceText(content) {
+  const text = String(content || '').trim()
+
+  if (!text) {
+    return ''
+  }
+
+  const positiveMatch = text.match(
+    /\b(?:just|only|except|but|solo|solamente|excepto|pero|s[oó]|apenas|mas)\b\s+(.+)$/i,
+  )
+
+  if (positiveMatch) {
+    return positiveMatch[1].trim()
+  }
+
+  return isNegatedAvailabilityPreference(text) ? '' : text
+}
+
+function isNegatedAvailabilityPreference(content) {
+  const normalized = normalizeSearchText(content)
+
+  return [
+    /\b(can t|cannot|cant|can not|won t|wont|unable|not available|doesn t work|doesnt work)\b[\s\S]{0,40}\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|\d{1,2}(?::\d{2})?)\b/,
+    /\b(no puedo|no podre|no podria|no me funciona|no estoy disponible)\b[\s\S]{0,40}\b(hoy|manana|dia siguiente|lunes|martes|miercoles|jueves|viernes|sabado|domingo|tarde|noche|\d{1,2}(?::\d{2})?)\b/,
+    /\b(nao posso|nao consigo|nao estou disponivel|nao funciona)\b[\s\S]{0,40}\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|tarde|noite|\d{1,2}(?::\d{2})?)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function extractAvailabilityPreference(content) {
+  const preferenceText = getPositiveAvailabilityPreferenceText(content)
+  const normalized = normalizeSearchText(preferenceText)
 
   if (!normalized) {
     return { hasPreference: false }
@@ -2045,7 +2097,7 @@ function extractAvailabilityPreference(content) {
   ]
 
   for (const pattern of afterHourPatterns) {
-    const match = String(content || '').match(pattern)
+    const match = String(preferenceText || '').match(pattern)
 
     if (match) {
       const earliestHour = normalizeAvailabilityHour(Number(match[1]), match[2])
@@ -2406,12 +2458,12 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Use retrieved company knowledge as supporting context when it is relevant. Do not mention internal source names unless asked. If context is missing, ask a clarifying question or route to a human instead of inventing facts.',
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
-    'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name sparingly when known, mainly in the first warm greeting or after a longer gap. Do not use the name in consecutive replies.',
+    'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name sparingly when known, mainly in the first warm greeting or after a longer gap. Do not use the name in consecutive replies. In an ongoing conversation, do not start routine replies with a fresh greeting such as "Hi", "Hello", "Hola", or "Olá"; just answer the message.',
     'Emoji style for model-generated chat replies: include exactly one friendly, relevant emoji in every normal generated customer-facing reply. Choose an emoji that fits the message, such as 📍 for state, 📲 for phone, 💛 for warmth, or ✨ for encouragement. Do not add extra emojis. This rule applies only to generated chat replies; do not rewrite or add emojis to fixed application templates.',
-    'If a polite lead says they are not interested, briefly explain how Dharma works, mention that the discovery call is free and online, offer one useful reason to consider it, then gracefully let them go if they still decline.',
+    'If a polite lead says they are not interested, says no thank you, asks to talk later, or says another time, ask whether they have any questions or concerns you can answer before booking or before they go. Keep it warm and do not immediately close the conversation.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
     'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. If they ask "what is it about?", "tell me more", "how does it work", pricing, product, company, safety, side-effect, or similar questions while a slot or flow step is active, answer that question before asking them to choose or confirm. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved. When returning to scheduling, never ask what day or time works best for the customer; instead say you will check the next available time or continue collecting the next required booking detail so the application can offer real calendar slots.',
-    'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist.',
+    'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist. If the customer asks whether the appointment or discovery call costs money, answer clearly that the discovery call is free and the specialist will explain treatment options, pricing, and next steps during the call.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
@@ -2421,8 +2473,8 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Use the Respond contact profile context when present. If a customer first name is provided, use only the first name and use it sparingly. Prefer no name in routine booking, slot, and follow-up messages, especially if the prior agent reply already used it. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
     'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
-    'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names.',
-    'Price follow-up rule: if the customer asks about price or cost again (even if you have shared pricing before), always share the full price list again politely and naturally without saying you already shared it. After sharing the pricing, always follow up immediately with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
+    'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names. If asked about FDA approval, do not say compounded Semaglutide or compounded Tirzepatide are FDA-approved. Explain that FDA-approved branded medications include Wegovy and Zepbound, and Dharma uses the same active compounds with licensed medical oversight when appropriate.',
+    'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $589 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. If a real slot is already active, briefly return to that one slot after answering; otherwise follow up with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
     'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
     `State and product qualification rule: use company knowledge for which products are deliverable in each state. If the customer is out of state for weight-loss injections, do not offer or book a prescribed-treatment appointment and do not claim injections can ship there. If they ask a general question, answer it normally in their language using company knowledge and then gently guide them toward supplements or nutrition support. Only send the exact out-of-state supplement alternative script when the customer is trying to qualify, book, buy, or ship weight-loss injections in a non-serviceable state.
 
@@ -2449,7 +2501,9 @@ Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para a
 🟠 *Berberine*: controla os desejos, reduz o açúcar no sangue e diminui a inflamação abdominal.
 💪 *Creatine*: melhora a força, tonifica mais rápido e acelera a recuperação para você ficar mais fit.
 *Você pode ver tudo aqui* 👉 https://dharmanutritionclinic.com/collections/supplements`,
-    'Never refer to Dharma specialists as doctors. Use "specialist" or "medical specialist" only.',
+    'Never refer to Dharma sellers/treatment specialists as doctors or medical doctors. Call them "specialists in our treatments" or "treatment specialists", not "medical specialists". If a customer asks for the doctor/provider name, separate the answer: Dharma works with a network of providers licensed in the states we serve, and after the customer completes the medical form their case is assigned to a provider licensed in their home state. Separately, the sales/support specialists guide treatment information and scheduling but are not doctors.',
+    'Do not disclose or imply any client, celebrity, or public figure treatment details, including Dayanara Torres. If asked, say privacy rules prevent sharing any client treatment information, then offer to explain Dharma treatment options according to the customer goal.',
+    'When discussing trust or legitimacy, say Dharma Clinic is LegitScript-certified and has more than 1500 positive Google reviews.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',
     instructions,
@@ -2667,7 +2721,13 @@ function extractPreferredLanguageName(content) {
 }
 
 function extractPreferredTimeText(content) {
-  const dateTimeMatch = content.match(
+  const preferenceText = getPositiveAvailabilityPreferenceText(content)
+
+  if (!preferenceText) {
+    return ''
+  }
+
+  const dateTimeMatch = preferenceText.match(
     /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:\s+(?:at\s+)?)?(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?\b|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?(?:\s+(?:at\s+)?)?(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?\b/i,
   )
 
@@ -2675,16 +2735,24 @@ function extractPreferredTimeText(content) {
     return dateTimeMatch[0].trim()
   }
 
-  const timeMatch = content.match(/\b(?:1[0-2]|0?[1-9])(?::\d{2})?\s*(?:am|pm)\b/i)
+  const timeMatch = preferenceText.match(/\b(?:1[0-2]|0?[1-9])(?::\d{2})?\s*(?:am|pm)\b/i)
 
   if (timeMatch) {
     return timeMatch[0]
   }
 
-  const ordinalDayMatch = content.match(/\b\d{1,2}(?:st|nd|rd|th)\b/i)
+  const ordinalDayMatch = preferenceText.match(/\b\d{1,2}(?:st|nd|rd|th)\b/i)
 
   if (ordinalDayMatch) {
     return ordinalDayMatch[0]
+  }
+
+  const weekdayMatch = preferenceText.match(
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|domingo|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|segunda|terca|terça|quarta|quinta|sexta)\b/i,
+  )
+
+  if (weekdayMatch) {
+    return weekdayMatch[0]
   }
 
   return ''
@@ -2769,13 +2837,9 @@ function escapeRegExp(value) {
 function resolveCustomerLanguage({ messages = [], message, customerLanguage }) {
   const providedLanguage = normalizeLanguageName(customerLanguage)
 
-  if (providedLanguage) {
-    return providedLanguage
-  }
-
   const userMessages = [
-    ...messages.filter((item) => item.role === 'user').map((item) => item.content || ''),
     message || '',
+    ...[...messages].reverse().filter((item) => item.role === 'user').map((item) => item.content || ''),
   ].filter((content) => content.trim())
 
   for (const content of userMessages) {
@@ -2786,7 +2850,7 @@ function resolveCustomerLanguage({ messages = [], message, customerLanguage }) {
     }
   }
 
-  return ''
+  return providedLanguage
 }
 
 function normalizeLanguageName(language) {
@@ -2880,6 +2944,20 @@ function detectCustomerLanguage(content) {
     'please',
     'morning',
     'afternoon',
+    'evening',
+    'tomorrow',
+    'today',
+    'monday',
+    'tuesday',
+    'wednesday',
+    'thursday',
+    'friday',
+    'saturday',
+    'sunday',
+    "can't",
+    'cannot',
+    'can not',
+    'make it',
   ]
 
   if (spanishSignals.some((signal) => text.includes(signal))) {
