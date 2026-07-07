@@ -459,8 +459,7 @@ function getDefaultInitialImageUrl() {
 
 async function processRespondIncomingMessage(event) {
   const session = getRespondSession(event.contactId)
-  let respondContactProfile =
-    session.respondContactProfile || (await getRespondContactProfile(event.contactId))
+  let respondContactProfile = await getRespondContactProfile(event.contactId, session.respondContactProfile)
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
     phone: event.contactPhone,
   })
@@ -556,7 +555,10 @@ async function processRespondIncomingMessage(event) {
   const messages = [...session.messages, userMessage].slice(-12)
   const customerLanguage = preferredLanguage || 'English'
   const state = extractStateName(event.text)
-  const activeBooking = getActiveRespondBookingForMessage(session.booking, state)
+  const activeBooking = refreshRespondBookingTeam(
+    getActiveRespondBookingForMessage(session.booking, state),
+    respondContactProfile,
+  )
 
   if (state) {
     await updateRespondContactState(event.contactId, state)
@@ -645,6 +647,24 @@ function getActiveRespondBookingForMessage(booking, latestState) {
   }
 }
 
+function refreshRespondBookingTeam(booking, profile) {
+  if (!booking) {
+    return null
+  }
+
+  const bookingTeam = getCurrentRespondBookingTeam(booking, profile)
+
+  if (bookingTeam === booking.bookingTeam) {
+    return booking
+  }
+
+  return {
+    ...booking,
+    bookingTeam,
+    teamChanged: true,
+  }
+}
+
 async function unassignRespondConversationAfterReply(contactId) {
   await unassignRespondConversation(contactId).catch((error) => {
     console.warn(`Unable to unassign Respond conversation: ${error.message}`)
@@ -662,13 +682,13 @@ function getRespondSession(contactId) {
   }
 }
 
-async function getRespondContactProfile(contactId) {
+async function getRespondContactProfile(contactId, fallbackProfile = null) {
   try {
     const contact = await getRespondContact(contactId)
     return classifyRespondContact(contact)
   } catch (error) {
     console.warn(`Unable to fetch Respond contact profile: ${error.message}`)
-    return classifyRespondContact(null)
+    return fallbackProfile || classifyRespondContact(null)
   }
 }
 
@@ -1273,6 +1293,20 @@ async function handleRespondBookingAutomation({
       text: bookingCopy(customerLanguage, 'askChooseOption'),
       booking: existingBooking,
     }
+  }
+
+  if (
+    existingBooking.teamChanged &&
+    hasActiveSlotOffer &&
+    (selectedOption || (existingBooking.offeredOption && isAffirmative(latestUserText)))
+  ) {
+    return await offerSoonestRespondSlot({
+      booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam, teamChanged: false }),
+      details,
+      customerLanguage,
+      preferredTime: latestSignals.preferredTime || details.preferredTime,
+      closest: true,
+    })
   }
 
   // When user confirms a slot (selected one or said yes to offered one), ask for their name
