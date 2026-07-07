@@ -1166,7 +1166,15 @@ async function handleRespondBookingAutomation({
 
     if (!state) {
       if (isOutOfFlowInfoQuestion(latestUserText)) {
-        return null
+        return {
+          text: buildPendingStateOutOfFlowReply(latestUserText, customerLanguage),
+          booking: {
+            ...existingBooking,
+            bookingTeam,
+            details: { ...details, state: '' },
+            pendingField: 'state',
+          },
+        }
       }
 
       const text = getPendingStateRecoveryText(latestUserText, customerLanguage)
@@ -2234,6 +2242,13 @@ function getPendingStateRecoveryText(content, customerLanguage) {
   }
 
   return askState
+}
+
+function buildPendingStateOutOfFlowReply(content, customerLanguage) {
+  const answer = getOutOfFlowAnswer(content, customerLanguage)
+  const askState = bookingCopy(customerLanguage, 'askState')
+
+  return answer ? `${answer}\n\n${askState}` : askState
 }
 
 
