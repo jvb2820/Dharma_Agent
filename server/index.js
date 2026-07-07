@@ -1318,6 +1318,16 @@ async function handleRespondBookingAutomation({
     const phone = latestSignals.phone || extractPhoneNumber(latestUserText)
     const nextDetails = phone ? { ...details, phone } : details
 
+    if (nextDetails.phone && !existingBooking.offeredOption && !existingBooking.options?.length) {
+      return await offerSoonestRespondSlot({
+        booking: { ...existingBooking, bookingTeam, pendingField: '' },
+        details: nextDetails,
+        customerLanguage,
+        preferredTime: nextDetails.preferredTime,
+        closest: Boolean(nextDetails.preferredTime),
+      })
+    }
+
     if (!nextDetails.phone) {
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
@@ -2585,6 +2595,33 @@ function extractAvailabilityPreference(content) {
       preferredTime: 'afternoon',
       earliestHour: 12,
       dayPart: 'afternoon',
+    }
+  }
+
+  if (/^(afternoon|tarde)$/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'afternoon',
+      earliestHour: 12,
+      dayPart: 'afternoon',
+    }
+  }
+
+  if (/^(morning|manana|manha)$/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'morning',
+      earliestHour: 0,
+      dayPart: 'morning',
+    }
+  }
+
+  if (/^(evening|night|noche|noite)$/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'evening',
+      earliestHour: 17,
+      dayPart: 'evening',
     }
   }
 
