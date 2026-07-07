@@ -2044,7 +2044,26 @@ function getPositiveAvailabilityPreferenceText(content) {
     return positiveMatch[1].trim()
   }
 
+  const positiveNeedMatch = text.match(
+    /\b(?:i\s+need|need|i\s+can\s+do|can\s+do|i\s+am\s+available|i'm\s+available|available\s+for|works\s+for\s+me|me\s+funciona|necesito|puedo|estoy\s+disponible|preciso|posso|estou\s+disponivel)\b\s+(.+)$/i,
+  )
+
+  if (positiveNeedMatch && hasAvailabilityDateOrTimeSignal(positiveNeedMatch[1])) {
+    return positiveNeedMatch[1].trim()
+  }
+
   return isNegatedAvailabilityPreference(text) ? '' : text
+}
+
+function hasAvailabilityDateOrTimeSignal(content) {
+  const normalized = normalizeSearchText(content)
+
+  return [
+    /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|am|pm)\b/,
+    /\b(hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|tarde|noche)\b/,
+    /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|tarde|noite)\b/,
+    /\b\d{1,2}(?::\d{2})?\s*(am|pm)?\b/,
+  ].some((pattern) => pattern.test(normalized))
 }
 
 function isNegatedAvailabilityPreference(content) {
@@ -2439,7 +2458,7 @@ function hasUnconfirmedBookingLanguage(text) {
     /\b(call|appointment|discovery call)\s+is\s+set\b/,
     /\b(i|we)\s+(will|can|shall)\s+send\b[\s\S]{0,80}\b(appointment|details|link|invite)\b/,
     /\b(proceed|go ahead|move forward)\b[\s\S]{0,80}\b(setting up|scheduling|booking|confirming)\b/,
-    /\b(check|checking|verify|verifying)\b[\s\S]{0,100}\b(next available|calendar|booking|appointment)\b/,
+    /\b(check|checking|verify|verifying)\b[\s\S]{0,100}\b(next available|availability|available|calendar|booking|appointment|slot|time)\b/,
     /\bsubmit\b[\s\S]{0,80}\b(booking|form|reservation|appointment)\b/,
     /\b(i|we)\s+have\s+availability\b[\s\S]{0,80}\b(today|tomorrow|am|pm|est|edt|\d{1,2}:\d{2})\b/,
     /\bavailable slot\b[\s\S]{0,80}\b(today|tomorrow|am|pm|est|edt|\d{1,2}:\d{2})\b/,
