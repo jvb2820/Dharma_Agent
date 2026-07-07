@@ -1616,10 +1616,7 @@ async function offerSoonestRespondSlot({
     }
   }
 
-  const multipleOptionLimit = closest ? 1 : 6
-  const nextOptions = closest || shouldOfferMultipleSlots
-    ? selectSpreadAvailabilityOptions(availableOptions, multipleOptionLimit, details.state)
-    : [offeredOption]
+  const nextOptions = [offeredOption]
   const offerKey = getSingleSlotOfferCopyKey({
     closest,
     preferredTime,
@@ -1712,87 +1709,6 @@ function filterOptionsByAvailabilityPreference(options = [], details = {}) {
 
     return localHour != null && localHour >= details.earliestHour
   })
-}
-
-function selectSpreadAvailabilityOptions(options = [], limit = 4, state = '') {
-  const sortedOptions = dedupeOptionsByDisplayedTime(options, state)
-    .sort((left, right) => left.startTime - right.startTime)
-
-  if (sortedOptions.length <= limit) {
-    return sortedOptions
-  }
-
-  const selected = []
-  addSpacedOption(selected, sortedOptions[0])
-
-  const afternoonOption = sortedOptions.find((option) => getCustomerStateHour(option.startTime, state, option.timezone) >= 12)
-  addSpacedOption(selected, afternoonOption)
-
-  for (const option of sortedOptions) {
-    if (selected.length >= limit) {
-      break
-    }
-
-    addSpacedOption(selected, option)
-  }
-
-  if (selected.length < limit) {
-    for (const option of sortedOptions) {
-      if (selected.length >= limit) {
-        break
-      }
-
-      addUniqueOption(selected, option)
-    }
-  }
-
-  return selected
-    .sort((left, right) => left.startTime - right.startTime)
-}
-
-function addSpacedOption(selected, option, minSpacingMs = 55 * 60 * 1000) {
-  if (!option || selected.some((selectedOption) => getAvailabilityOptionKey(selectedOption) === getAvailabilityOptionKey(option))) {
-    return false
-  }
-
-  if (
-    selected.some((selectedOption) => Math.abs(Number(selectedOption.startTime) - Number(option.startTime)) < minSpacingMs)
-  ) {
-    return false
-  }
-
-  selected.push(option)
-  return true
-}
-
-function addUniqueOption(selected, option) {
-  if (!option || selected.some((selectedOption) => getAvailabilityOptionKey(selectedOption) === getAvailabilityOptionKey(option))) {
-    return false
-  }
-
-  if (selected.some((selectedOption) => selectedOption.startTime === option.startTime)) {
-    return false
-  }
-
-  selected.push(option)
-  return true
-}
-
-function dedupeOptionsByDisplayedTime(options = [], state = '') {
-  const seenTimes = new Set()
-
-  return [...options]
-    .sort((left, right) => left.startTime - right.startTime || left.sellerPriority - right.sellerPriority)
-    .filter((option) => {
-      const key = formatCustomerStateSlot(option.startTime, state, option.timezone)
-
-      if (seenTimes.has(key)) {
-        return false
-      }
-
-      seenTimes.add(key)
-      return true
-    })
 }
 
 function buildBookingWithExcludedOptions(booking = {}) {
@@ -2581,6 +2497,17 @@ function getPositiveAvailabilityPreferenceText(content) {
 
   if (positiveNeedMatch && hasAvailabilityDateOrTimeSignal(positiveNeedMatch[1])) {
     return positiveNeedMatch[1].trim()
+  }
+
+  const availabilityAfterNegativeMatch = text.match(
+    /\b(?:no|nope|nah|not that|that doesn't work|that does not work|no puedo|no me funciona|nao funciona|nao posso)\b[\s,.;:-]*(?:i'?m\s+)?(?:only\s+)?(?:available|free|disponible|puedo|posso)?\s*(.+)$/i,
+  )
+
+  if (
+    availabilityAfterNegativeMatch &&
+    hasAvailabilityDateOrTimeSignal(availabilityAfterNegativeMatch[1])
+  ) {
+    return availabilityAfterNegativeMatch[1].trim()
   }
 
   return isNegatedAvailabilityPreference(text) ? '' : text
@@ -3441,6 +3368,14 @@ function extractPreferredTimeText(content) {
 
   if (ordinalDayMatch) {
     return ordinalDayMatch[0]
+  }
+
+  const weekdayDayPartMatch = preferenceText.match(
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+(morning|afternoon|evening)\b/i,
+  )
+
+  if (weekdayDayPartMatch) {
+    return weekdayDayPartMatch[0]
   }
 
   const weekdayMatch = preferenceText.match(
