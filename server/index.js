@@ -2276,7 +2276,7 @@ async function generatePendingStateOutOfFlowAnswer({
     instructions: [
       'The customer has not provided their state yet. Answer the latest customer question directly using retrieved company knowledge and the conversation context.',
       'Do not ask for phone number, appointment availability, name, or booking confirmation in this answer.',
-      'Do not ask for state in this answer; the application will append the state question after your answer.',
+      'Do not ask for state, location, shipping availability, or where they live in this answer; the application will append one state question after your answer.',
       'Do not start with a greeting. Keep it concise but specific enough to actually answer the question.',
     ].join('\n'),
   })
@@ -2301,8 +2301,26 @@ async function generatePendingStateOutOfFlowAnswer({
 
 function buildPendingStateOutOfFlowReply(answer, customerLanguage) {
   const askState = bookingCopy(customerLanguage, 'askState')
+  const cleanedAnswer = stripStateQuestionFromGeneratedAnswer(answer)
 
-  return answer ? `${answer}\n\n${askState}` : askState
+  return cleanedAnswer ? `${cleanedAnswer}\n\n${askState}` : askState
+}
+
+function stripStateQuestionFromGeneratedAnswer(answer) {
+  return String(answer || '')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !isStateQuestionLine(line))
+    .join('\n\n')
+    .trim()
+}
+
+function isStateQuestionLine(line) {
+  const normalized = normalizeSearchText(line)
+
+  return /\b(state|estado|estado|where do you live|which state|que estado|qual estado|shipping availability|ship to your state|envios|entregas)\b/.test(
+    normalized,
+  )
 }
 
 
