@@ -750,11 +750,37 @@ function classifyRespondContact(contact) {
 }
 
 function getRespondCustomFieldMap(contact) {
-  return Object.fromEntries(
-    (contact?.custom_fields || [])
-      .map((field) => [field.name || field.id || '', field.value])
-      .filter(([name, value]) => name && value != null && String(value).trim()),
-  )
+  const entries = []
+
+  for (const source of [contact?.custom_fields, contact?.customFields, contact?.customFieldsMap]) {
+    if (Array.isArray(source)) {
+      entries.push(
+        ...source
+          .map((field) => [
+            field.name || field.label || field.title || field.id || field.key || '',
+            normalizeRespondFieldValue(
+              field.value ?? field.text ?? field.content ?? field.selectedValue ?? '',
+            ),
+          ])
+          .filter(([name, value]) => name && value != null && String(value).trim()),
+      )
+    } else if (source && typeof source === 'object') {
+      entries.push(
+        ...Object.entries(source)
+          .map(([name, value]) => [name, normalizeRespondFieldValue(value)])
+          .filter(([name, value]) => name && value != null && String(value).trim()),
+      )
+    }
+  }
+
+  const fields = {}
+
+  for (const [name, value] of entries) {
+    fields[name] = value
+    fields[normalizeRespondFieldKey(name)] = value
+  }
+
+  return fields
 }
 
 function getRespondTagNames(contact) {
@@ -785,12 +811,31 @@ function buildRespondContactSignalSummary({ customFields, tags, contact }) {
 function getRespondContactStatus(customFields = {}, contact = {}) {
   return (
     customFields.contact_status ||
+    customFields.contactstatus ||
     customFields.ContactStatus ||
     customFields['Contact Status'] ||
     customFields.status ||
     contact?.status ||
     ''
   )
+}
+
+function normalizeRespondFieldKey(name) {
+  return normalizeSearchText(name).replace(/\s+/g, '_')
+}
+
+function normalizeRespondFieldValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeRespondFieldValue).filter(Boolean).join(', ')
+  }
+
+  if (value && typeof value === 'object') {
+    return normalizeRespondFieldValue(
+      value.value ?? value.name ?? value.label ?? value.title ?? value.text ?? '',
+    )
+  }
+
+  return value
 }
 
 function buildRespondContactBookingDetails({ contact, customFields }) {
@@ -966,6 +1011,15 @@ function getBookingTeamForRespondContact(profile) {
   return /^client$/i.test(contactStatus) ? 'customer_service' : 'sales'
 }
 
+function getCurrentRespondBookingTeam(existingBooking = {}, profile = {}) {
+  const hasCurrentContactStatus = Boolean(String(profile?.fields?.contactStatus || '').trim())
+  const profileBookingTeam = getBookingTeamForRespondContact(profile)
+
+  return hasCurrentContactStatus
+    ? profileBookingTeam
+    : existingBooking.bookingTeam || profileBookingTeam
+}
+
 async function handleRespondBookingAutomation({
   session,
   messages,
@@ -973,7 +1027,7 @@ async function handleRespondBookingAutomation({
   respondContactProfile,
 }) {
   const existingBooking = session.booking || {}
-  const bookingTeam = existingBooking.bookingTeam || getBookingTeamForRespondContact(respondContactProfile)
+  const bookingTeam = getCurrentRespondBookingTeam(existingBooking, respondContactProfile)
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
   const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
   let details = {
