@@ -168,6 +168,37 @@ export async function sendRespondImageMessage({ contactId, imageUrl, channelId, 
   return data
 }
 
+export async function unassignRespondConversation(contactId) {
+  if (!contactId) {
+    throw new Error('contactId is required to unassign a Respond conversation.')
+  }
+
+  const token = process.env.RESPOND_API_TOKEN || process.env.RESPONDIO_API_KEY
+
+  if (!token) {
+    throw new Error('RESPOND_API_TOKEN is not configured.')
+  }
+
+  const response = await fetch(
+    `${RESPOND_API_BASE_URL}/v2/contact/${encodeURIComponent(`id:${contactId}`)}/conversation/assignee`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ assignee: null }),
+    },
+  )
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data.message || `Respond conversation unassign failed with ${response.status}.`)
+  }
+
+  return data
+}
+
 function buildContactUpdatePayload(fields) {
   const payload = {}
   const customFields = []

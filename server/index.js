@@ -26,6 +26,7 @@ import {
   getRespondContact,
   sendRespondImageMessage,
   sendRespondTextMessage,
+  unassignRespondConversation,
   updateRespondContact,
 } from './respondService.js'
 
@@ -490,6 +491,7 @@ async function processRespondIncomingMessage(event) {
       customerLanguage: initialLanguage,
       firstName: getCustomerFirstName(initialDetails, respondContactProfile),
     })
+    await unassignRespondConversationAfterReply(event.contactId)
 
     respondSessions.set(event.contactId, {
       customerLanguage: initialLanguage,
@@ -523,6 +525,7 @@ async function processRespondIncomingMessage(event) {
       customerLanguage: preferredLanguage,
       firstName: getCustomerFirstName(getRespondContactBookingDetails(respondContactProfile), respondContactProfile),
     })
+    await unassignRespondConversationAfterReply(event.contactId)
 
     respondSessions.set(event.contactId, {
       customerLanguage: preferredLanguage,
@@ -571,6 +574,7 @@ async function processRespondIncomingMessage(event) {
       channelId: event.channelId,
       text: bookingResponse.text,
     })
+    await unassignRespondConversationAfterReply(event.contactId)
 
     respondSessions.set(event.contactId, {
       customerLanguage,
@@ -614,6 +618,7 @@ async function processRespondIncomingMessage(event) {
     channelId: event.channelId,
     text,
   })
+  await unassignRespondConversationAfterReply(event.contactId)
 
   respondSessions.set(event.contactId, {
     customerLanguage,
@@ -622,6 +627,12 @@ async function processRespondIncomingMessage(event) {
     messages: [...messages, { role: 'agent', content: text }].slice(-12),
     booking: session.booking || null,
     respondContactProfile,
+  })
+}
+
+async function unassignRespondConversationAfterReply(contactId) {
+  await unassignRespondConversation(contactId).catch((error) => {
+    console.warn(`Unable to unassign Respond conversation: ${error.message}`)
   })
 }
 
