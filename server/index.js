@@ -2536,6 +2536,30 @@ function getPositiveAvailabilityPreferenceText(content) {
     return availabilityAfterNegativeMatch[1].trim()
   }
 
+  const normalized = normalizeSearchText(text)
+
+  if (
+    /\b(afternoon|tarde)\b[\s\S]{0,40}\b(good|works|is good|works for me|fine|ok|okay|me funciona|esta bien)\b/.test(
+      normalized,
+    ) ||
+    /\b(can t|cannot|cant|can not|not available|doesn t work|doesnt work)\b[\s\S]{0,40}\b(morning)\b/.test(
+      normalized,
+    ) ||
+    /\b(no puedo|no me funciona|no estoy disponible)\b[\s\S]{0,40}\b(manana|maÃ±ana)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'afternoon'
+  }
+
+  if (
+    /\b(evening|night|noche|noite)\b[\s\S]{0,40}\b(good|works|is good|works for me|fine|ok|okay|me funciona|esta bien)\b/.test(
+      normalized,
+    )
+  ) {
+    return 'evening'
+  }
+
   return isNegatedAvailabilityPreference(text) ? '' : text
 }
 
