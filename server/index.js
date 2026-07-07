@@ -1599,10 +1599,15 @@ async function offerSoonestRespondSlot({
   const nextOptions = closest || shouldOfferMultipleSlots
     ? selectSpreadAvailabilityOptions(availableOptions, multipleOptionLimit, details.state)
     : [offeredOption]
+  const offerKey = getSingleSlotOfferCopyKey({
+    closest,
+    preferredTime,
+    usedFallback: options.length === 0 && fallbackOptions.length > 0,
+  })
 
   return {
     text: nextOptions.length === 1
-      ? bookingCopy(customerLanguage, closest ? 'offerClosestSlot' : 'offerSlot', {
+      ? bookingCopy(customerLanguage, offerKey, {
           slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone),
         })
       : bookingCopy(customerLanguage, closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
@@ -1621,6 +1626,28 @@ async function offerSoonestRespondSlot({
 
 function hasAvailabilityTimeConstraint(details = {}) {
   return Number.isInteger(details.earliestHour)
+}
+
+function getSingleSlotOfferCopyKey({ closest = false, preferredTime = '', usedFallback = false } = {}) {
+  if (!closest) {
+    return 'offerSlot'
+  }
+
+  if (usedFallback || hasExactClockPreference(preferredTime)) {
+    return 'offerClosestSlot'
+  }
+
+  return hasDayPartPreference(preferredTime) ? 'offerSoonestForDayPart' : 'offerSoonestForDay'
+}
+
+function hasExactClockPreference(value) {
+  return /\b(?:1[0-2]|0?[1-9])(?::\d{2})?\s*(?:am|pm)\b|\b(after|around|about|at|a las|las)\s+(?:1[0-2]|0?[1-9])\b/i.test(
+    String(value || ''),
+  )
+}
+
+function hasDayPartPreference(value) {
+  return /\b(afternoon|evening|morning|tarde|noche|manana|manha|noite)\b/i.test(String(value || ''))
 }
 
 function shouldOfferMultipleScheduleOptions({ closest = false, details = {}, preferredTime = '' } = {}) {
@@ -2117,6 +2144,16 @@ function bookingCopy(language, key, values = {}) {
       `I do not see that exact time, but this is the closest available opening: ${values.slot}. Does that work for you?`,
       `No veo exactamente ese horario, pero este es el espacio mas cercano disponible: ${values.slot}. Te funciona?`,
       `Não vejo exatamente esse horário, mas este é o espaço mais próximo disponível: ${values.slot}. Funciona para você?`,
+    ),
+    offerSoonestForDay: tri(
+      `The soonest available time I have for that day is ${values.slot}. Does that work for you?`,
+      `El horario mas pronto disponible que tengo para ese dia es ${values.slot}. Te funciona?`,
+      `O horario mais cedo disponivel que tenho para esse dia e ${values.slot}. Funciona para voce?`,
+    ),
+    offerSoonestForDayPart: tri(
+      `The soonest available time I have for that part of the day is ${values.slot}. Does that work for you?`,
+      `El horario mas pronto disponible que tengo para esa parte del dia es ${values.slot}. Te funciona?`,
+      `O horario mais cedo disponivel que tenho para essa parte do dia e ${values.slot}. Funciona para voce?`,
     ),
     offerClosestSlots: tri(
       `📅 ${named('I do not have that exact time available, but I do have this option:', 'I do not have that exact time available, but I do have this option:')}\n${values.slots}\n\nDoes that work for you?`,
