@@ -1299,6 +1299,22 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'phone') {
+    if ((existingBooking.offeredOption || existingBooking.options?.length) && latestPreferredTime) {
+      const nextDetails = applyAvailabilityConstraintFromPreferredTime({
+        ...details,
+        ...latestSignals,
+        preferredTime: latestPreferredTime,
+      })
+
+      return await offerSoonestRespondSlot({
+        booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam, pendingField: '' }),
+        details: nextDetails,
+        customerLanguage,
+        preferredTime: nextDetails.preferredTime,
+        closest: true,
+      })
+    }
+
     const phone = latestSignals.phone || extractPhoneNumber(latestUserText)
     const nextDetails = phone ? { ...details, phone } : details
 
