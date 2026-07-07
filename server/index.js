@@ -653,6 +653,12 @@ function refreshRespondBookingTeam(booking, profile) {
   }
 
   const bookingTeam = getCurrentRespondBookingTeam(booking, profile)
+  logRespondRoutingDecision('refresh-booking-team', {
+    contactStatus: profile?.fields?.contactStatus,
+    profileStatus: profile?.status,
+    previousBookingTeam: booking.bookingTeam,
+    bookingTeam,
+  })
 
   if (bookingTeam === booking.bookingTeam) {
     return booking
@@ -669,6 +675,16 @@ async function unassignRespondConversationAfterReply(contactId) {
   await unassignRespondConversation(contactId).catch((error) => {
     console.warn(`Unable to unassign Respond conversation: ${error.message}`)
   })
+}
+
+function logRespondRoutingDecision(stage, details = {}) {
+  console.log(
+    '[respond-routing]',
+    stage,
+    Object.fromEntries(
+      Object.entries(details).filter(([, value]) => value !== undefined && value !== ''),
+    ),
+  )
 }
 
 function getRespondSession(contactId) {
@@ -1028,14 +1044,18 @@ function formatBookingContextForPrompt(booking = {}) {
 function getBookingTeamForRespondContact(profile) {
   const contactStatus = String(profile?.fields?.contactStatus || '').trim()
 
-  return /^client$/i.test(contactStatus) ? 'customer_service' : 'sales'
+  return profile?.status === 'returning_client' || /\bclient\b/i.test(contactStatus)
+    ? 'customer_service'
+    : 'sales'
 }
 
 function getCurrentRespondBookingTeam(existingBooking = {}, profile = {}) {
-  const hasCurrentContactStatus = Boolean(String(profile?.fields?.contactStatus || '').trim())
   const profileBookingTeam = getBookingTeamForRespondContact(profile)
+  const hasCurrentRoutingSignal =
+    profile?.status === 'returning_client' ||
+    Boolean(String(profile?.fields?.contactStatus || '').trim())
 
-  return hasCurrentContactStatus
+  return hasCurrentRoutingSignal
     ? profileBookingTeam
     : existingBooking.bookingTeam || profileBookingTeam
 }
@@ -1414,6 +1434,12 @@ async function offerSoonestRespondSlot({
   preferredTime = details.preferredTime,
   closest = false,
 }) {
+  logRespondRoutingDecision('offer-slot', {
+    bookingTeam: booking.bookingTeam,
+    state: details.state,
+    pendingField: booking.pendingField,
+    closest,
+  })
   const shouldOfferMultipleSlots = shouldOfferMultipleScheduleOptions({
     closest,
     details,
