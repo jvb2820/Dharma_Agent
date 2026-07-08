@@ -1485,7 +1485,11 @@ async function handleRespondBookingAutomation({
   }
 
   if (hasActiveSlotOffer && !selectedOption && isSlotRejection(latestUserText)) {
-    const nextBooking = buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam })
+    const nextBooking = buildBookingWithRejectedAvailability({
+      booking: { ...existingBooking, bookingTeam },
+      latestUserText,
+      details,
+    })
 
     if (isOutOfFlowInfoQuestion(latestUserText)) {
       const answer = getOutOfFlowAnswer(latestUserText, customerLanguage)
@@ -1497,12 +1501,12 @@ async function handleRespondBookingAutomation({
     }
 
     const extractedPreferredTime = extractPreferredTimeText(latestUserText)
-    const preferredTime =
-      resolveRespondPreferredTime({
-        existingDetails: details,
-        latestSignals: { ...latestSignals, preferredTime: extractedPreferredTime },
-        latestUserText,
-      }) || (isUnavailableTodayReply(latestUserText) ? 'tomorrow' : '')
+    const preferredTime = getPreferredTimeAfterSlotRejection({
+      details,
+      latestSignals,
+      latestUserText,
+      extractedPreferredTime,
+    })
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
@@ -1510,7 +1514,8 @@ async function handleRespondBookingAutomation({
       details: nextDetails,
       customerLanguage,
       preferredTime,
-      closest: true,
+      closest: Boolean(preferredTime),
+      offerCopyKey: preferredTime ? '' : 'offerAlternativeSlot',
     })
   }
 
@@ -1535,7 +1540,11 @@ async function handleRespondBookingAutomation({
     }
 
     return await offerSoonestRespondSlot({
-      booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
+      booking: buildBookingWithRejectedAvailability({
+        booking: { ...existingBooking, bookingTeam },
+        latestUserText,
+        details,
+      }),
       details: nextDetails,
       customerLanguage,
       preferredTime: nextDetails.preferredTime,
@@ -1546,40 +1555,50 @@ async function handleRespondBookingAutomation({
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegativeReply(latestUserText)) {
     const extractedPreferredTime = extractPreferredTimeText(latestUserText)
-    const preferredTime =
-      resolveRespondPreferredTime({
-        existingDetails: details,
-        latestSignals: { ...latestSignals, preferredTime: extractedPreferredTime },
-        latestUserText,
-      }) || (isUnavailableTodayReply(latestUserText) ? 'tomorrow' : '')
+    const preferredTime = getPreferredTimeAfterSlotRejection({
+      details,
+      latestSignals,
+      latestUserText,
+      extractedPreferredTime,
+    })
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
-      booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
+      booking: buildBookingWithRejectedAvailability({
+        booking: { ...existingBooking, bookingTeam },
+        latestUserText,
+        details,
+      }),
       details: nextDetails,
       customerLanguage,
       preferredTime,
-      closest: true,
+      closest: Boolean(preferredTime),
+      offerCopyKey: preferredTime ? '' : 'offerAlternativeSlot',
     })
   }
 
   // When user rejects from a list, offer a fresh set of alternatives
   if (existingBooking.options?.length > 1 && isNegativeReply(latestUserText)) {
     const extractedPreferredTime = extractPreferredTimeText(latestUserText)
-    const preferredTime =
-      resolveRespondPreferredTime({
-        existingDetails: details,
-        latestSignals: { ...latestSignals, preferredTime: extractedPreferredTime },
-        latestUserText,
-      }) || (isUnavailableTodayReply(latestUserText) ? 'tomorrow' : '')
+    const preferredTime = getPreferredTimeAfterSlotRejection({
+      details,
+      latestSignals,
+      latestUserText,
+      extractedPreferredTime,
+    })
     const nextDetails = preferredTime ? { ...details, preferredTime } : details
 
     return await offerSoonestRespondSlot({
-      booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
+      booking: buildBookingWithRejectedAvailability({
+        booking: { ...existingBooking, bookingTeam },
+        latestUserText,
+        details,
+      }),
       details: nextDetails,
       customerLanguage,
       preferredTime,
-      closest: true,
+      closest: Boolean(preferredTime),
+      offerCopyKey: preferredTime ? '' : 'offerAlternativeSlot',
     })
   }
 
@@ -1708,6 +1727,7 @@ async function offerSoonestRespondSlot({
   customerLanguage,
   preferredTime = details.preferredTime,
   closest = false,
+  offerCopyKey = '',
 }) {
   logRespondRoutingDecision('offer-slot', {
     bookingTeam: booking.bookingTeam,
@@ -1757,7 +1777,7 @@ async function offerSoonestRespondSlot({
   }
 
   const nextOptions = [offeredOption]
-  const offerKey = getSingleSlotOfferCopyKey({
+  const offerKey = offerCopyKey || getSingleSlotOfferCopyKey({
     closest,
     preferredTime,
     usedFallback: options.length === 0 && fallbackOptions.length > 0,
@@ -1796,6 +1816,29 @@ function getSingleSlotOfferCopyKey({ closest = false, preferredTime = '', usedFa
   }
 
   return hasDayPartPreference(preferredTime) ? 'offerSoonestForDayPart' : 'offerSoonestForDay'
+}
+
+function getPreferredTimeAfterSlotRejection({
+  details = {},
+  latestSignals = {},
+  latestUserText = '',
+  extractedPreferredTime = '',
+} = {}) {
+  if (isUnavailableTodayReply(latestUserText)) {
+    return 'tomorrow'
+  }
+
+  if (isNegativeAvailabilityReply(latestUserText) || isNegatedAvailabilityPreference(latestUserText)) {
+    return ''
+  }
+
+  return (
+    resolveRespondPreferredTime({
+      existingDetails: details,
+      latestSignals: { ...latestSignals, preferredTime: extractedPreferredTime },
+      latestUserText,
+    }) || ''
+  )
 }
 
 function hasExactClockPreference(value) {
@@ -1866,6 +1909,27 @@ function buildBookingWithExcludedOptions(booking = {}) {
   }
 }
 
+function buildBookingWithRejectedAvailability({ booking = {}, latestUserText = '', details = {} } = {}) {
+  const nextBooking = buildBookingWithExcludedOptions(booking)
+  const rejectedDateKey = getRejectedAvailabilityDateKey(latestUserText)
+
+  if (!rejectedDateKey) {
+    return nextBooking
+  }
+
+  return {
+    ...nextBooking,
+    details: {
+      ...(nextBooking.details || {}),
+      ...details,
+    },
+    excludedDateKeys: [
+      ...(nextBooking.excludedDateKeys || []),
+      rejectedDateKey,
+    ].filter(Boolean),
+  }
+}
+
 function filterPreviouslyOfferedOptions(options = [], booking = {}) {
   const offeredKeys = new Set(
     [
@@ -1878,10 +1942,25 @@ function filterPreviouslyOfferedOptions(options = [], booking = {}) {
   )
 
   if (!offeredKeys.size) {
+    return filterExcludedDateOptions(options, booking)
+  }
+
+  return filterExcludedDateOptions(
+    options.filter((option) => !offeredKeys.has(getAvailabilityOptionKey(option))),
+    booking,
+  )
+}
+
+function filterExcludedDateOptions(options = [], booking = {}) {
+  const excludedDateKeys = new Set(booking.excludedDateKeys || [])
+
+  if (!excludedDateKeys.size) {
     return options
   }
 
-  return options.filter((option) => !offeredKeys.has(getAvailabilityOptionKey(option)))
+  return options.filter(
+    (option) => !excludedDateKeys.has(getOptionCustomerDateKey(option, booking.details?.state)),
+  )
 }
 
 function getAvailabilityOptionKey(option = {}) {
@@ -2247,6 +2326,11 @@ function bookingCopy(language, key, values = {}) {
       `${named('tengo este horario disponible para tu llamada gratuita de análisis:', 'Tengo este horario disponible para tu llamada gratuita de análisis:')} ${values.slot}. Te funciona?`,
       `${named('tenho este horário disponível para sua chamada gratuita de análise:', 'Tenho este horário disponível para sua chamada gratuita de análise:')} ${values.slot}. Funciona para você?`,
     ),
+    offerAlternativeSlot: tri(
+      `How about ${values.slot}?\n\nDoes that work for you?`,
+      `Que te parece ${values.slot}?\n\nTe funciona?`,
+      `Que tal ${values.slot}?\n\nFunciona para voce?`,
+    ),
     reofferSlot: tri(
       `The available time I have is ${values.slot}. Does that work for you?`,
       `El horario disponible que tengo es ${values.slot}. Te funciona?`,
@@ -2560,6 +2644,24 @@ function getOptionCustomerDateKey(option, state = '') {
   return match ? `${match[1].slice(0, 3).toLowerCase()} ${Number(match[2])}` : ''
 }
 
+function getRejectedAvailabilityDateKey(content) {
+  if (!isNegativeAvailabilityReply(content) && !isNegatedAvailabilityPreference(content)) {
+    return ''
+  }
+
+  const explicitDate = extractRequestedSlotDate(content) || extractMonthDayDateKey(content)
+
+  return explicitDate
+}
+
+function extractMonthDayDateKey(content) {
+  const match = String(content || '').match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i,
+  )
+
+  return match ? `${match[1].slice(0, 3).toLowerCase()} ${Number(match[2])}` : ''
+}
+
 function getOptionCustomerWeekdayKey(option, state = '') {
   return normalizeSearchText(formatCustomerStateSlot(option.startTime, state, option.timezone).split(',')[0])
 }
@@ -2640,6 +2742,7 @@ function isSlotRejection(content) {
   const normalized = normalizeSearchText(content)
 
   return (
+    isNegativeAvailabilityReply(content) ||
     /\b(no|nope|nah|not|doesn t work|doesnt work|otro|otra|different|later|mas tarde)\b/i.test(
       normalized,
     ) || isNegative(content)
@@ -2657,6 +2760,10 @@ function isNegativeReply(content) {
     return false
   }
 
+  if (isNegativeAvailabilityReply(content) || isNegatedAvailabilityPreference(content)) {
+    return true
+  }
+
   if (extractAvailabilityPreference(content).hasPreference) {
     return false
   }
@@ -2666,6 +2773,16 @@ function isNegativeReply(content) {
       normalized,
     ) || isNegative(content)
   )
+}
+
+function isNegativeAvailabilityReply(content) {
+  const normalized = normalizeSearchText(content)
+
+  return [
+    /\b(can t|cannot|cant|can not|won t|wont|unable|not available|doesn t work|doesnt work|does not work|not that)\b/,
+    /\b(no puedo|no podre|no podria|no me funciona|no estoy disponible|no puedo hacerlo|no me sirve)\b/,
+    /\b(nao posso|nao consigo|nao estou disponivel|nao funciona)\b/,
+  ].some((pattern) => pattern.test(normalized))
 }
 
 function isOutOfFlowInfoQuestion(content) {
