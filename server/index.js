@@ -1745,7 +1745,9 @@ async function offerSoonestRespondSlot({
       ? getCustomerServiceAvailability
       : getPrioritySellerAvailability
   const hasTimeConstraint = hasAvailabilityTimeConstraint(details)
-  const availabilityLimit = closest || hasTimeConstraint || shouldOfferMultipleSlots ? 100 : 1
+  const hasExcludedAvailability = hasBookingAvailabilityExclusions(booking)
+  const availabilityLimit =
+    closest || hasTimeConstraint || shouldOfferMultipleSlots || hasExcludedAvailability ? 100 : 1
   const options = await getAvailability({
     limit: availabilityLimit,
     preferredTime,
@@ -1760,7 +1762,7 @@ async function offerSoonestRespondSlot({
   )
   availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
 
-  if (hasTimeConstraint && availableOptions.length === 0) {
+  if ((hasTimeConstraint || hasExcludedAvailability) && availableOptions.length === 0) {
     availableOptions = filterOptionsByAvailabilityPreference(
       await getAvailability({ limit: 100 }),
       details,
@@ -1798,8 +1800,18 @@ async function offerSoonestRespondSlot({
       offeredOption: nextOptions.length === 1 ? nextOptions[0] : null,
       pendingField: '',
       excludedOptions: booking.excludedOptions || [],
+      excludedDateKeys: booking.excludedDateKeys || [],
     },
   }
+}
+
+function hasBookingAvailabilityExclusions(booking = {}) {
+  return Boolean(
+    booking.offeredOption ||
+      booking.options?.length ||
+      booking.excludedOptions?.length ||
+      booking.excludedDateKeys?.length,
+  )
 }
 
 function hasAvailabilityTimeConstraint(details = {}) {
