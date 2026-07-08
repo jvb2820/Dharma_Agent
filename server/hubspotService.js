@@ -6,6 +6,9 @@ const DEFAULT_DEAL_EVALUATION_DATE_PROPERTY = 'evaluation_date_and_hour_2'
 const DEFAULT_DEAL_NAME_PREFIX = 'Sellers'
 const DEFAULT_DISABLED_SELLER_SLUGS = ['diana-giron']
 const MIN_BOOKING_LEAD_TIME_MS = 60 * 60 * 1000
+const BOOKED_MEETING_LOOKUP_ATTEMPTS = 6
+const BOOKED_MEETING_LOOKUP_DELAY_MS = 1000
+const BOOKED_MEETING_START_TOLERANCE_MS = 5 * 60 * 1000
 
 const PRIORITY_SELLERS = [
   { slug: 'meribet-yazziet', name: 'Meribet', fieldValue: 'Meribet Sampson' },
@@ -509,7 +512,7 @@ async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
     throw new Error('HubSpot contact was not found after booking.')
   }
 
-  const meeting = await findBookedMeetingForContact({
+  const meeting = await findBookedMeetingForContactWithRetry({
     contactId: contactRecord.id,
     startTime: option.startTime,
   })
@@ -535,6 +538,25 @@ async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
   }
 }
 
+async function findBookedMeetingForContactWithRetry({ contactId, startTime }) {
+  const maxAttempts = Number(process.env.HUBSPOT_BOOKED_MEETING_LOOKUP_ATTEMPTS || BOOKED_MEETING_LOOKUP_ATTEMPTS)
+  const delayMs = Number(process.env.HUBSPOT_BOOKED_MEETING_LOOKUP_DELAY_MS || BOOKED_MEETING_LOOKUP_DELAY_MS)
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const meeting = await findBookedMeetingForContact({ contactId, startTime })
+
+    if (meeting?.id && meeting?.properties?.hubspot_owner_id) {
+      return meeting
+    }
+
+    if (attempt < maxAttempts) {
+      await sleep(delayMs)
+    }
+  }
+
+  return findBookedMeetingForContact({ contactId, startTime })
+}
+
 function buildBookingDealProperties({ customer, seller, option, meeting }) {
   const fullName = formatCustomerName(customer)
   const treatment = normalizeDesiredTreatment(customer.desiredTreatment)
@@ -549,6 +571,13 @@ function buildBookingDealProperties({ customer, seller, option, meeting }) {
 
   if (meeting?.properties?.hubspot_owner_id) {
     properties.hubspot_owner_id = meeting.properties.hubspot_owner_id
+  } else {
+    console.warn('[hubspot-deal-owner-missing]', {
+      seller: seller.slug,
+      sellerFieldValue: seller.fieldValue,
+      startTime: option.startTime,
+      meetingId: meeting?.id || null,
+    })
   }
 
   return Object.fromEntries(
@@ -597,7 +626,7 @@ async function findBookedMeetingForContact({ contactId, startTime }) {
   )
   const targetStart = Number(startTime)
 
-  return meetings
+  const closestMeeting = meetings
     .filter(Boolean)
     .map((meeting) => ({
       ...meeting,
@@ -606,6 +635,14 @@ async function findBookedMeetingForContact({ contactId, startTime }) {
       ),
     }))
     .sort((left, right) => left.startDelta - right.startDelta)[0]
+
+  return closestMeeting?.startDelta <= BOOKED_MEETING_START_TOLERANCE_MS ? closestMeeting : null
+}
+
+function sleep(ms) {
+  return new Promise((resolveSleep) => {
+    setTimeout(resolveSleep, ms)
+  })
 }
 
 async function createDealProperties(properties) {
