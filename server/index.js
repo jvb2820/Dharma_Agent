@@ -1836,6 +1836,16 @@ function getPreferredTimeAfterSlotRejection({
   latestUserText = '',
   extractedPreferredTime = '',
 } = {}) {
+  if (extractedPreferredTime) {
+    return (
+      resolveRespondPreferredTime({
+        existingDetails: details,
+        latestSignals: { ...latestSignals, preferredTime: extractedPreferredTime },
+        latestUserText,
+      }) || extractedPreferredTime
+    )
+  }
+
   if (isUnavailableTodayReply(latestUserText)) {
     return 'tomorrow'
   }
@@ -3024,7 +3034,7 @@ function resolveRespondPreferredTime({ existingDetails = {}, latestSignals = {},
   const existingPreferredTime = existingDetails?.preferredTime || ''
   const latestAvailabilityPreference = extractAvailabilityPreference(latestUserText)
 
-  if (isUnavailableTodayReply(latestUserText)) {
+  if (!explicitPreferredTime && isUnavailableTodayReply(latestUserText)) {
     return 'tomorrow'
   }
 
