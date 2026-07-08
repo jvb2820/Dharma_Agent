@@ -436,6 +436,15 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
   const data = await response.json().catch(() => ({}))
 
   if (!response.ok) {
+    console.warn('[hubspot-booking-failed]', {
+      status: response.status,
+      seller: seller.slug,
+      startTime: option.startTime,
+      duration: option.duration,
+      message: data.message,
+      errors: data.errors,
+      category: data.category,
+    })
     throw new Error(data.message || `HubSpot booking failed with ${response.status}.`)
   }
 
@@ -485,6 +494,7 @@ function buildBookingFormFields({ customer, seller, supportedFormFieldNames = []
   const supportedNames = new Set(supportedFormFieldNames)
 
   return [
+    { name: 'create_deal', value: 'false' },
     { name: 'agent_lead_management', value: seller.fieldValue },
     { name: 'dont_send_notification', value: 'false' },
     { name: 'desired_treatment', value: customer.desiredTreatment },
