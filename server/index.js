@@ -1920,6 +1920,7 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
       option,
       booked,
       customer,
+      language: customerLanguage,
     }),
     booking: null,
     postReplyRespondAction: {

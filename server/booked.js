@@ -50,7 +50,7 @@ export const AIRCALL_MEMBER_NUMBERS = {
   EDMILSON: '+1 561-571-9639',
 }
 
-export function buildBookedMessage({ bookingTeam, option, booked, customer = {} }) {
+export function buildBookedMessage({ bookingTeam, option, booked, customer = {}, language = '' }) {
   const scheduledAt = option?.startTime || booked?.startTime
   const timezone = getStateTimeZone(customer.state, option?.timezone || FLORIDA_TIMEZONE)
   const timeLabel = getStateTimeLabel(customer.state)
@@ -58,13 +58,37 @@ export function buildBookedMessage({ bookingTeam, option, booked, customer = {} 
   const phone = formatPhoneForBookedMessage(
     AIRCALL_MEMBER_NUMBERS[specialistName] || customer.phone,
   )
+  const languageName = normalizeBookedLanguageName(language || customer.preferredLanguage)
+  const displayDate = formatBookedDate(scheduledAt, customer.state, timezone, languageName)
+  const displayTime = formatCustomerStateTime(scheduledAt, customer.state, timezone)
+  const localizedTimeLabel = formatBookedTimeLabel(customer.state, timeLabel, languageName)
+
+  if (languageName === 'Latin American Spanish') {
+    return [
+      `📲 Tu llamada quedo agendada para ${displayDate} A LAS ${displayTime} con ${specialistName}🥰.`,
+      '',
+      `📞 El especialista de Dharma te llamara por llamada regular al ${phone}.`,
+      '',
+      `⏰ Recuerda que es hora de ${localizedTimeLabel}.`,
+      '',
+      '⚠️*Para asegurar tu descuento, confirma tu disponibilidad para la llamada inicial de evaluacion. Nuestra agenda se llena rapido; si pierdes la llamada, no se garantiza reagendar el mismo dia.*',
+    ].join('\n')
+  }
+
+  if (languageName === 'Portuguese') {
+    return [
+      `📲 Sua chamada esta agendada para ${displayDate} AS ${displayTime} com ${specialistName}🥰.`,
+      '',
+      `📞 O especialista da Dharma entrara em contato por chamada normal no ${phone}.`,
+      '',
+      `⏰ Lembre-se de que e horario de ${localizedTimeLabel}.`,
+      '',
+      '⚠️*Para garantir seu desconto, confirme sua disponibilidade para a chamada inicial de avaliacao. Nossa agenda enche rapidamente; se perder a chamada, nao garantimos reagendamento no mesmo dia.*',
+    ].join('\n')
+  }
 
   return [
-    `📲 Your call is scheduled for ${formatCustomerStateDate(
-      scheduledAt,
-      customer.state,
-      timezone,
-    )} AT ${formatCustomerStateTime(scheduledAt, customer.state, timezone)} with ${specialistName}🥰.`,
+    `📲 Your call is scheduled for ${displayDate} AT ${displayTime} with ${specialistName}🥰.`,
     '',
     `📞 Our Dharma's expert will reach out to you via regular phone call at ${phone}.`,
     '',
@@ -112,6 +136,31 @@ function formatPhoneForBookedMessage(phone) {
   return rawPhone
 }
 
+function formatBookedDate(timestamp, state, timezone, languageName) {
+  if (!timestamp) {
+    return ''
+  }
+
+  if (languageName === 'Latin American Spanish' || languageName === 'Portuguese') {
+    return new Intl.DateTimeFormat(languageName === 'Portuguese' ? 'pt-BR' : 'es-US', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: getStateTimeZone(state, timezone),
+    }).format(new Date(timestamp))
+  }
+
+  return formatCustomerStateDate(timestamp, state, timezone)
+}
+
+function formatBookedTimeLabel(state, fallbackLabel, languageName) {
+  if (languageName !== 'Latin American Spanish' && languageName !== 'Portuguese') {
+    return fallbackLabel
+  }
+
+  return String(state || '').trim() || fallbackLabel.replace(/\s+Time$/i, '')
+}
+
 function normalizeNameKey(value) {
   return String(value || '')
     .toLowerCase()
@@ -119,4 +168,22 @@ function normalizeNameKey(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
+}
+
+function normalizeBookedLanguageName(language) {
+  const normalized = String(language || '').toLowerCase()
+
+  if (normalized.includes('spanish') || normalized.includes('espanol') || normalized.includes('español')) {
+    return 'Latin American Spanish'
+  }
+
+  if (normalized.includes('portuguese') || normalized.includes('portugues') || normalized.includes('português')) {
+    return 'Portuguese'
+  }
+
+  if (normalized.includes('english') || normalized.includes('ingles') || normalized.includes('inglés')) {
+    return 'English'
+  }
+
+  return ''
 }

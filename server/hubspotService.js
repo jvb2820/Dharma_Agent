@@ -485,7 +485,6 @@ function buildBookingFormFields({ customer, seller, supportedFormFieldNames = []
   const supportedNames = new Set(supportedFormFieldNames)
 
   return [
-    { name: 'create_deal', value: 'true' },
     { name: 'agent_lead_management', value: seller.fieldValue },
     { name: 'dont_send_notification', value: 'false' },
     { name: 'desired_treatment', value: customer.desiredTreatment },
@@ -504,16 +503,13 @@ async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
     contactId: contactRecord.id,
     startTime: option.startTime,
   })
-  const existingDeal = await findReusableDealForContact(contactRecord.id)
   const properties = buildBookingDealProperties({
     customer,
     seller,
     option,
     meeting,
   })
-  const deal = existingDeal?.id
-    ? await updateDealProperties(existingDeal.id, properties)
-    : await createDealProperties(properties)
+  const deal = await createDealProperties(properties)
 
   await associateHubSpotObjects('deals', deal.id, 'contacts', contactRecord.id)
 
@@ -525,7 +521,7 @@ async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
     ok: true,
     dealId: deal.id,
     meetingId: meeting?.id || null,
-    reused: Boolean(existingDeal?.id),
+    reused: false,
   }
 }
 
@@ -602,40 +598,9 @@ async function findBookedMeetingForContact({ contactId, startTime }) {
     .sort((left, right) => left.startDelta - right.startDelta)[0]
 }
 
-async function findReusableDealForContact(contactId) {
-  const dealIds = await getAssociatedObjectIds('contacts', contactId, 'deals')
-
-  if (!dealIds.length) {
-    return null
-  }
-
-  const deals = await Promise.all(
-    dealIds.map((dealId) =>
-      fetchHubSpotObject('deals', dealId, ['dealname', 'pipeline', 'dealstage', 'closedate']).catch(
-        () => null,
-      ),
-    ),
-  )
-
-  return (
-    deals.find(
-      (deal) =>
-        deal?.properties?.pipeline === getDealPipeline() &&
-        deal?.properties?.dealstage === getDealStage(),
-    ) || null
-  )
-}
-
 async function createDealProperties(properties) {
   return hubspotSend('/crm/v3/objects/deals', {
     method: 'POST',
-    body: JSON.stringify({ properties }),
-  })
-}
-
-async function updateDealProperties(dealId, properties) {
-  return hubspotSend(`/crm/v3/objects/deals/${dealId}`, {
-    method: 'PATCH',
     body: JSON.stringify({ properties }),
   })
 }
