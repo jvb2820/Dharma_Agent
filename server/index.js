@@ -1427,6 +1427,36 @@ async function handleRespondBookingAutomation({
     return null
   }
 
+  if (hasActiveSlotOffer && !selectedOption && isSlotRejection(latestUserText)) {
+    const nextBooking = buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam })
+
+    if (isOutOfFlowInfoQuestion(latestUserText)) {
+      const answer = getOutOfFlowAnswer(latestUserText, customerLanguage)
+
+      return {
+        text: answer || bookingCopy(customerLanguage, 'checking'),
+        booking: { ...nextBooking, details },
+      }
+    }
+
+    const extractedPreferredTime = extractPreferredTimeText(latestUserText)
+    const preferredTime =
+      resolveRespondPreferredTime({
+        existingDetails: details,
+        latestSignals: { ...latestSignals, preferredTime: extractedPreferredTime },
+        latestUserText,
+      }) || (isUnavailableTodayReply(latestUserText) ? 'tomorrow' : '')
+    const nextDetails = preferredTime ? { ...details, preferredTime } : details
+
+    return await offerSoonestRespondSlot({
+      booking: nextBooking,
+      details: nextDetails,
+      customerLanguage,
+      preferredTime,
+      closest: true,
+    })
+  }
+
   if (hasActiveSlotOffer && !selectedOption && isOutOfFlowInfoQuestion(latestUserText)) {
     return buildOutOfFlowAnswerWithBookingContext({
       latestUserText,
@@ -1506,7 +1536,7 @@ async function handleRespondBookingAutomation({
   if (
     existingBooking.teamChanged &&
     hasActiveSlotOffer &&
-    (selectedOption || (existingBooking.offeredOption && isAffirmative(latestUserText)))
+    (selectedOption || (existingBooking.offeredOption && isSlotAffirmation(latestUserText, latestSignals)))
   ) {
     return await offerSoonestRespondSlot({
       booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam, teamChanged: false }),
@@ -1518,7 +1548,7 @@ async function handleRespondBookingAutomation({
   }
 
   // When user confirms a slot (selected one or said yes to offered one), ask for their name
-  if (selectedOption || (existingBooking.offeredOption && isAffirmative(latestUserText))) {
+  if (selectedOption || (existingBooking.offeredOption && isSlotAffirmation(latestUserText, latestSignals))) {
     const option = selectedOption || existingBooking.offeredOption
 
     if (!details.firstName || !details.lastName) {
@@ -1865,6 +1895,12 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return ''
   }
 
+  if (isClientTreatmentPrivacyQuestion(normalized)) {
+    if (spanish) return 'Por privacidad, no podemos compartir informacion sobre tratamientos de clientes especificos o figuras publicas. Si quieres, podemos explicarte las opciones efectivas que ofrece Dharma, y en la llamada gratuita el especialista revisara cuales se ajustan mejor a tu meta.'
+    if (portuguese) return 'Por privacidade, nao podemos compartilhar informacoes sobre tratamentos de clientes especificos ou figuras publicas. Podemos explicar as opcoes eficazes que a Dharma oferece, e na chamada gratuita o especialista revisara quais se ajustam melhor ao seu objetivo.'
+    return 'For privacy reasons, we cannot share treatment information about specific clients or public figures. We can explain the effective options Dharma offers, and during the free discovery call the specialist will review which choices best fit your goals.'
+  }
+
   if (/\b(cita|appointment|consulta|llamada)\b/.test(normalized) && /\b(precio|cuanto|cost|price|cuesta|custa)\b/.test(normalized)) {
     if (spanish) return 'La llamada de analisis inicial es completamente gratis. En esa llamada te explican las opciones, precios y siguientes pasos sin compromiso.'
     if (portuguese) return 'A chamada inicial de analise e completamente gratuita. Nessa chamada explicam as opcoes, precos e proximos passos sem compromisso.'
@@ -1892,6 +1928,24 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   if (spanish) return 'Claro, te explico brevemente: la llamada gratis es para revisar tu meta, responder tus dudas y orientarte sobre las opciones disponibles.'
   if (portuguese) return 'Claro, explico brevemente: a chamada gratuita serve para revisar seu objetivo, responder suas duvidas e orientar sobre as opcoes disponiveis.'
   return 'Of course. The free call is to review your goal, answer questions, and guide you through the available options.'
+}
+
+function isClientTreatmentPrivacyQuestion(normalizedText) {
+  return (
+    /\b(dayanara|dayanara torres|celebrity|celebrities|famous|public figure)\b/.test(
+      normalizedText,
+    ) ||
+    /\b(famosa|famoso|celebridad|celebridades|figura publica)\b/.test(
+      normalizedText,
+    ) ||
+    /\b(famosa|famoso|celebridade|figura publica)\b/.test(normalizedText) ||
+    /\b(client|patient|cliente|paciente)\b[\s\S]{0,40}\b(treatment|medication|medicine|program|tratamiento|medicamento|programa|tratamento)\b/.test(
+      normalizedText,
+    ) ||
+    /\b(treatment|medication|medicine|program|tratamiento|medicamento|programa|tratamento)\b[\s\S]{0,40}\b(client|patient|cliente|paciente)\b/.test(
+      normalizedText,
+    )
+  )
 }
 
 async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
@@ -2483,6 +2537,37 @@ function isAffirmative(content) {
   )
 }
 
+function isSlotAffirmation(content, latestSignals = {}) {
+  if (!isAffirmative(content)) {
+    return false
+  }
+
+  if (isStateConfirmationReply(content, latestSignals)) {
+    return false
+  }
+
+  return true
+}
+
+function isStateConfirmationReply(content, latestSignals = {}) {
+  const normalized = normalizeSearchText(content)
+
+  if (latestSignals.state) {
+    return true
+  }
+
+  return /\b(my|home|shipping|delivery|domicilio|casa|envio|envios|entrega|estado|state)\b/.test(normalized)
+}
+
+function isSlotRejection(content) {
+  const normalized = normalizeSearchText(content)
+
+  return (
+    /\b(no|nope|nah|not|doesn t work|doesnt work|otro|otra|different|later|mas tarde)\b/i.test(
+      normalized,
+    ) || isNegative(content)
+  )
+}
 
 function isNegative(content) {
   return /\b(no|not|doesn'?t work|otro|otra|different|later|mas tarde|m[aá]s tarde)\b/i.test(content)
@@ -2514,9 +2599,9 @@ function isOutOfFlowInfoQuestion(content) {
   }
 
   return [
-    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide|doctor|doctors|provider|providers|fda|approved|review|reviews)\b/.test(normalized),
-    /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido|doctor|doctores|medico|medicos|proveedor|proveedores|fda|aprobado|resena|resenas)\b/.test(normalized),
-    /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo|doutor|doutores|medico|medicos|provedor|provedores|fda|aprovado|avaliacao|avaliacoes)\b/.test(normalized),
+    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide|doctor|doctors|provider|providers|fda|approved|review|reviews|dayanara|celebrity|public figure|client treatment|patient treatment)\b/.test(normalized),
+    /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido|doctor|doctores|medico|medicos|proveedor|proveedores|fda|aprobado|resena|resenas|dayanara|celebridad|figura publica|tratamiento de cliente|tratamiento de paciente)\b/.test(normalized),
+    /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo|doutor|doutores|medico|medicos|provedor|provedores|fda|aprovado|avaliacao|avaliacoes|dayanara|celebridade|figura publica|tratamento de cliente|tratamento de paciente)\b/.test(normalized),
   ].some(Boolean)
 }
 
