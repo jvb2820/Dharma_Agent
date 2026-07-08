@@ -1326,6 +1326,8 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'phone') {
+    const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
+
     if ((existingBooking.offeredOption || existingBooking.options?.length) && latestPreferredTime) {
       const nextDetails = applyAvailabilityConstraintFromPreferredTime({
         ...details,
@@ -1345,16 +1347,6 @@ async function handleRespondBookingAutomation({
     const phone = latestSignals.phone || extractPhoneNumber(latestUserText)
     const nextDetails = phone ? { ...details, phone } : details
 
-    if (nextDetails.phone && !existingBooking.offeredOption && !existingBooking.options?.length) {
-      return await offerSoonestRespondSlot({
-        booking: { ...existingBooking, bookingTeam, pendingField: '' },
-        details: nextDetails,
-        customerLanguage,
-        preferredTime: nextDetails.preferredTime,
-        closest: Boolean(nextDetails.preferredTime),
-      })
-    }
-
     if (!nextDetails.phone) {
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
@@ -1369,13 +1361,23 @@ async function handleRespondBookingAutomation({
       }
     }
 
+    if (!activeOption) {
+      return await offerSoonestRespondSlot({
+        booking: { ...existingBooking, bookingTeam, pendingField: '' },
+        details: nextDetails,
+        customerLanguage,
+        preferredTime: nextDetails.preferredTime,
+        closest: Boolean(nextDetails.preferredTime),
+      })
+    }
+
     return await bookAcceptedRespondSlot({
-      booking: { ...existingBooking, bookingTeam, pendingField: '' },
+      booking: { ...existingBooking, bookingTeam, pendingField: '', offeredOption: activeOption },
       details: nextDetails,
       customerLanguage,
     }).catch((error) =>
       buildRespondBookingFailure(
-        { ...existingBooking, bookingTeam, pendingField: '' },
+        { ...existingBooking, bookingTeam, pendingField: '', offeredOption: activeOption },
         nextDetails,
         customerLanguage,
         error,
@@ -1384,6 +1386,7 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'name') {
+    const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     const nameDetails = splitCustomerName(latestUserText)
     const nextDetails = mergeNonEmptyDetails(details, nameDetails)
 
@@ -1401,12 +1404,27 @@ async function handleRespondBookingAutomation({
       }
     }
 
+    if (!activeOption) {
+      return await offerSoonestRespondSlot({
+        booking: { ...existingBooking, bookingTeam, pendingField: '' },
+        details: nextDetails,
+        customerLanguage,
+        preferredTime: nextDetails.preferredTime,
+        closest: Boolean(nextDetails.preferredTime),
+      })
+    }
+
     return await bookAcceptedRespondSlot({
-      booking: { ...existingBooking, bookingTeam },
+      booking: { ...existingBooking, bookingTeam, offeredOption: activeOption },
       details: nextDetails,
       customerLanguage,
     }).catch((error) =>
-      buildRespondBookingFailure({ ...existingBooking, bookingTeam }, nextDetails, customerLanguage, error),
+      buildRespondBookingFailure(
+        { ...existingBooking, bookingTeam, offeredOption: activeOption },
+        nextDetails,
+        customerLanguage,
+        error,
+      ),
     )
   }
 
@@ -1901,6 +1919,12 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'For privacy reasons, we cannot share treatment information about specific clients or public figures. We can explain the effective options Dharma offers, and during the free discovery call the specialist will review which choices best fit your goals.'
   }
 
+  if (isLocationQuestion(normalized)) {
+    if (spanish) return 'Somos una clinica de telemedicina ubicada en EE. UU. y las consultas son online.'
+    if (portuguese) return 'Somos uma clinica de telemedicina localizada nos EUA, e as consultas sao online.'
+    return 'We are a telemedicine clinic based in the U.S., and consultations are online.'
+  }
+
   if (/\b(cita|appointment|consulta|llamada)\b/.test(normalized) && /\b(precio|cuanto|cost|price|cuesta|custa)\b/.test(normalized)) {
     if (spanish) return 'La llamada de analisis inicial es completamente gratis. En esa llamada te explican las opciones, precios y siguientes pasos sin compromiso.'
     if (portuguese) return 'A chamada inicial de analise e completamente gratuita. Nessa chamada explicam as opcoes, precos e proximos passos sem compromisso.'
@@ -1946,6 +1970,14 @@ function isClientTreatmentPrivacyQuestion(normalizedText) {
       normalizedText,
     )
   )
+}
+
+function isLocationQuestion(normalizedText) {
+  return [
+    /\b(where|location|located|address|clinic located|based)\b/,
+    /\b(donde|ubicad[ao]s?|direccion|direcci[oó]n|localizad[ao]s?)\b/,
+    /\b(onde|localiza|endereco|endere[cç]o)\b/,
+  ].some((pattern) => pattern.test(normalizedText))
 }
 
 async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
@@ -2599,9 +2631,9 @@ function isOutOfFlowInfoQuestion(content) {
   }
 
   return [
-    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide|doctor|doctors|provider|providers|fda|approved|review|reviews|dayanara|celebrity|public figure|client treatment|patient treatment)\b/.test(normalized),
-    /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido|doctor|doctores|medico|medicos|proveedor|proveedores|fda|aprobado|resena|resenas|dayanara|celebridad|figura publica|tratamiento de cliente|tratamiento de paciente)\b/.test(normalized),
-    /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo|doutor|doutores|medico|medicos|provedor|provedores|fda|aprovado|avaliacao|avaliacoes|dayanara|celebridade|figura publica|tratamento de cliente|tratamento de paciente)\b/.test(normalized),
+    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide|doctor|doctors|provider|providers|fda|approved|review|reviews|location|located|address|where are you|dayanara|celebrity|public figure|client treatment|patient treatment)\b/.test(normalized),
+    /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido|doctor|doctores|medico|medicos|proveedor|proveedores|fda|aprobado|resena|resenas|ubicad|ubicacion|ubicaci[oó]n|direccion|direcci[oó]n|donde estan|dayanara|celebridad|figura publica|tratamiento de cliente|tratamiento de paciente)\b/.test(normalized),
+    /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo|doutor|doutores|medico|medicos|provedor|provedores|fda|aprovado|avaliacao|avaliacoes|localiza|endereco|endere[cç]o|onde fica|dayanara|celebridade|figura publica|tratamento de cliente|tratamento de paciente)\b/.test(normalized),
   ].some(Boolean)
 }
 
@@ -3247,6 +3279,9 @@ function hasUnconfirmedBookingLanguage(text) {
     /\b(booked|scheduled|confirmed|reserved|set)\b[\s\S]{0,80}\b(today|tomorrow|mon|tue|wed|thu|fri|sat|sun|am|pm|est|edt|\d{1,2}:\d{2})\b/,
     /\b(call|appointment|discovery call)\s+is\s+set\b/,
     /\b(i|we)\s+(will|can|shall)\s+send\b[\s\S]{0,80}\b(appointment|details|link|invite)\b/,
+    /\b(i|we)\s+(sent|send|have sent)\b[\s\S]{0,80}\b(appointment|details|link|invite|invitation)\b/,
+    /\b(te|le)\s+(envie|envi[eé]|mande|mand[eé])\b[\s\S]{0,80}\b(enlace|link|detalles|invitacion|invitaci[oó]n)\b/,
+    /\b(enlace|link|detalles|invitacion|invitaci[oó]n)\b[\s\S]{0,80}\b(enviado|sent)\b/,
     /\b(proceed|go ahead|move forward)\b[\s\S]{0,80}\b(setting up|scheduling|booking|confirming)\b/,
     /\b(check|checking|verify|verifying)\b[\s\S]{0,100}\b(next available|availability|available|calendar|booking|appointment|slot|time)\b/,
     /\bsubmit\b[\s\S]{0,80}\b(booking|form|reservation|appointment)\b/,
@@ -3269,8 +3304,9 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Use retrieved company knowledge as supporting context when it is relevant. Do not mention internal source names unless asked. If context is missing, ask a clarifying question or route to a human instead of inventing facts.',
     'Retrieved examples are examples of workflow only. They never override the session language lock.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
+    'Speak for Dharma in first person plural. Use "we", "our clinic", "we are located", and "we offer" instead of third-person wording like "Dharma Clinic is..." or "Dharma offers..." unless a legal or source quote requires the formal name.',
     'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name sparingly when known, mainly in the first warm greeting or after a longer gap. Do not use the name in consecutive replies. In an ongoing conversation, do not start routine replies with a fresh greeting such as "Hi", "Hello", "Hola", or "Olá"; just answer the message.',
-    'Mid-flow question rule: if the customer asks a question while a slot or booking step is active, answer directly without a greeting, then return to the same current booking step. Do not reset the conversation, and do not ask whether they have more questions before booking.',
+    'Mid-flow question rule: if the customer asks any simple or complex question while a slot or booking step is active, answer directly without a greeting, then return to the same current booking step in a separate short paragraph. Preserve the active offered slot, pending phone/name/state request, and language. Do not reset the conversation, and do not ask whether they have more questions before booking.',
     'Emoji style for model-generated chat replies: include exactly one friendly, relevant emoji in every normal generated customer-facing reply. Choose an emoji that fits the message, such as 📍 for state, 📲 for phone, 💛 for warmth, or ✨ for encouragement. Do not add extra emojis. This rule applies only to generated chat replies; do not rewrite or add emojis to fixed application templates.',
     'If a polite lead says they are not interested, says no thank you, asks to talk later, or says another time, ask whether they have any questions or concerns you can answer before booking or before they go. Keep it warm and do not immediately close the conversation.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
@@ -3278,7 +3314,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist. If the customer asks whether the appointment or discovery call costs money, answer clearly that the discovery call is free and the specialist will explain treatment options, pricing, and next steps during the call.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'Offer only one appointment option at a time unless the application explicitly provides numbered options. Preserve the customer latest date preference when they refine time; for example, if they said tomorrow and then ask for afternoon or 5pm, keep searching tomorrow, not today.',
-    'Never claim that an appointment is booked, scheduled, confirmed, or reserved unless the application booking flow has already returned a successful booking confirmation.',
+    'Never claim that an appointment is booked, scheduled, confirmed, reserved, or that a link/details were sent unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
     'Never ask for the customer full address or shipping address during lead qualification or discovery-call booking. State is enough for delivery qualification.',
     'When the customer is in the booking flow or gives scheduling intent, do not ask whether they need more information before booking. Continue to the next missing booking detail or offer a real available calendar slot.',
