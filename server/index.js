@@ -47,7 +47,10 @@ const RESPOND_AGENT = {
 const SESSION_RESTART_WINDOW_MS =
   Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
 const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
-const INITIAL_VIDEO_URL = process.env.RESPOND_INITIAL_VIDEO_URL || getDefaultInitialVideoUrl()
+const BOOKING_CONFIRMATION_VIDEO_URL =
+  process.env.RESPOND_BOOKING_CONFIRMATION_VIDEO_URL ||
+  process.env.RESPOND_INITIAL_VIDEO_URL ||
+  getDefaultBookingConfirmationVideoUrl()
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
 
@@ -462,13 +465,28 @@ function getDefaultInitialImageUrl() {
   return `${baseUrl.replace(/\/+$/, '')}/Images/before%20and%20after.png`
 }
 
-function getDefaultInitialVideoUrl() {
+function getDefaultBookingConfirmationVideoUrl() {
   const baseUrl =
     process.env.WEB_SERVICE_URL ||
     process.env.VITE_WEB_SERVICE_URL ||
     'https://dharma-agent.onrender.com'
 
   return `${baseUrl.replace(/\/+$/, '')}/Images/Spanish.mp4`
+}
+
+async function sendBookingConfirmationVideo({ contactId, channelId }) {
+  if (!BOOKING_CONFIRMATION_VIDEO_URL) {
+    return null
+  }
+
+  return sendRespondVideoMessage({
+    contactId,
+    channelId,
+    videoUrl: BOOKING_CONFIRMATION_VIDEO_URL,
+  }).catch((error) => {
+    console.warn(`Unable to send booking confirmation video: ${error.message}`)
+    return null
+  })
 }
 
 async function processRespondIncomingMessage(event) {
@@ -586,12 +604,16 @@ async function processRespondIncomingMessage(event) {
   })
 
   if (bookingResponse) {
-    await sendRespondTextMessage({
-      contactId: event.contactId,
-      channelId: event.channelId,
-      text: bookingResponse.text,
-    })
     if (bookingResponse.postReplyRespondAction?.type === 'booked') {
+      await sendBookingConfirmationVideo({
+        contactId: event.contactId,
+        channelId: event.channelId,
+      })
+      await sendRespondTextMessage({
+        contactId: event.contactId,
+        channelId: event.channelId,
+        text: bookingResponse.text,
+      })
       await finalizeRespondConversationAfterBooking({
         contactId: event.contactId,
         booked: bookingResponse.postReplyRespondAction.booked,
@@ -600,6 +622,11 @@ async function processRespondIncomingMessage(event) {
         console.warn(`Unable to finalize Respond conversation after booking: ${error.message}`)
       })
     } else {
+      await sendRespondTextMessage({
+        contactId: event.contactId,
+        channelId: event.channelId,
+        text: bookingResponse.text,
+      })
       await unassignRespondConversationAfterReply(event.contactId)
     }
 
@@ -3129,16 +3156,6 @@ async function sendInitialRespondSequence({ contactId, channelId, customerLangua
       imageUrl: INITIAL_IMAGE_URL,
     }).catch((error) => {
       console.warn(`Unable to send initial Respond image: ${error.message}`)
-    })
-  }
-
-  if (INITIAL_VIDEO_URL) {
-    await sendRespondVideoMessage({
-      contactId,
-      channelId,
-      videoUrl: INITIAL_VIDEO_URL,
-    }).catch((error) => {
-      console.warn(`Unable to send initial Respond video: ${error.message}`)
     })
   }
 
