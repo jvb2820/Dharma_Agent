@@ -112,12 +112,41 @@ export async function sendRespondTextMessage({ contactId, text, channelId }) {
 }
 
 export async function sendRespondImageMessage({ contactId, imageUrl, channelId, caption = '' }) {
+  return sendRespondAttachmentMessage({
+    contactId,
+    channelId,
+    caption,
+    attachmentType: 'image',
+    attachmentUrl: imageUrl,
+    label: 'image',
+  })
+}
+
+export async function sendRespondVideoMessage({ contactId, videoUrl, channelId, caption = '' }) {
+  return sendRespondAttachmentMessage({
+    contactId,
+    channelId,
+    caption,
+    attachmentType: 'video',
+    attachmentUrl: videoUrl,
+    label: 'video',
+  })
+}
+
+async function sendRespondAttachmentMessage({
+  contactId,
+  attachmentUrl,
+  attachmentType,
+  channelId,
+  caption = '',
+  label = 'attachment',
+}) {
   if (!contactId) {
-    throw new Error('contactId is required to send a Respond image message.')
+    throw new Error(`contactId is required to send a Respond ${label} message.`)
   }
 
-  if (!imageUrl?.trim()) {
-    throw new Error('imageUrl is required to send a Respond image message.')
+  if (!attachmentUrl?.trim()) {
+    throw new Error(`${label}Url is required to send a Respond ${label} message.`)
   }
 
   const token = process.env.RESPOND_API_TOKEN || process.env.RESPONDIO_API_KEY
@@ -130,8 +159,8 @@ export async function sendRespondImageMessage({ contactId, imageUrl, channelId, 
     message: {
       type: 'attachment',
       attachment: {
-        type: 'image',
-        url: imageUrl,
+        type: attachmentType,
+        url: attachmentUrl,
       },
     },
   }
@@ -161,7 +190,7 @@ export async function sendRespondImageMessage({ contactId, imageUrl, channelId, 
     throw new Error(
       data.message ||
         data.error ||
-        `Respond image send failed with ${response.status}: ${JSON.stringify(data)}`,
+        `Respond ${label} send failed with ${response.status}: ${JSON.stringify(data)}`,
     )
   }
 

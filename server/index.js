@@ -28,6 +28,7 @@ import {
   getRespondContact,
   sendRespondImageMessage,
   sendRespondTextMessage,
+  sendRespondVideoMessage,
   unassignRespondConversation,
   updateRespondContact,
 } from './respondService.js'
@@ -46,6 +47,7 @@ const RESPOND_AGENT = {
 const SESSION_RESTART_WINDOW_MS =
   Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
 const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
+const INITIAL_VIDEO_URL = process.env.RESPOND_INITIAL_VIDEO_URL || getDefaultInitialVideoUrl()
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
 
@@ -110,6 +112,7 @@ const MIME_TYPES = {
   '.jpg': 'image/jpeg',
   '.js': 'text/javascript',
   '.json': 'application/json',
+  '.mp4': 'video/mp4',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.txt': 'text/plain',
@@ -457,6 +460,15 @@ function getDefaultInitialImageUrl() {
     'https://dharma-agent.onrender.com'
 
   return `${baseUrl.replace(/\/+$/, '')}/Images/before%20and%20after.png`
+}
+
+function getDefaultInitialVideoUrl() {
+  const baseUrl =
+    process.env.WEB_SERVICE_URL ||
+    process.env.VITE_WEB_SERVICE_URL ||
+    'https://dharma-agent.onrender.com'
+
+  return `${baseUrl.replace(/\/+$/, '')}/Images/Spanish.mp4`
 }
 
 async function processRespondIncomingMessage(event) {
@@ -3117,6 +3129,16 @@ async function sendInitialRespondSequence({ contactId, channelId, customerLangua
       imageUrl: INITIAL_IMAGE_URL,
     }).catch((error) => {
       console.warn(`Unable to send initial Respond image: ${error.message}`)
+    })
+  }
+
+  if (INITIAL_VIDEO_URL) {
+    await sendRespondVideoMessage({
+      contactId,
+      channelId,
+      videoUrl: INITIAL_VIDEO_URL,
+    }).catch((error) => {
+      console.warn(`Unable to send initial Respond video: ${error.message}`)
     })
   }
 
