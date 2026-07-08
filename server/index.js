@@ -1885,7 +1885,7 @@ function filterPreviouslyOfferedOptions(options = [], booking = {}) {
 }
 
 function getAvailabilityOptionKey(option = {}) {
-  return `${option.sellerSlug || ''}:${option.startTime || ''}`
+  return String(option.startTime || '')
 }
 
 function prependOutOfFlowAnswerIfNeeded({
@@ -1953,9 +1953,9 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (isClientTreatmentPrivacyQuestion(normalized)) {
-    if (spanish) return 'Por privacidad, no podemos compartir informacion sobre tratamientos de clientes especificos o figuras publicas. Si quieres, podemos explicarte las opciones efectivas que ofrece Dharma, y en la llamada gratuita el especialista revisara cuales se ajustan mejor a tu meta.'
-    if (portuguese) return 'Por privacidade, nao podemos compartilhar informacoes sobre tratamentos de clientes especificos ou figuras publicas. Podemos explicar as opcoes eficazes que a Dharma oferece, e na chamada gratuita o especialista revisara quais se ajustam melhor ao seu objetivo.'
-    return 'For privacy reasons, we cannot share treatment information about specific clients or public figures. We can explain the effective options Dharma offers, and during the free discovery call the specialist will review which choices best fit your goals.'
+    if (spanish) return 'Por privacidad, no podemos compartir informacion sobre tratamientos de clientes especificos o figuras publicas. Tenemos varias opciones y el especialista puede explicarte cual se ajusta mejor a tu meta durante la llamada gratuita.'
+    if (portuguese) return 'Por privacidade, nao podemos compartilhar informacoes sobre tratamentos de clientes especificos ou figuras publicas. Temos varias opcoes, e o especialista pode explicar qual se ajusta melhor ao seu objetivo durante a chamada gratuita.'
+    return 'For privacy reasons, we cannot share treatment information about specific clients or public figures. We offer several options, and a specialist can explain which choices may fit your goals during the free discovery call.'
   }
 
   if (isLocationQuestion(normalized)) {
@@ -2006,6 +2006,12 @@ function isClientTreatmentPrivacyQuestion(normalizedText) {
       normalizedText,
     ) ||
     /\b(treatment|medication|medicine|program|tratamiento|medicamento|programa|tratamento)\b[\s\S]{0,40}\b(client|patient|cliente|paciente)\b/.test(
+      normalizedText,
+    ) ||
+    /\b(she|he|they|her|his|ella|el|ellos|ellas|ele|ela)\b[\s\S]{0,60}\b(semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|tratamiento|medicamento|inyeccion|inyecciones|tratamento|medicamento|injecao)\b/.test(
+      normalizedText,
+    ) ||
+    /\b(semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|tratamiento|medicamento|inyeccion|inyecciones|tratamento|medicamento|injecao)\b[\s\S]{0,60}\b(she|he|they|her|his|ella|el|ellos|ellas|ele|ela)\b/.test(
       normalizedText,
     )
   )
@@ -3335,13 +3341,13 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
   return [
     agent?.systemPrompt,
     customerLanguage
-      ? `Session language lock: ${customerLanguage}. You must answer only in ${customerLanguage} for this conversation. Do not switch languages because retrieved examples, company context, prior agent messages, or internal notes use another language.`
+      ? `Reply language target: ${customerLanguage}. Answer this reply in ${customerLanguage}, because it matches the latest customer language or the best available fallback. If the customer switches languages in a later message, follow that latest customer language. Do not switch languages because retrieved examples, company context, prior agent messages, or internal notes use another language.`
       : '',
     redundancyControl,
     'Redundancy control is mandatory: do not ask for a detail the customer already provided in this conversation, and do not repeat prices, product lists, or onboarding explanations already shown unless the customer explicitly asks for them again. If a prior agent message asked for multiple details and the customer supplied one of them, acknowledge the supplied detail and ask only for the missing detail.',
     'For booking qualification, default the customer goal to weight loss. After collecting state, move directly to availability or the next required booking detail. Do not ask a separate main-goals question unless the customer asks for help comparing non-weight-loss options.',
     'Use retrieved company knowledge as supporting context when it is relevant. Do not mention internal source names unless asked. If context is missing, ask a clarifying question or route to a human instead of inventing facts.',
-    'Retrieved examples are examples of workflow only. They never override the session language lock.',
+    'Retrieved examples are examples of workflow only. They never override the reply language target.',
     'When retrieved raw conversation examples are relevant, mirror their decision pattern and workflow, but do not copy the example language. Always answer in the customer’s current language. Do not expose internal notes or claim the example conversation is part of the current chat.',
     'Speak for Dharma in first person plural. Use "we", "our clinic", "we are located", and "we offer" instead of third-person wording like "Dharma Clinic is..." or "Dharma offers..." unless a legal or source quote requires the formal name.',
     'Vary your wording naturally. Do not repeat the customer exact phrasing back to them unless needed for clarity. Use the contact name sparingly when known, mainly in the first warm greeting or after a longer gap. Do not use the name in consecutive replies. In an ongoing conversation, do not start routine replies with a fresh greeting such as "Hi", "Hello", "Hola", or "Olá"; just answer the message.',
@@ -3390,7 +3396,7 @@ Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para a
 💪 *Creatine*: melhora a força, tonifica mais rápido e acelera a recuperação para você ficar mais fit.
 *Você pode ver tudo aqui* 👉 https://dharmanutritionclinic.com/collections/supplements`,
     'Never refer to Dharma sellers/treatment specialists as doctors or medical doctors. Call them "specialists in our treatments" or "treatment specialists", not "medical specialists". If a customer asks for the doctor/provider name, separate the answer: Dharma works with a network of providers licensed in the states we serve, and after the customer completes the medical form their case is assigned to a provider licensed in their home state. Separately, the sales/support specialists guide treatment information and scheduling but are not doctors.',
-    'Do not disclose or imply any client, celebrity, or public figure treatment details, including Dayanara Torres. If asked, say privacy rules prevent sharing any client treatment information, then offer to explain Dharma treatment options according to the customer goal.',
+    'Do not disclose or imply any client, celebrity, or public figure treatment details, including Dayanara Torres. If asked whether a client or public figure used a specific treatment, do not mention or repeat the specific treatment name. Say privacy rules prevent sharing any client treatment information, then offer to explain Dharma treatment options according to the customer goal.',
     'When discussing trust or legitimacy, say Dharma Clinic is LegitScript-certified and has more than 1500 positive Google reviews.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',
@@ -3413,7 +3419,7 @@ function buildInput({
   const parts = []
 
   if (customerLanguage) {
-    parts.push(`Session language lock for the next reply: ${customerLanguage}`)
+    parts.push(`Reply language target for the next reply: ${customerLanguage}`)
   }
 
   if (redundancyControl) {
@@ -3787,8 +3793,12 @@ function detectCustomerLanguage(content) {
     'perder peso',
     'buenas',
     'estado',
+    'vivo',
+    'vives',
     'llamada',
     'cuanto',
+    'ingles',
+    'inglés',
     'precio',
     'cuesta',
     'informacion',
@@ -3801,6 +3811,12 @@ function detectCustomerLanguage(content) {
     'hablar',
     'favor',
     'porfa',
+    'ella',
+    'hizo',
+    'tomo',
+    'tomó',
+    'solo',
+    'no entiendo',
     'buenos dias',
     'buenas tardes',
     'buenas noches',
