@@ -1387,6 +1387,21 @@ async function handleRespondBookingAutomation({
     const nextDetails = phone ? { ...details, phone } : details
 
     if (!nextDetails.phone) {
+      if (isContextualOutOfFlowFollowUp(latestUserText, messages)) {
+        const answer = await generateBookingOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        })
+
+        return {
+          text: `${answer}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        }
+      }
+
       return prependOutOfFlowAnswerIfNeeded({
         response: {
           text: bookingCopy(customerLanguage, 'askPhone'),
@@ -1714,6 +1729,21 @@ async function handleRespondBookingAutomation({
   }
 
   if (!details.phone) {
+    if (isContextualOutOfFlowFollowUp(latestUserText, messages)) {
+      const answer = await generateBookingOutOfFlowAnswer({
+        messages,
+        latestUserText,
+        customerLanguage,
+        respondContactProfile,
+        booking: { ...existingBooking, bookingTeam, details, pendingField: 'phone' },
+      })
+
+      return {
+        text: `${answer}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+        booking: { ...existingBooking, bookingTeam, details, pendingField: 'phone' },
+      }
+    }
+
     return prependOutOfFlowAnswerIfNeeded({
       response: {
         text: bookingCopy(customerLanguage, 'askPhone'),
@@ -2107,6 +2137,12 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'I cannot confirm in chat whether a specific condition is compatible with treatment. To protect your privacy, please do not share medical history or specific conditions here; during the free discovery call, the specialist reviews medical conditions and contraindications to confirm whether it is safe for you.'
   }
 
+  if (isPopularityOrBestSellerQuestion(normalized)) {
+    if (spanish) return 'Lo mas solicitado por nuestros clientes suele ser el apoyo para perdida de peso con GLP-1, como el paquete personalizado de Semaglutide/Tirzepatide, y tambien el acceso a prescripcion de Zepbound. El especialista puede explicarte cual opcion se ajusta mejor a tu meta.'
+    if (portuguese) return 'O mais solicitado pelos nossos clientes costuma ser o apoio para perda de peso com GLP-1, como o pacote personalizado de Semaglutide/Tirzepatide, e tambem o acesso a prescricao de Zepbound. O especialista pode explicar qual opcao combina melhor com seu objetivo.'
+    return 'The most requested option from our clients is usually GLP-1 weight-loss support, such as the personalized Semaglutide/Tirzepatide package, along with Zepbound prescription access. The specialist can explain which option may fit your goal best.'
+  }
+
   if (/\b(treatment|program|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|tratamiento|medicamento|inyeccion|programa|injecao)\b/.test(normalized)) {
     if (spanish) return 'Ofrecemos inyecciones para perdida de peso, como Semaglutide o Tirzepatide, que ayudan a reducir el apetito y quemar grasa corporal cuando un proveedor determina que eres candidata. Primero hacemos una llamada gratuita para explicar opciones y siguientes pasos.'
     if (portuguese) return 'Oferecemos injecoes para perda de peso, como Semaglutide ou Tirzepatide, que ajudam a reduzir o apetite e queimar gordura corporal quando um provedor determina que e adequado. Primeiro fazemos uma chamada gratuita para explicar opcoes e proximos passos.'
@@ -2175,6 +2211,14 @@ function isMedicalHistoryOrSafetyQuestion(normalizedText) {
     /\b(medical history|medical condition|condition|conditions|contraindication|contraindications|chronic illness|diagnosis|thyroid|thyroid nodules|nodules|pregnant|pregnancy|breastfeeding|side effect|side effects|medication interaction|can i use|can i take|is it safe)\b/,
     /\b(historial medico|historia medica|condicion|condiciones|contraindicacion|contraindicaciones|enfermedad cronica|diagnostico|tiroides|nodulo|nodulos|embarazada|embarazo|lactancia|efecto secundario|efectos secundarios|interaccion|puedo usar|puedo tomar|es seguro)\b/,
     /\b(historico medico|condicao|condicoes|contraindicacao|contraindicacoes|doenca cronica|diagnostico|tireoide|nodulo|nodulos|gravida|gravidez|amamentando|efeito colateral|efeitos colaterais|interacao|posso usar|posso tomar|e seguro)\b/,
+  ].some((pattern) => pattern.test(normalizedText))
+}
+
+function isPopularityOrBestSellerQuestion(normalizedText) {
+  return [
+    /\b(best seller|bestseller|best-selling|most popular|popular|top seller|most requested|clients like|customers like)\b/,
+    /\b(mas vendido|m[aá]s vendido|mas popular|m[aá]s popular|mas solicitado|m[aá]s solicitado|clientes prefieren)\b/,
+    /\b(mais vendido|mais popular|mais solicitado|clientes preferem)\b/,
   ].some((pattern) => pattern.test(normalizedText))
 }
 
@@ -2566,6 +2610,64 @@ async function generatePendingStateOutOfFlowAnswer({
   })
 }
 
+async function generateBookingOutOfFlowAnswer({
+  messages,
+  latestUserText,
+  customerLanguage,
+  respondContactProfile,
+  booking,
+}) {
+  const fallbackAnswer =
+    getOutOfFlowAnswer(latestUserText, customerLanguage) ||
+    getContextualOutOfFlowFallbackAnswer(customerLanguage)
+  const ragContext = await buildRagContext({
+    agent: RESPOND_AGENT,
+    messages,
+    message: latestUserText,
+  })
+  const instructions = buildInstructions({
+    agent: RESPOND_AGENT,
+    customerLanguage,
+    instructions: [
+      'The customer asked a contextual follow-up while a booking step is active. Answer the latest question directly using the recent conversation and retrieved company knowledge.',
+      'If the latest message uses words like "that", "it", "this", "regarding that", or "about that", resolve the reference from the immediately previous customer question and agent answer.',
+      'Do not ask for phone number, name, state, appointment availability, or booking confirmation in this generated answer. The application will append the current booking question after your answer.',
+      'Do not start with a greeting. Keep it concise and specific enough to answer the question.',
+    ].join('\n'),
+  })
+  const input = buildInput({
+    messages,
+    message: latestUserText,
+    customerLanguage,
+    context: ragContext,
+    respondContactProfile,
+    booking,
+  })
+
+  return createOpenAIResponseText({
+    model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+    instructions,
+    input,
+  }).catch((error) => {
+    console.warn(`Unable to generate booking out-of-flow answer: ${error.message}`)
+    return fallbackAnswer
+  })
+}
+
+function getContextualOutOfFlowFallbackAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Si, el especialista puede ayudarte con esa duda durante la llamada gratuita y explicarte que opcion se ajusta mejor a tu meta.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Sim, o especialista pode ajudar com essa duvida durante a chamada gratuita e explicar qual opcao combina melhor com seu objetivo.'
+  }
+
+  return 'Yes, the specialist can help with that during the free call and explain which option may fit your goal best.'
+}
+
 function buildPendingStateOutOfFlowReply(answer, customerLanguage) {
   const askState = bookingCopy(customerLanguage, 'askState')
   const cleanedAnswer = stripStateQuestionFromGeneratedAnswer(answer)
@@ -2874,7 +2976,11 @@ function isOutOfFlowInfoQuestion(content) {
     return false
   }
 
-  if (isClientTreatmentPrivacyQuestion(normalized) || isMedicalHistoryOrSafetyQuestion(normalized)) {
+  if (
+    isClientTreatmentPrivacyQuestion(normalized) ||
+    isMedicalHistoryOrSafetyQuestion(normalized) ||
+    isPopularityOrBestSellerQuestion(normalized)
+  ) {
     return true
   }
 
@@ -2883,6 +2989,47 @@ function isOutOfFlowInfoQuestion(content) {
     /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido|doctor|doctores|medico|medicos|proveedor|proveedores|fda|aprobado|resena|resenas|ubicad|ubicacion|ubicaci[oó]n|direccion|direcci[oó]n|donde estan|dayanara|celebridad|figura publica|tratamiento de cliente|tratamiento de paciente)\b/.test(normalized),
     /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo|doutor|doutores|medico|medicos|provedor|provedores|fda|aprovado|avaliacao|avaliacoes|localiza|endereco|endere[cç]o|onde fica|dayanara|celebridade|figura publica|tratamento de cliente|tratamento de paciente)\b/.test(normalized),
   ].some(Boolean)
+}
+
+function isContextualOutOfFlowFollowUp(content, messages = []) {
+  const normalized = normalizeSearchText(content)
+
+  if (!normalized) {
+    return false
+  }
+
+  const asksAboutPriorContext = [
+    /\b(that|it|this|regarding that|about that|with that|for that)\b/,
+    /\b(eso|esto|aquello|sobre eso|con eso|respecto a eso|referente a eso)\b/,
+    /\b(isso|isto|sobre isso|com isso|referente a isso)\b/,
+  ].some((pattern) => pattern.test(normalized))
+  const asksForHelpOrExplanation = [
+    /\b(would|will|can|could|does|do|is)\b[\s\S]{0,50}\b(specialist|expert|they|you|call)\b[\s\S]{0,80}\b(help|explain|guide|answer|cover|recommend)\b/,
+    /\b(specialist|expert|they|you|call)\b[\s\S]{0,80}\b(help|explain|guide|answer|cover|recommend)\b/,
+    /\b(especialista|ustedes|llamada|cita)\b[\s\S]{0,80}\b(ayuda|ayudar|explica|explicar|orienta|orientar|responde|recomienda)\b/,
+    /\b(especialista|voces|voc[eê]s|chamada|consulta)\b[\s\S]{0,80}\b(ajuda|ajudar|explica|explicar|orienta|orientar|responde|recomenda)\b/,
+  ].some((pattern) => pattern.test(normalized))
+  const priorUserQuestion = [...messages]
+    .reverse()
+    .slice(1)
+    .find((item) => item.role === 'user' && isPriorOutOfFlowTopic(item.content || ''))
+
+  return asksAboutPriorContext && asksForHelpOrExplanation && Boolean(priorUserQuestion)
+}
+
+function isPriorOutOfFlowTopic(content) {
+  const normalized = normalizeSearchText(content)
+
+  return (
+    isOutOfFlowInfoQuestion(content) ||
+    /\b(best seller|bestseller|best-selling|most popular|popular|top seller|clients|client|customers|customer|result|results)\b/.test(
+      normalized,
+    ) ||
+    /\b(mas vendido|m[aá]s vendido|mas popular|m[aá]s popular|clientes|cliente|resultados|resultado)\b/.test(
+      normalized,
+    ) ||
+    /\b(mais vendido|mais popular|clientes|cliente|resultados|resultado)\b/.test(normalized)
+  )
 }
 
 function isConversationDeferralReply(content) {
