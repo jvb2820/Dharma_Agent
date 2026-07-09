@@ -2143,6 +2143,12 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'The most requested option from our clients is usually GLP-1 weight-loss support, such as the personalized Semaglutide/Tirzepatide package, along with Zepbound prescription access. The specialist can explain which option may fit your goal best.'
   }
 
+  if (isInjectionEffectTimingQuestion(normalized)) {
+    if (spanish) return 'Muchas personas empiezan a notar menos apetito en las primeras semanas, pero el ritmo varia segun cada cuerpo, la dosis y el plan indicado. En la llamada gratuita, el especialista te guia sobre como funciona el tratamiento, que esperar y cuales son los siguientes pasos.'
+    if (portuguese) return 'Muitas pessoas comecam a notar menos apetite nas primeiras semanas, mas o ritmo varia conforme cada corpo, a dose e o plano indicado. Na chamada gratuita, o especialista orienta como o tratamento funciona, o que esperar e quais sao os proximos passos.'
+    return 'Many people start noticing reduced appetite within the first few weeks, but timing varies by body, dose, and treatment plan. During the free call, the specialist guides you through how the treatment works, what to expect, and the next steps.'
+  }
+
   if (/\b(treatment|program|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|tratamiento|medicamento|inyeccion|programa|injecao)\b/.test(normalized)) {
     if (spanish) return 'Ofrecemos inyecciones para perdida de peso, como Semaglutide o Tirzepatide, que ayudan a reducir el apetito y quemar grasa corporal cuando un proveedor determina que eres candidata. Primero hacemos una llamada gratuita para explicar opciones y siguientes pasos.'
     if (portuguese) return 'Oferecemos injecoes para perda de peso, como Semaglutide ou Tirzepatide, que ajudam a reduzir o apetite e queimar gordura corporal quando um provedor determina que e adequado. Primeiro fazemos uma chamada gratuita para explicar opcoes e proximos passos.'
@@ -2219,6 +2225,17 @@ function isPopularityOrBestSellerQuestion(normalizedText) {
     /\b(best seller|bestseller|best-selling|most popular|popular|top seller|most requested|clients like|customers like)\b/,
     /\b(mas vendido|m[aá]s vendido|mas popular|m[aá]s popular|mas solicitado|m[aá]s solicitado|clientes prefieren)\b/,
     /\b(mais vendido|mais popular|mais solicitado|clientes preferem)\b/,
+  ].some((pattern) => pattern.test(normalizedText))
+}
+
+function isInjectionEffectTimingQuestion(normalizedText) {
+  return [
+    /\b(how long|when|how soon|how fast)\b[\s\S]{0,80}\b(effect|effects|work|working|results|notice|feel|appetite)\b/,
+    /\b(effect|effects|work|working|results|notice|feel|appetite)\b[\s\S]{0,80}\b(how long|when|how soon|how fast)\b/,
+    /\b(cuanto tarda|cu[aá]nto tarda|cuando|cu[aá]ndo|que tan rapido|qu[eé] tan rapido)\b[\s\S]{0,80}\b(efecto|efectos|funciona|resultados|notar|sentir|apetito)\b/,
+    /\b(efecto|efectos|funciona|resultados|notar|sentir|apetito)\b[\s\S]{0,80}\b(cuanto tarda|cu[aá]nto tarda|cuando|cu[aá]ndo|que tan rapido|qu[eé] tan rapido)\b/,
+    /\b(quanto tempo|quando|quao rapido|qu[aã]o rapido)\b[\s\S]{0,80}\b(efeito|efeitos|funciona|resultados|notar|sentir|apetite)\b/,
+    /\b(efeito|efeitos|funciona|resultados|notar|sentir|apetite)\b[\s\S]{0,80}\b(quanto tempo|quando|quao rapido|qu[aã]o rapido)\b/,
   ].some((pattern) => pattern.test(normalizedText))
 }
 
@@ -2979,13 +2996,14 @@ function isOutOfFlowInfoQuestion(content) {
   if (
     isClientTreatmentPrivacyQuestion(normalized) ||
     isMedicalHistoryOrSafetyQuestion(normalized) ||
-    isPopularityOrBestSellerQuestion(normalized)
+    isPopularityOrBestSellerQuestion(normalized) ||
+    isInjectionEffectTimingQuestion(normalized)
   ) {
     return true
   }
 
   return [
-    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide|doctor|doctors|provider|providers|fda|approved|review|reviews|location|located|address|where are you|dayanara|celebrity|public figure|client treatment|patient treatment)\b/.test(normalized),
+    /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how long|how soon|how fast|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide|doctor|doctors|provider|providers|fda|approved|review|reviews|location|located|address|where are you|dayanara|celebrity|public figure|client treatment|patient treatment)\b/.test(normalized),
     /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido|doctor|doctores|medico|medicos|proveedor|proveedores|fda|aprobado|resena|resenas|ubicad|ubicacion|ubicaci[oó]n|direccion|direcci[oó]n|donde estan|dayanara|celebridad|figura publica|tratamiento de cliente|tratamiento de paciente)\b/.test(normalized),
     /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo|doutor|doutores|medico|medicos|provedor|provedores|fda|aprovado|avaliacao|avaliacoes|localiza|endereco|endere[cç]o|onde fica|dayanara|celebridade|figura publica|tratamento de cliente|tratamento de paciente)\b/.test(normalized),
   ].some(Boolean)
@@ -3752,6 +3770,7 @@ Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para a
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',
     'Flow recovery rule: when the conversation falls back to answering a knowledge-base or general question, remember the active booking context. After the answer, use one subtle bridge back to the exact pending step: ask for state if state is pending, phone if phone is pending, name if name is pending, or re-offer the active slot if a slot is pending. Never skip ahead or ask for a new detail before the current pending step is satisfied.',
     'When the customer asks what Semaglutide or Tirzepatide is, explain that we offer weight-loss injections that help reduce appetite and burn body fat. Keep it brief, avoid clinical certainty, and mention that eligibility is reviewed by the provider/specialist process.',
+    'When the customer asks how long injections take to work or when effects/results appear, answer first: many people notice appetite reduction in the first few weeks, but timing varies by body, dose, and plan. Then explain that the specialist guides them through how it works, what to expect, and next steps during the free call. After that, return to the current booking step.',
     'The client/privacy rule applies to any named person, not only celebrities or known clients. If asked whether a specific client, celebrity, public figure, or named person used a treatment, use the same client-privacy answer first, then return to booking. Do not ask for phone, name, state, or any booking detail before answering the privacy question.',
     'HIPAA/privacy rule: never encourage customers to share specific medical conditions, diagnoses, medication lists, or medical history in chat. If they mention a condition or ask if they can use injections, explain that the specialist will review all medical conditions and contraindications during the discovery call to make sure treatment is safe for them. Do not ask them to describe the condition in chat.',
     instructions,
