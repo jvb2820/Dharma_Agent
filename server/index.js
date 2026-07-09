@@ -1387,10 +1387,16 @@ async function handleRespondBookingAutomation({
     const nextDetails = phone ? { ...details, phone } : details
 
     if (!nextDetails.phone) {
-      return {
-        text: bookingCopy(customerLanguage, 'askPhone'),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
-      }
+      return prependOutOfFlowAnswerIfNeeded({
+        response: {
+          text: bookingCopy(customerLanguage, 'askPhone'),
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        },
+        latestUserText,
+        customerLanguage,
+        booking: existingBooking,
+        details: nextDetails,
+      })
     }
 
     if (!nextDetails.firstName || !nextDetails.lastName) {
@@ -1430,10 +1436,16 @@ async function handleRespondBookingAutomation({
     const nextDetails = mergeNonEmptyDetails(details, nameDetails)
 
     if (!nextDetails.firstName || !nextDetails.lastName) {
-      return {
-        text: bookingCopy(customerLanguage, 'askName'),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
-      }
+      return prependOutOfFlowAnswerIfNeeded({
+        response: {
+          text: bookingCopy(customerLanguage, 'askName'),
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+        },
+        latestUserText,
+        customerLanguage,
+        booking: existingBooking,
+        details: nextDetails,
+      })
     }
 
     if (!nextDetails.phone) {
@@ -1702,10 +1714,16 @@ async function handleRespondBookingAutomation({
   }
 
   if (!details.phone) {
-    return {
-      text: bookingCopy(customerLanguage, 'askPhone'),
-      booking: { ...existingBooking, bookingTeam, details },
-    }
+    return prependOutOfFlowAnswerIfNeeded({
+      response: {
+        text: bookingCopy(customerLanguage, 'askPhone'),
+        booking: { ...existingBooking, bookingTeam, details, pendingField: 'phone' },
+      },
+      latestUserText,
+      customerLanguage,
+      booking: existingBooking,
+      details,
+    })
   }
 
   if (existingBooking.offeredOption && !isNegativeReply(latestUserText)) {
@@ -2053,7 +2071,7 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return ''
   }
 
-  if (isClientTreatmentPrivacyQuestion(normalized)) {
+  if (isClientTreatmentPrivacyQuestion(content, normalized)) {
     if (spanish) return 'Por privacidad, no podemos compartir informacion sobre tratamientos de clientes especificos o figuras publicas. Tenemos varias opciones y el especialista puede explicarte cual se ajusta mejor a tu meta durante la llamada gratuita.'
     if (portuguese) return 'Por privacidade, nao podemos compartilhar informacoes sobre tratamentos de clientes especificos ou figuras publicas. Temos varias opcoes, e o especialista pode explicar qual se ajusta melhor ao seu objetivo durante a chamada gratuita.'
     return 'For privacy reasons, we cannot share treatment information about specific clients or public figures. We offer several options, and a specialist can explain which choices may fit your goals during the free discovery call.'
@@ -2083,10 +2101,16 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'The call is with a treatment specialist, not a doctor. Dharma works with licensed medical providers in the states we serve; after the medical form, your case is assigned to an authorized provider for your state.'
   }
 
+  if (isMedicalHistoryOrSafetyQuestion(normalized)) {
+    if (spanish) return 'No puedo confirmar en el chat si una condicion especifica permite usar el tratamiento. Para proteger tu privacidad, no compartas historial medico ni condiciones especificas aqui; en la llamada gratuita el especialista revisa condiciones medicas y contraindicaciones para confirmar si es seguro para ti.'
+    if (portuguese) return 'Nao posso confirmar pelo chat se uma condicao especifica permite usar o tratamento. Para proteger sua privacidade, nao compartilhe historico medico nem condicoes especificas aqui; na chamada gratuita o especialista revisa condicoes medicas e contraindicacoes para confirmar se e seguro para voce.'
+    return 'I cannot confirm in chat whether a specific condition is compatible with treatment. To protect your privacy, please do not share medical history or specific conditions here; during the free discovery call, the specialist reviews medical conditions and contraindications to confirm whether it is safe for you.'
+  }
+
   if (/\b(treatment|program|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|tratamiento|medicamento|inyeccion|programa|injecao)\b/.test(normalized)) {
-    if (spanish) return 'El tratamiento de perdida de peso puede incluir opciones GLP-1 como Semaglutide o Tirzepatide cuando un proveedor medico determina que eres candidata. Primero hacemos una llamada gratis para revisar tu meta, explicar opciones y los siguientes pasos.'
-    if (portuguese) return 'O tratamento de perda de peso pode incluir opcoes GLP-1 como Semaglutide ou Tirzepatide quando um provedor medico determina que e adequado. Primeiro fazemos uma chamada gratuita para revisar seu objetivo, explicar opcoes e proximos passos.'
-    return 'Weight-loss treatment may include GLP-1 options such as Semaglutide or Tirzepatide when a licensed provider determines it is appropriate. First, we do a free call to review your goal, options, and next steps.'
+    if (spanish) return 'Ofrecemos inyecciones para perdida de peso, como Semaglutide o Tirzepatide, que ayudan a reducir el apetito y quemar grasa corporal cuando un proveedor determina que eres candidata. Primero hacemos una llamada gratuita para explicar opciones y siguientes pasos.'
+    if (portuguese) return 'Oferecemos injecoes para perda de peso, como Semaglutide ou Tirzepatide, que ajudam a reduzir o apetite e queimar gordura corporal quando um provedor determina que e adequado. Primeiro fazemos uma chamada gratuita para explicar opcoes e proximos passos.'
+    return 'We offer weight-loss injections, such as Semaglutide or Tirzepatide, that help reduce appetite and burn body fat when a provider determines they are appropriate. First, we do a free call to explain options and next steps.'
   }
 
   if (spanish) return 'Claro, te explico brevemente: la llamada gratis es para revisar tu meta, responder tus dudas y orientarte sobre las opciones disponibles.'
@@ -2094,8 +2118,12 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   return 'Of course. The free call is to review your goal, answer questions, and guide you through the available options.'
 }
 
-function isClientTreatmentPrivacyQuestion(normalizedText) {
+function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormalizedText = '') {
+  const rawText = String(contentOrNormalizedText || '')
+  const normalizedText = maybeNormalizedText || normalizeSearchText(rawText)
+
   return (
+    isNamedPersonTreatmentQuestion(rawText, normalizedText) ||
     /\b(dayanara|dayanara torres|celebrity|celebrities|famous|public figure)\b/.test(
       normalizedText,
     ) ||
@@ -2116,6 +2144,38 @@ function isClientTreatmentPrivacyQuestion(normalizedText) {
       normalizedText,
     )
   )
+}
+
+function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
+  const hasTreatmentReference =
+    /\b(semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|program|tratamiento|medicamento|inyeccion|inyecciones|programa|tratamento|injecao|isso|eso|esto|this|that|it)\b/.test(
+      normalizedText,
+    )
+  const asksUse =
+    /\b(did|does|used|use|uses|using|take|takes|took|was that|is that|uso|utilizo|utiliza|usaba|tomo|toma|tomaba|foi isso|usou|usa|tomou)\b/.test(
+      normalizedText,
+    )
+  const hasThirdPersonReference =
+    /\b(she|he|her|him|his|they|them|ella|el|ellos|ellas|ele|ela)\b/.test(normalizedText)
+  const capitalizedWords = String(rawText || '').match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || []
+  const hasLikelyName =
+    capitalizedWords.length >= 2 ||
+    /\b(?:did|does|que|fue|foi)\s+[a-zà-ÿ'-]{3,}\s+[a-zà-ÿ'-]{3,}\s+(?:use|uses|used|take|takes|took|uso|utilizo|utiliza|tomo|toma|usou|usa|tomou)\b/.test(
+      normalizedText,
+    ) ||
+    /\b[a-zà-ÿ'-]{3,}\s+[a-zà-ÿ'-]{3,}\s+(?:use|uses|used|take|takes|took|uso|utilizo|utiliza|tomo|toma|usou|usa|tomou)\b/.test(
+      normalizedText,
+    )
+
+  return asksUse && hasTreatmentReference && (hasThirdPersonReference || hasLikelyName)
+}
+
+function isMedicalHistoryOrSafetyQuestion(normalizedText) {
+  return [
+    /\b(medical history|medical condition|condition|conditions|contraindication|contraindications|chronic illness|diagnosis|thyroid|thyroid nodules|nodules|pregnant|pregnancy|breastfeeding|side effect|side effects|medication interaction|can i use|can i take|is it safe)\b/,
+    /\b(historial medico|historia medica|condicion|condiciones|contraindicacion|contraindicaciones|enfermedad cronica|diagnostico|tiroides|nodulo|nodulos|embarazada|embarazo|lactancia|efecto secundario|efectos secundarios|interaccion|puedo usar|puedo tomar|es seguro)\b/,
+    /\b(historico medico|condicao|condicoes|contraindicacao|contraindicacoes|doenca cronica|diagnostico|tireoide|nodulo|nodulos|gravida|gravidez|amamentando|efeito colateral|efeitos colaterais|interacao|posso usar|posso tomar|e seguro)\b/,
+  ].some((pattern) => pattern.test(normalizedText))
 }
 
 function isLocationQuestion(normalizedText) {
@@ -2812,6 +2872,10 @@ function isOutOfFlowInfoQuestion(content) {
 
   if (!normalized) {
     return false
+  }
+
+  if (isClientTreatmentPrivacyQuestion(normalized) || isMedicalHistoryOrSafetyQuestion(normalized)) {
+    return true
   }
 
   return [
@@ -3539,6 +3603,10 @@ Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para a
     'When discussing trust or legitimacy, say Dharma Clinic is LegitScript-certified and has more than 1500 positive Google reviews.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',
+    'Flow recovery rule: when the conversation falls back to answering a knowledge-base or general question, remember the active booking context. After the answer, use one subtle bridge back to the exact pending step: ask for state if state is pending, phone if phone is pending, name if name is pending, or re-offer the active slot if a slot is pending. Never skip ahead or ask for a new detail before the current pending step is satisfied.',
+    'When the customer asks what Semaglutide or Tirzepatide is, explain that we offer weight-loss injections that help reduce appetite and burn body fat. Keep it brief, avoid clinical certainty, and mention that eligibility is reviewed by the provider/specialist process.',
+    'The client/privacy rule applies to any named person, not only celebrities or known clients. If asked whether a specific client, celebrity, public figure, or named person used a treatment, use the same client-privacy answer first, then return to booking. Do not ask for phone, name, state, or any booking detail before answering the privacy question.',
+    'HIPAA/privacy rule: never encourage customers to share specific medical conditions, diagnoses, medication lists, or medical history in chat. If they mention a condition or ask if they can use injections, explain that the specialist will review all medical conditions and contraindications during the discovery call to make sure treatment is safe for them. Do not ask them to describe the condition in chat.',
     instructions,
   ]
     .filter(Boolean)

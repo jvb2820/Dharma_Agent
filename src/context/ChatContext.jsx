@@ -405,6 +405,11 @@ async function handleBookingMessage(content, booking, memory, messages, customer
   const field = BOOKING_FIELDS[booking.currentFieldIndex]
   const rememberedDetails = mergeBookingDetails(conversationMemory, booking.details)
   const currentMessageDetails = extractBookingMemory(content)
+
+  if (isBookingFieldDetour(content, field.key, currentMessageDetails)) {
+    return null
+  }
+
   let nextDetails = collectBookingField(
     mergeBookingDetails(rememberedDetails, currentMessageDetails),
     field.key,
@@ -584,6 +589,32 @@ function isSchedulingPrompt(content) {
   return /\b(book|schedule|appointment|consultation|meeting|call|available|availability|time|day|cita|consulta|agendar|horario)\b/i.test(
     content,
   )
+}
+
+function isBookingFieldDetour(content, fieldKey, extractedDetails = {}) {
+  if (!['phone', 'name', 'state', 'preferredTime'].includes(fieldKey)) {
+    return false
+  }
+
+  if (
+    (fieldKey === 'phone' && extractedDetails.phone) ||
+    (fieldKey === 'state' && extractedDetails.state) ||
+    (fieldKey === 'preferredTime' && extractedDetails.preferredTime)
+  ) {
+    return false
+  }
+
+  return isInfoSafetyOrPrivacyQuestion(content)
+}
+
+function isInfoSafetyOrPrivacyQuestion(content) {
+  const normalized = normalizeTreatmentSearchText(content)
+
+  return [
+    /\b(what|whats|what is|tell me|explain|how does|how do|safe|side effect|side effects|medical condition|medical history|contraindication|thyroid|nodules|semaglutide|tirzepatide|treatment|injection|client|patient|celebrity|public figure|named person|did she use|did he use|did they use|did .* use|dayanara)\b/,
+    /\b(que es|explica|explicame|como funciona|seguro|efectos secundarios|historial medico|condicion|condiciones|contraindicacion|tiroides|nodulo|nodulos|semaglutide|tirzepatide|tratamiento|inyeccion|cliente|paciente|celebridad|figura publica|persona nombrada|ella uso|el uso|utilizo|dayanara)\b/,
+    /\b(o que e|explique|como funciona|seguro|efeitos colaterais|historico medico|condicao|condicoes|contraindicacao|tireoide|nodulo|nodulos|semaglutide|tirzepatide|tratamento|injecao|cliente|paciente|celebridade|figura publica|pessoa nomeada|ela usou|ele usou|usou|dayanara)\b/,
+  ].some((pattern) => pattern.test(normalized))
 }
 
 function extractBookingMemory(content) {
