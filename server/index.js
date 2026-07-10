@@ -1483,7 +1483,7 @@ async function handleRespondBookingAutomation({
     const nextDetails = phone ? { ...details, phone } : details
 
     if (!nextDetails.phone) {
-      if (isContextualOutOfFlowFollowUp(latestUserText, messages)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
           latestUserText,
@@ -1597,6 +1597,17 @@ async function handleRespondBookingAutomation({
   )
   const hasActiveSlotOffer = Boolean(existingBooking.offeredOption || existingBooking.options?.length)
 
+  if (hasActiveSlotOffer && !selectedOption && isOutOfFlowInfoQuestion(latestUserText)) {
+    return await buildOutOfFlowAnswerWithBookingContext({
+      messages,
+      latestUserText,
+      customerLanguage,
+      booking: existingBooking,
+      details,
+      respondContactProfile,
+    })
+  }
+
   if (
     !isActiveBookingContinuation(existingBooking, latestUserText) &&
     !isBookingFlowSignal(latestUserText) &&
@@ -1639,15 +1650,6 @@ async function handleRespondBookingAutomation({
       preferredTime,
       closest: Boolean(preferredTime),
       offerCopyKey: preferredTime ? '' : 'offerAlternativeSlot',
-    })
-  }
-
-  if (hasActiveSlotOffer && !selectedOption && isOutOfFlowInfoQuestion(latestUserText)) {
-    return buildOutOfFlowAnswerWithBookingContext({
-      latestUserText,
-      customerLanguage,
-      booking: existingBooking,
-      details,
     })
   }
 
@@ -1825,7 +1827,7 @@ async function handleRespondBookingAutomation({
   }
 
   if (!details.phone) {
-    if (isContextualOutOfFlowFollowUp(latestUserText, messages)) {
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
       const answer = await generateBookingOutOfFlowAnswer({
         messages,
         latestUserText,
@@ -2158,13 +2160,21 @@ function prependOutOfFlowAnswerIfNeeded({
   }
 }
 
-function buildOutOfFlowAnswerWithBookingContext({
+async function buildOutOfFlowAnswerWithBookingContext({
+  messages = [],
   latestUserText,
   customerLanguage,
   booking = {},
   details = {},
+  respondContactProfile,
 }) {
-  const answer = getOutOfFlowAnswer(latestUserText, customerLanguage)
+  const answer = await generateBookingOutOfFlowAnswer({
+    messages,
+    latestUserText,
+    customerLanguage,
+    respondContactProfile,
+    booking: { ...booking, details },
+  })
 
   if (!answer) {
     return null
@@ -2318,7 +2328,7 @@ function isMedicalHistoryOrSafetyQuestion(normalizedText) {
 
 function isPopularityOrBestSellerQuestion(normalizedText) {
   return [
-    /\b(best seller|bestseller|best-selling|most popular|popular|top seller|most requested|clients like|customers like)\b/,
+    /\b(best seller|bestseller|best-selling|best treatment|best treatments|best option|best options|most popular|popular|top seller|most requested|clients like|customers like)\b/,
     /\b(mas vendido|m[aá]s vendido|mas popular|m[aá]s popular|mas solicitado|m[aá]s solicitado|clientes prefieren)\b/,
     /\b(mais vendido|mais popular|mais solicitado|clientes preferem)\b/,
   ].some((pattern) => pattern.test(normalizedText))
@@ -3139,6 +3149,10 @@ function isContextualOutOfFlowFollowUp(content, messages = []) {
     .find((item) => item.role === 'user' && isPriorOutOfFlowTopic(item.content || ''))
 
   return asksAboutPriorContext && asksForHelpOrExplanation && Boolean(priorUserQuestion)
+}
+
+function shouldAnswerBeforeReturningToBooking(content, messages = []) {
+  return isOutOfFlowInfoQuestion(content) || isContextualOutOfFlowFollowUp(content, messages)
 }
 
 function isPriorOutOfFlowTopic(content) {
