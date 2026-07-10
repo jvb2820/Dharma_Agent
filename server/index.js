@@ -2234,9 +2234,9 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (isClientTreatmentPrivacyQuestion(content, normalized)) {
-    if (spanish) return 'Por privacidad, no podemos compartir informacion sobre tratamientos de clientes especificos o figuras publicas. Tenemos varias opciones y el especialista puede explicarte cual se ajusta mejor a tu meta durante la llamada gratuita.'
-    if (portuguese) return 'Por privacidade, nao podemos compartilhar informacoes sobre tratamentos de clientes especificos ou figuras publicas. Temos varias opcoes, e o especialista pode explicar qual se ajusta melhor ao seu objetivo durante a chamada gratuita.'
-    return 'For privacy reasons, we cannot share treatment information about specific clients or public figures. We offer several options, and a specialist can explain which choices may fit your goals during the free discovery call.'
+    if (spanish) return 'Lo siento, por nuestra politica de privacidad no podemos compartir, confirmar ni insinuar informacion sobre tratamientos de ningun cliente, sin importar quien sea. Con gusto podemos explicarte nuestras opciones de manera general, y un especialista puede orientarte durante la llamada gratuita segun tu meta.'
+    if (portuguese) return 'Sinto muito, pela nossa politica de privacidade nao podemos compartilhar, confirmar nem sugerir informacoes sobre tratamentos de nenhum cliente, independentemente de quem seja. Podemos explicar nossas opcoes de forma geral, e um especialista pode orientar voce durante a chamada gratuita conforme seu objetivo.'
+    return 'I am sorry, but in accordance with our privacy policy we cannot share, confirm, or imply treatment information for any client, no matter who they are. I can explain our options generally, and a specialist can guide you during the free discovery call based on your goals.'
   }
 
   if (isLocationQuestion(normalized)) {
@@ -2321,6 +2321,13 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
 }
 
 function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
+  const asksAboutClientMedicine =
+    /\b(may i know|can i know|what|which)\b[\s\S]{0,120}\b(medicine|medication|treatment|program|injection)\b[\s\S]{0,120}\b(client|patient)\b/.test(
+      normalizedText,
+    ) ||
+    /\b(client|patient)\b[\s\S]{0,120}\b(medicine|medication|treatment|program|injection)\b/.test(
+      normalizedText,
+    )
   const hasTreatmentReference =
     /\b(semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|program|tratamiento|medicamento|inyeccion|inyecciones|programa|tratamento|injecao|isso|eso|esto|this|that|it)\b/.test(
       normalizedText,
@@ -2341,7 +2348,7 @@ function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
       normalizedText,
     )
 
-  return asksUse && hasTreatmentReference && (hasThirdPersonReference || hasLikelyName)
+  return asksAboutClientMedicine || (asksUse && hasTreatmentReference && (hasThirdPersonReference || hasLikelyName))
 }
 
 function isMedicalHistoryOrSafetyQuestion(normalizedText) {
