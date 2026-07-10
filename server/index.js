@@ -23,6 +23,15 @@ import {
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
 import {
+  approveMemorySuggestion,
+  createManualMemory,
+  formatMemoryContext,
+  listPendingMemorySuggestions,
+  rejectMemorySuggestion,
+  searchApprovedMemories,
+  suggestMemoryFromConversation,
+} from './memoryService.js'
+import {
   assignRespondConversation,
   closeRespondConversation,
   getRespondContact,
@@ -147,6 +156,28 @@ const server = http.createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'GET' && pathname === '/api/memory/suggestions') {
+      await handleMemorySuggestions(request, response)
+      return
+    }
+
+    if (request.method === 'POST' && pathname === '/api/memory') {
+      await handleMemoryCreate(request, response)
+      return
+    }
+
+    if (request.method === 'POST' && pathname === '/api/memory/search') {
+      await handleMemorySearch(request, response)
+      return
+    }
+
+    const memorySuggestionMatch = pathname.match(/^\/api\/memory\/suggestions\/([^/]+)\/(approve|reject)$/)
+
+    if (request.method === 'POST' && memorySuggestionMatch) {
+      await handleMemorySuggestionReview(memorySuggestionMatch, response)
+      return
+    }
+
     if (request.method === 'POST' && pathname === '/api/hubspot/availability') {
       await handleHubSpotAvailability(request, response)
       return
@@ -220,6 +251,7 @@ async function handleChat(request, response) {
   const body = await readJsonBody(request)
   const model = body.model || process.env.OPENAI_MODEL || DEFAULT_MODEL
   const ragContext = await buildRagContext(body)
+  const memoryContext = await buildMemoryContext(body)
   const customerLanguage = resolveCustomerLanguage(body)
   const redundancyControl = buildRedundancyControl(body)
   const instructions = buildInstructions({ ...body, customerLanguage, redundancyControl })
@@ -227,7 +259,7 @@ async function handleChat(request, response) {
     ...body,
     customerLanguage,
     redundancyControl,
-    context: [body.context, ragContext].filter(Boolean).join('\n\n'),
+    context: [body.context, memoryContext, ragContext].filter(Boolean).join('\n\n'),
   })
 
   const text = await createOpenAIResponseText({ model, instructions, input })
@@ -239,6 +271,13 @@ async function handleChat(request, response) {
       role: 'agent',
       content: text,
     },
+  })
+
+  queueMemorySuggestion({
+    agentId: body.agent?.id || 'sales',
+    messages: body.messages || [],
+    agentReply: text,
+    source: 'dashboard_chat',
   })
 }
 
@@ -296,6 +335,48 @@ async function handleKnowledgeSearch(request, response) {
   })
 
   sendJson(response, 200, { matches })
+}
+
+async function handleMemorySuggestions(request, response) {
+  const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
+  const suggestions = await listPendingMemorySuggestions({
+    limit: Number(url.searchParams.get('limit') || 50),
+  })
+
+  sendJson(response, 200, { suggestions })
+}
+
+async function handleMemoryCreate(request, response) {
+  const body = await readJsonBody(request)
+  const memory = await createManualMemory({
+    agentId: body.agentId || 'sales',
+    category: body.category,
+    content: body.content,
+    source: body.source || 'manual',
+  })
+
+  sendJson(response, 200, { memory })
+}
+
+async function handleMemorySearch(request, response) {
+  const body = await readJsonBody(request)
+  const matches = await searchApprovedMemories({
+    query: body.query,
+    agentId: body.agentId || 'sales',
+    matchCount: body.matchCount || 5,
+  })
+
+  sendJson(response, 200, { matches })
+}
+
+async function handleMemorySuggestionReview(match, response) {
+  const [, id, action] = match
+  const result =
+    action === 'approve'
+      ? { memory: await approveMemorySuggestion(id) }
+      : { suggestion: await rejectMemorySuggestion(id) }
+
+  sendJson(response, 200, result)
 }
 
 async function handleHubSpotAvailability(request, response) {
@@ -646,6 +727,11 @@ async function processRespondIncomingMessage(event) {
     messages,
     message: event.text,
   })
+  const memoryContext = await buildMemoryContext({
+    agent: RESPOND_AGENT,
+    messages,
+    message: event.text,
+  })
   const redundancyControl = buildRedundancyControl({ messages })
   const instructions = buildInstructions({
     agent: RESPOND_AGENT,
@@ -656,7 +742,7 @@ async function processRespondIncomingMessage(event) {
     messages,
     customerLanguage,
     redundancyControl,
-    context: ragContext,
+    context: [memoryContext, ragContext].filter(Boolean).join('\n\n'),
     respondContactProfile,
     booking: activeBooking,
   })
@@ -681,6 +767,16 @@ async function processRespondIncomingMessage(event) {
     messages: [...messages, { role: 'agent', content: text }].slice(-12),
     booking: activeBooking || null,
     respondContactProfile,
+  })
+
+  queueMemorySuggestion({
+    agentId: RESPOND_AGENT.id,
+    messages,
+    agentReply: text,
+    source: 'respond_webhook',
+    metadata: {
+      channel_id: event.channelId,
+    },
   })
 }
 
@@ -2598,6 +2694,11 @@ async function generatePendingStateOutOfFlowAnswer({
     messages,
     message: latestUserText,
   })
+  const memoryContext = await buildMemoryContext({
+    agent: RESPOND_AGENT,
+    messages,
+    message: latestUserText,
+  })
   const instructions = buildInstructions({
     agent: RESPOND_AGENT,
     customerLanguage,
@@ -2612,7 +2713,7 @@ async function generatePendingStateOutOfFlowAnswer({
     messages,
     message: latestUserText,
     customerLanguage,
-    context: ragContext,
+    context: [memoryContext, ragContext].filter(Boolean).join('\n\n'),
     respondContactProfile,
     booking,
   })
@@ -2642,6 +2743,11 @@ async function generateBookingOutOfFlowAnswer({
     messages,
     message: latestUserText,
   })
+  const memoryContext = await buildMemoryContext({
+    agent: RESPOND_AGENT,
+    messages,
+    message: latestUserText,
+  })
   const instructions = buildInstructions({
     agent: RESPOND_AGENT,
     customerLanguage,
@@ -2656,7 +2762,7 @@ async function generateBookingOutOfFlowAnswer({
     messages,
     message: latestUserText,
     customerLanguage,
-    context: ragContext,
+    context: [memoryContext, ragContext].filter(Boolean).join('\n\n'),
     respondContactProfile,
     booking,
   })
@@ -4261,10 +4367,7 @@ function detectCustomerLanguage(content) {
 }
 
 async function buildRagContext({ agent, messages = [], message }) {
-  const lastUserMessage =
-    message ||
-    [...messages].reverse().find((item) => item.role === 'user')?.content ||
-    ''
+  const lastUserMessage = getLastUserMessage({ messages, message })
 
   if (!lastUserMessage.trim()) {
     return ''
@@ -4276,6 +4379,51 @@ async function buildRagContext({ agent, messages = [], message }) {
   })
 
   return formatKnowledgeContext(matches)
+}
+
+async function buildMemoryContext({ agent, messages = [], message }) {
+  const query = buildMemoryQuery({ messages, message })
+
+  if (!query.trim()) {
+    return ''
+  }
+
+  const matches = await searchApprovedMemories({
+    query,
+    agentId: agent?.id || 'sales',
+  })
+
+  return formatMemoryContext(matches)
+}
+
+function buildMemoryQuery({ messages = [], message }) {
+  const lastUserMessage = getLastUserMessage({ messages, message })
+  const recentConversation = messages
+    .slice(-6)
+    .map((item) => `${item.role || 'user'}: ${item.content || ''}`)
+    .join('\n')
+
+  return [lastUserMessage, recentConversation].filter(Boolean).join('\n\n')
+}
+
+function getLastUserMessage({ messages = [], message }) {
+  return (
+    message ||
+    [...messages].reverse().find((item) => item.role === 'user')?.content ||
+    ''
+  )
+}
+
+function queueMemorySuggestion({ agentId, messages, agentReply, source, metadata = {} }) {
+  suggestMemoryFromConversation({
+    agentId,
+    messages,
+    agentReply,
+    source,
+    metadata,
+  }).catch((error) => {
+    console.warn(`Memory suggestion skipped: ${error.message}`)
+  })
 }
 
 function extractOutputText(data) {

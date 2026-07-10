@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 
 const navigationItems = [
   { label: 'Chat', path: '/chat' },
+  { label: 'Settings', path: '/settings' },
 ]
 
 function MainLayout() {
