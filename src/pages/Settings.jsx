@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { memoryService } from '../services/memoryService'
+import { respondService } from '../services/respondService'
 
 const MEMORY_CATEGORIES = [
   { value: 'privacy', label: 'Privacy' },
@@ -14,8 +15,10 @@ function Settings() {
   const [category, setCategory] = useState('privacy')
   const [content, setContent] = useState('')
   const [suggestions, setSuggestions] = useState([])
+  const [respondContactId, setRespondContactId] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isResettingRespond, setIsResettingRespond] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -77,6 +80,32 @@ function Settings() {
       )
     } catch (reviewError) {
       setError(reviewError.message || 'Unable to review suggestion.')
+    }
+  }
+
+  async function handleRespondReset(event) {
+    event.preventDefault()
+    const contactId = respondContactId.trim()
+
+    if (!contactId || isResettingRespond) {
+      return
+    }
+
+    setIsResettingRespond(true)
+    setError('')
+    setNotice('')
+
+    try {
+      const result = await respondService.resetSession({ contactId })
+      setNotice(
+        result.cleared
+          ? `Respond session reset for contact ${contactId}.`
+          : `No active server session was found for contact ${contactId}, but the next message will still start fresh if no session exists.`,
+      )
+    } catch (resetError) {
+      setError(resetError.message || 'Unable to reset Respond session.')
+    } finally {
+      setIsResettingRespond(false)
     }
   }
 
@@ -164,6 +193,31 @@ function Settings() {
           </div>
         </section>
       </div>
+
+      <section className="panel memory-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Respond.io testing</p>
+            <h2>Reset chat flow</h2>
+          </div>
+        </div>
+
+        <form className="memory-form respond-reset-form" onSubmit={handleRespondReset}>
+          <label>
+            Respond contact ID
+            <input
+              type="text"
+              value={respondContactId}
+              placeholder="Example: 123456"
+              onChange={(event) => setRespondContactId(event.target.value)}
+            />
+          </label>
+
+          <button type="submit" disabled={isResettingRespond || !respondContactId.trim()}>
+            {isResettingRespond ? 'Resetting...' : 'Reset Respond flow'}
+          </button>
+        </form>
+      </section>
 
       {notice ? <p className="settings-notice">{notice}</p> : null}
       {error ? <p className="settings-error">{error}</p> : null}

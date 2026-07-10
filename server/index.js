@@ -198,6 +198,11 @@ const server = http.createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'POST' && pathname === '/api/respond/session/reset') {
+      await handleRespondSessionReset(request, response)
+      return
+    }
+
     if (request.method === 'POST' && pathname === '/api/respond/webhook') {
       await handleRespondWebhook(request, response, url)
       return
@@ -420,6 +425,27 @@ async function handleRespondContactLookup(request, response) {
   const contact = await getRespondContact(body.contactId)
 
   sendJson(response, 200, { contact })
+}
+
+async function handleRespondSessionReset(request, response) {
+  const body = await readJsonBody(request)
+
+  if (body.all === true) {
+    const cleared = respondSessions.size
+    respondSessions.clear()
+    sendJson(response, 200, { ok: true, cleared })
+    return
+  }
+
+  if (!body.contactId) {
+    sendJson(response, 400, { error: 'contactId is required unless all is true.' })
+    return
+  }
+
+  const contactId = String(body.contactId)
+  const existed = respondSessions.delete(contactId)
+
+  sendJson(response, 200, { ok: true, contactId, cleared: existed ? 1 : 0 })
 }
 
 async function handleRespondWebhook(request, response) {
