@@ -2206,17 +2206,18 @@ async function buildOutOfFlowAnswerWithBookingContext({
     return null
   }
 
+  const cleanedAnswer = stripBookingPromptFromGeneratedAnswer(answer)
   const option = booking.offeredOption || booking.options?.[0]
 
   if (!option) {
     return {
-      text: answer,
+      text: cleanedAnswer || answer,
       booking: { ...booking, details },
     }
   }
 
   return {
-    text: `${answer}\n\n${bookingCopy(customerLanguage, 'reofferSlot', {
+    text: `${cleanedAnswer || answer}\n\n${bookingCopy(customerLanguage, 'reofferSlot', {
       slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone),
     })}`,
     booking: { ...booking, details, offeredOption: option, options: [] },
@@ -2614,9 +2615,9 @@ function bookingCopy(language, key, values = {}) {
       `Que tal ${values.slot}?\n\nFunciona para voce?`,
     ),
     reofferSlot: tri(
-      `The available time I have is ${values.slot}. Does that work for you?`,
-      `El horario disponible que tengo es ${values.slot}. Te funciona?`,
-      `O horario disponivel que tenho e ${values.slot}. Funciona para voce?`,
+      `For the free discovery call, I can still use ${values.slot}. Does that work for you?`,
+      `Para la llamada gratuita de analisis, todavia puedo usar ${values.slot}. Te funciona?`,
+      `Para a chamada gratuita de analise, ainda posso usar ${values.slot}. Funciona para voce?`,
     ),
     offerSlots: tri(
       `These are the next available options for your free discovery call:\n${values.slots}\n\nWhich option works best? You can reply with the number or the time.`,
@@ -2798,6 +2799,7 @@ async function generateBookingOutOfFlowAnswer({
       'The customer asked a contextual follow-up while a booking step is active. Answer the latest question directly using the recent conversation and retrieved company knowledge.',
       'If the latest message uses words like "that", "it", "this", "regarding that", or "about that", resolve the reference from the immediately previous customer question and agent answer.',
       'Do not ask for phone number, name, state, appointment availability, or booking confirmation in this generated answer. The application will append the current booking question after your answer.',
+      'Do not mention the exact offered appointment slot or ask whether the slot works in this generated answer.',
       'Do not start with a greeting. Keep it concise and specific enough to answer the question.',
     ].join('\n'),
   })
@@ -2848,6 +2850,26 @@ function stripStateQuestionFromGeneratedAnswer(answer) {
     .filter((line) => line && !isStateQuestionLine(line))
     .join('\n\n')
     .trim()
+}
+
+function stripBookingPromptFromGeneratedAnswer(answer) {
+  return String(answer || '')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !isBookingPromptLine(line))
+    .join('\n\n')
+    .trim()
+}
+
+function isBookingPromptLine(line) {
+  const normalized = normalizeSearchText(line)
+
+  return [
+    /\b(friday|monday|tuesday|wednesday|thursday|saturday|sunday|jul|july|jan|feb|mar|apr|may|jun|aug|sep|oct|nov|dec)\b[\s\S]{0,80}\b(am|pm|florida time|eastern time)\b/,
+    /\b(does that work|still work|work for you|reserve that spot|book this call|available time|available slot|discovery call on)\b/,
+    /\b(te funciona|reservar ese espacio|agendar esta llamada|horario disponible|llamada gratuita)\b/,
+    /\b(funciona para voce|funciona para voc[eê]|reservar esse horario|horario disponivel|chamada gratuita)\b/,
+  ].some((pattern) => pattern.test(normalized))
 }
 
 function isStateQuestionLine(line) {
