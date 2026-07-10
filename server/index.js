@@ -3083,8 +3083,8 @@ function isAffirmative(content) {
     return false
   }
 
-  return /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|book it|si|claro|dale|esta bien)\b/i.test(
-    content,
+  return /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|book it|si|claro|dale|esta bien|correcto|confirmo|agendalo|reserva)\b/i.test(
+    normalized,
   )
 }
 
