@@ -1313,6 +1313,20 @@ function getBookingTeamForRespondContact(profile) {
     : 'sales'
 }
 
+function isRespondClientContact(profile = {}) {
+  const contactStatus = String(profile?.fields?.contactStatus || '').trim()
+
+  return profile?.status === 'returning_client' || /\bclient\b/i.test(contactStatus)
+}
+
+function shouldConfirmNameBeforeRespondBooking(profile = {}, details = {}) {
+  return profile?.status === 'new_or_no_record' && !isRespondClientContact(profile) && !details.nameConfirmed
+}
+
+function hasBookableRespondCustomerName(details = {}, profile = {}) {
+  return Boolean(details.firstName && details.lastName) && !shouldConfirmNameBeforeRespondBooking(profile, details)
+}
+
 function getCurrentRespondBookingTeam(existingBooking = {}, profile = {}) {
   const profileBookingTeam = getBookingTeamForRespondContact(profile)
   const hasCurrentRoutingSignal =
@@ -1536,9 +1550,9 @@ async function handleRespondBookingAutomation({
       })
     }
 
-    if (!nextDetails.firstName || !nextDetails.lastName) {
+    if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
       return {
-        text: bookingCopy(customerLanguage, 'askName'),
+        text: bookingCopy(customerLanguage, activeOption ? 'askName' : 'askNameBeforeSlot'),
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
       }
     }
@@ -1570,19 +1584,33 @@ async function handleRespondBookingAutomation({
   if (existingBooking.pendingField === 'name') {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     const nameDetails = splitCustomerName(latestUserText)
-    const nextDetails = mergeNonEmptyDetails(details, nameDetails)
+    const nextDetails = mergeNonEmptyDetails(
+      details,
+      nameDetails.firstName && nameDetails.lastName
+        ? { ...nameDetails, nameConfirmed: true }
+        : nameDetails,
+    )
 
-    if (!nextDetails.firstName || !nextDetails.lastName) {
-      return prependOutOfFlowAnswerIfNeeded({
-        response: {
-          text: bookingCopy(customerLanguage, 'askName'),
+    if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+        const answer = await generateBookingOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
-        },
-        latestUserText,
-        customerLanguage,
-        booking: existingBooking,
-        details: nextDetails,
-      })
+        })
+
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askName')}`,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+        }
+      }
+
+      return {
+        text: bookingCopy(customerLanguage, 'askName'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+      }
     }
 
     if (!nextDetails.phone) {
@@ -1778,7 +1806,7 @@ async function handleRespondBookingAutomation({
   if (selectedOption || (existingBooking.offeredOption && isSlotAffirmation(latestUserText, latestSignals))) {
     const option = selectedOption || existingBooking.offeredOption
 
-    if (!details.firstName || !details.lastName) {
+    if (!hasBookableRespondCustomerName(details, respondContactProfile)) {
       return {
         text: bookingCopy(customerLanguage, 'askName'),
         booking: {
@@ -2595,14 +2623,14 @@ function bookingCopy(language, key, values = {}) {
       'Perfeito. Para verificar o horário disponível e avançar com o agendamento, por favor me envie o melhor número de telefone para a chamada.',
     ),
     askName: tri(
-      'That time works. What full name should I put on the appointment?',
-      'Ese horario funciona. Que nombre completo pongo para la cita?',
-      'Esse horário funciona. Qual nome completo devo colocar no agendamento?',
+      'That time works. What name should I put on the appointment?',
+      'Ese horario funciona. Que nombre pongo para la cita?',
+      'Esse horário funciona. Qual nome devo colocar no agendamento?',
     ),
     askNameBeforeSlot: tri(
-      'Perfect, I have your number. What full name should I use to check and book the appointment?',
-      'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita?',
-      'Perfeito, já tenho seu número. Qual nome completo devo usar para verificar e agendar a consulta?',
+      'Perfect, I have your number. What name should I use to check and book the appointment?',
+      'Perfecto, ya tengo tu numero. Que nombre pongo para revisar y agendar la cita?',
+      'Perfeito, já tenho seu número. Qual nome devo usar para verificar e agendar a consulta?',
     ),
     offerSlot: tri(
       `📅 ${named('I have this available time for your free discovery call:', 'I have this available time for your free discovery call:')} ${values.slot}. Does that work for you?`,
@@ -3910,7 +3938,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'When the customer is in the booking flow or gives scheduling intent, do not ask whether they need more information before booking. Continue to the next missing booking detail or offer a real available calendar slot.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'Use the Respond contact profile context when present. If a customer first name is provided, use only the first name and use it sparingly. Prefer no name in routine booking, slot, and follow-up messages, especially if the prior agent reply already used it. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
-    'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic.',
+    'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic. Use the customer name from Respond for recurring/client contacts when booking. For a new customer whose Respond status is not Client, confirm the name with the customer before booking, even if Respond already has a name.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names. If asked about FDA approval, do not say compounded Semaglutide or compounded Tirzepatide are FDA-approved. Explain that FDA-approved branded medications include Wegovy and Zepbound, and Dharma uses the same active compounds with licensed medical oversight when appropriate.',
     'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $589 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. If a real slot is already active, briefly return to that one slot after answering; otherwise follow up with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
@@ -3945,7 +3973,7 @@ Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para a
     'When discussing trust or legitimacy, say Dharma Clinic is LegitScript-certified and has more than 1500 positive Google reviews.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',
-    'Flow recovery rule: when the conversation falls back to answering a knowledge-base or general question, remember the active booking context. After the answer, use one subtle bridge back to the exact pending step: ask for state if state is pending, phone if phone is pending, name if name is pending, or re-offer the active slot if a slot is pending. Never skip ahead or ask for a new detail before the current pending step is satisfied.',
+    'Flow recovery rule: when the conversation falls back to answering a knowledge-base, complex, or general question, remember the active booking context. After the answer, use one subtle bridge back to the exact pending step: ask for state if state is pending, phone if phone is pending, name if name is pending, or re-offer the active slot if a slot is pending. Never skip ahead or ask for a new detail before the current pending step is satisfied.',
     'When the customer asks what Semaglutide or Tirzepatide is, explain that we offer weight-loss injections that help reduce appetite and burn body fat. Keep it brief, avoid clinical certainty, and mention that eligibility is reviewed by the provider/specialist process.',
     'When the customer asks how long injections take to work or when effects/results appear, answer first: many people notice appetite reduction in the first few weeks, but timing varies by body, dose, and plan. Then explain that the specialist guides them through how it works, what to expect, and next steps during the free call. After that, return to the current booking step.',
     'The client/privacy rule applies to any named person, not only celebrities or known clients. If asked whether a specific client, celebrity, public figure, or named person used a treatment, use the same client-privacy answer first, then return to booking. Do not ask for phone, name, state, or any booking detail before answering the privacy question.',
