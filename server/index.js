@@ -1320,11 +1320,11 @@ function isRespondClientContact(profile = {}) {
 }
 
 function shouldConfirmNameBeforeRespondBooking(profile = {}, details = {}) {
-  return !isRespondClientContact(profile) && !details.nameConfirmed
+  return profile?.status === 'new_or_no_record' && !isRespondClientContact(profile) && !details.nameConfirmed
 }
 
 function hasBookableRespondCustomerName(details = {}, profile = {}) {
-  return Boolean(details.firstName && details.lastName) && !shouldConfirmNameBeforeRespondBooking(profile, details)
+  return !shouldConfirmNameBeforeRespondBooking(profile, details)
 }
 
 function getCurrentRespondBookingTeam(existingBooking = {}, profile = {}) {
@@ -1583,16 +1583,17 @@ async function handleRespondBookingAutomation({
 
   if (existingBooking.pendingField === 'name') {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
+    const isOutOfFlowQuestion = shouldAnswerBeforeReturningToBooking(latestUserText, messages)
     const nameDetails = splitCustomerName(latestUserText)
     const nextDetails = mergeNonEmptyDetails(
       details,
-      nameDetails.firstName && nameDetails.lastName
-        ? { ...nameDetails, nameConfirmed: true }
-        : nameDetails,
+      isOutOfFlowQuestion
+        ? nameDetails
+        : { ...nameDetails, nameConfirmed: true },
     )
 
     if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
-      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      if (isOutOfFlowQuestion) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
           latestUserText,
@@ -2623,14 +2624,14 @@ function bookingCopy(language, key, values = {}) {
       'Perfeito. Para verificar o horário disponível e avançar com o agendamento, por favor me envie o melhor número de telefone para a chamada.',
     ),
     askName: tri(
-      'That time works. What name should I put on the appointment?',
-      'Ese horario funciona. Que nombre pongo para la cita?',
-      'Esse horário funciona. Qual nome devo colocar no agendamento?',
+      'That time works. What name should I put on the appointment? 📲',
+      'Ese horario funciona. Que nombre pongo para la cita? 📲',
+      'Esse horário funciona. Qual nome devo colocar no agendamento? 📲',
     ),
     askNameBeforeSlot: tri(
-      'Perfect, I have your number. What name should I use to check and book the appointment?',
-      'Perfecto, ya tengo tu numero. Que nombre pongo para revisar y agendar la cita?',
-      'Perfeito, já tenho seu número. Qual nome devo usar para verificar e agendar a consulta?',
+      'Perfect, I have your number. What name should I use to check and book the appointment? 📲',
+      'Perfecto, ya tengo tu numero. Que nombre pongo para revisar y agendar la cita? 📲',
+      'Perfeito, já tenho seu número. Qual nome devo usar para verificar e agendar a consulta? 📲',
     ),
     offerSlot: tri(
       `📅 ${named('I have this available time for your free discovery call:', 'I have this available time for your free discovery call:')} ${values.slot}. Does that work for you?`,
@@ -3938,7 +3939,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'When the customer is in the booking flow or gives scheduling intent, do not ask whether they need more information before booking. Continue to the next missing booking detail or offer a real available calendar slot.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'Use the Respond contact profile context when present. If a customer first name is provided, use only the first name and use it sparingly. Prefer no name in routine booking, slot, and follow-up messages, especially if the prior agent reply already used it. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
-    'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic. Use the customer name from Respond for recurring/client contacts when booking. For any non-Client Respond contact, confirm the name with the customer before booking, even if Respond already has a name.',
+    'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic. Use the customer name from Respond for contacts that already have records. For a new customer with no existing Respond record, ask for the name once before booking, then continue the booking flow even if the customer replies with only one name.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names. If asked about FDA approval, do not say compounded Semaglutide or compounded Tirzepatide are FDA-approved. Explain that FDA-approved branded medications include Wegovy and Zepbound, and Dharma uses the same active compounds with licensed medical oversight when appropriate.',
     'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $589 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. If a real slot is already active, briefly return to that one slot after answering; otherwise follow up with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
