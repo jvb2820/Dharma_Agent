@@ -2259,9 +2259,9 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (/\b(doctor|doctors|provider|providers|doctor name|medico|medicos|doctor|doctores|nombre del doctor|proveedor|proveedores|doutor|medico)\b/.test(normalized)) {
-    if (spanish) return 'La llamada es con un especialista en nuestros tratamientos, no con un doctor. Dharma trabaja con una red de proveedores medicos licenciados en los estados donde ofrecemos servicio; despues de completar el formulario medico, tu caso se asigna a un proveedor autorizado segun tu estado.'
-    if (portuguese) return 'A chamada e com um especialista nos nossos tratamentos, nao com um medico. A Dharma trabalha com uma rede de provedores medicos licenciados nos estados atendidos; depois do formulario medico, seu caso e atribuido a um provedor autorizado conforme seu estado.'
-    return 'The call is with a treatment specialist, not a doctor. Dharma works with licensed medical providers in the states we serve; after the medical form, your case is assigned to an authorized provider for your state.'
+    if (spanish) return 'Trabajamos con una red de proveedores medicos licenciados en los estados donde ofrecemos servicio; despues de completar el formulario medico, tu caso se asigna a un proveedor autorizado segun tu estado. En la llamada inicial, un especialista en nuestros tratamientos o nutricion puede orientarte sobre informacion del programa y los siguientes pasos.'
+    if (portuguese) return 'Trabalhamos com uma rede de provedores medicos licenciados nos estados atendidos; depois do formulario medico, seu caso e atribuido a um provedor autorizado conforme seu estado. Na chamada inicial, um especialista em nossos tratamentos ou nutricao pode orientar voce sobre as informacoes do programa e os proximos passos.'
+    return 'We work with a network of licensed medical providers in the states we serve; after you complete the medical form, your case is assigned to a provider licensed in your home state. On the initial call, a treatment specialist or nutritionist can guide you through program information and next steps.'
   }
 
   if (isMedicalHistoryOrSafetyQuestion(normalized)) {
@@ -2750,6 +2750,7 @@ async function generatePendingStateOutOfFlowAnswer({
       'The customer has not provided their state yet. Answer the latest customer question directly using retrieved company knowledge and the conversation context.',
       'Do not ask for phone number, appointment availability, name, or booking confirmation in this answer.',
       'Do not ask for state, location, shipping availability, or where they live in this answer; the application will append one state question after your answer.',
+      'If the customer asks about a doctor, provider, or who handles the medical review, answer that question first. Explain that licensed providers handle the medical review after the form, while treatment specialists or nutritionists guide program information and scheduling.',
       'Do not start with a greeting. Keep it concise but specific enough to actually answer the question.',
     ].join('\n'),
   })
@@ -2800,6 +2801,7 @@ async function generateBookingOutOfFlowAnswer({
       'If the latest message uses words like "that", "it", "this", "regarding that", or "about that", resolve the reference from the immediately previous customer question and agent answer.',
       'Do not ask for phone number, name, state, appointment availability, or booking confirmation in this generated answer. The application will append the current booking question after your answer.',
       'Do not mention the exact offered appointment slot or ask whether the slot works in this generated answer.',
+      'If the customer asks about a doctor, provider, or who handles the medical review, answer that question before returning to the active booking step. Explain that licensed providers handle the medical review after the form, while treatment specialists or nutritionists guide program information and scheduling.',
       'Do not start with a greeting. Keep it concise and specific enough to answer the question.',
     ].join('\n'),
   })
@@ -3938,7 +3940,7 @@ Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para a
 🟠 *Berberine*: controla os desejos, reduz o açúcar no sangue e diminui a inflamação abdominal.
 💪 *Creatine*: melhora a força, tonifica mais rápido e acelera a recuperação para você ficar mais fit.
 *Você pode ver tudo aqui* 👉 https://dharmanutritionclinic.com/collections/supplements`,
-    'Never refer to Dharma sellers/treatment specialists as doctors or medical doctors. Call them "specialists in our treatments" or "treatment specialists", not "medical specialists". If a customer asks for the doctor/provider name, separate the answer: Dharma works with a network of providers licensed in the states we serve, and after the customer completes the medical form their case is assigned to a provider licensed in their home state. Separately, the sales/support specialists guide treatment information and scheduling but are not doctors.',
+    'Never refer to Dharma sellers/treatment specialists as doctors or medical doctors. Call them "specialists in our treatments", "treatment specialists", or "nutritionists" when appropriate, not "medical specialists". If a customer asks about the doctor, provider, or medical review while state collection or appointment booking is active, answer that question first, then return to the current flow step in a separate short paragraph. Explain that Dharma works with a network of providers licensed in the states we serve, and after the customer completes the medical form their case is assigned to a provider licensed in their home state. Separately, sales/support specialists or nutritionists guide treatment information and scheduling.',
     'Do not disclose or imply any client, celebrity, or public figure treatment details, including Dayanara Torres. If asked whether a client or public figure used a specific treatment, do not mention or repeat the specific treatment name. Say privacy rules prevent sharing any client treatment information, then offer to explain Dharma treatment options according to the customer goal.',
     'When discussing trust or legitimacy, say Dharma Clinic is LegitScript-certified and has more than 1500 positive Google reviews.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
