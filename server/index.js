@@ -1696,7 +1696,9 @@ async function handleRespondBookingAutomation({
       latestUserText,
       extractedPreferredTime,
     })
-    const nextDetails = preferredTime ? { ...details, preferredTime } : details
+    const nextDetails = preferredTime
+      ? applyAvailabilityConstraintFromPreferredTime({ ...details, preferredTime })
+      : details
 
     return await offerSoonestRespondSlot({
       booking: nextBooking,
@@ -1741,7 +1743,9 @@ async function handleRespondBookingAutomation({
       latestUserText,
       extractedPreferredTime,
     })
-    const nextDetails = preferredTime ? { ...details, preferredTime } : details
+    const nextDetails = preferredTime
+      ? applyAvailabilityConstraintFromPreferredTime({ ...details, preferredTime })
+      : details
 
     return await offerSoonestRespondSlot({
       booking: buildBookingWithRejectedAvailability({
@@ -1766,7 +1770,9 @@ async function handleRespondBookingAutomation({
       latestUserText,
       extractedPreferredTime,
     })
-    const nextDetails = preferredTime ? { ...details, preferredTime } : details
+    const nextDetails = preferredTime
+      ? applyAvailabilityConstraintFromPreferredTime({ ...details, preferredTime })
+      : details
 
     return await offerSoonestRespondSlot({
       booking: buildBookingWithRejectedAvailability({
@@ -2051,6 +2057,10 @@ function getPreferredTimeAfterSlotRejection({
     return 'tomorrow'
   }
 
+  if (isTooEarlyAvailabilityReply(latestUserText)) {
+    return 'afternoon'
+  }
+
   if (isNegativeAvailabilityReply(latestUserText) || isNegatedAvailabilityPreference(latestUserText)) {
     return ''
   }
@@ -2223,13 +2233,15 @@ async function buildOutOfFlowAnswerWithBookingContext({
   details = {},
   respondContactProfile,
 }) {
-  const answer = await generateBookingOutOfFlowAnswer({
-    messages,
-    latestUserText,
-    customerLanguage,
-    respondContactProfile,
-    booking: { ...booking, details },
-  })
+  const answer = isClientTreatmentPrivacyQuestion(latestUserText)
+    ? getOutOfFlowAnswer(latestUserText, customerLanguage)
+    : await generateBookingOutOfFlowAnswer({
+        messages,
+        latestUserText,
+        customerLanguage,
+        respondContactProfile,
+        booking: { ...booking, details },
+      })
 
   if (!answer) {
     return null
@@ -2245,11 +2257,23 @@ async function buildOutOfFlowAnswerWithBookingContext({
     }
   }
 
+  const optionKey = getAvailabilityOptionKey(option)
+  const priorReofferCount =
+    booking.reofferedOptionKey === optionKey ? Number(booking.reofferedOptionCount || 0) : 0
+  const reofferCopyKey = priorReofferCount > 0 ? 'slotBridgeWithoutTime' : 'reofferSlot'
+
   return {
-    text: `${cleanedAnswer || answer}\n\n${bookingCopy(customerLanguage, 'reofferSlot', {
+    text: `${cleanedAnswer || answer}\n\n${bookingCopy(customerLanguage, reofferCopyKey, {
       slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone),
     })}`,
-    booking: { ...booking, details, offeredOption: option, options: [] },
+    booking: {
+      ...booking,
+      details,
+      offeredOption: option,
+      options: [],
+      reofferedOptionKey: optionKey,
+      reofferedOptionCount: priorReofferCount + 1,
+    },
   }
 }
 
@@ -2311,7 +2335,10 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'Many people start noticing reduced appetite within the first few weeks, but timing varies by body, dose, and treatment plan. During the free call, the specialist guides you through how the treatment works, what to expect, and the next steps.'
   }
 
-  if (/\b(treatment|program|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|tratamiento|medicamento|inyeccion|programa|injecao)\b/.test(normalized)) {
+  if (
+    /\b(treatment|program|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|tratamiento|medicamento|inyeccion|programa|injecao)\b/.test(normalized) ||
+    isProductOrMedicationQuestion(normalized)
+  ) {
     if (spanish) return 'Ofrecemos inyecciones para perdida de peso, como Semaglutide o Tirzepatide, que ayudan a reducir el apetito y quemar grasa corporal cuando un proveedor determina que eres candidata. Primero hacemos una llamada gratuita para explicar opciones y siguientes pasos.'
     if (portuguese) return 'Oferecemos injecoes para perda de peso, como Semaglutide ou Tirzepatide, que ajudam a reduzir o apetite e queimar gordura corporal quando um provedor determina que e adequado. Primeiro fazemos uma chamada gratuita para explicar opcoes e proximos passos.'
     return 'We offer weight-loss injections, such as Semaglutide or Tirzepatide, that help reduce appetite and burn body fat when a provider determines they are appropriate. First, we do a free call to explain options and next steps.'
@@ -2348,6 +2375,16 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
       normalizedText,
     )
   )
+}
+
+function isProductOrMedicationQuestion(normalizedText) {
+  return [
+    /\b(what|which|what are|tell me|explain)\b[\s\S]{0,60}\b(medication|medications|medicine|medicines|treatment|treatments|injection|injections|product|products)\b/,
+    /\b(medication|medications|medicine|medicines|treatment|treatments|injection|injections|product|products)\b/,
+    /\b(que|cual|cuales|dime|explicame)\b[\s\S]{0,60}\b(medicamento|medicamentos|medicina|medicinas|tratamiento|tratamientos|inyeccion|inyecciones|producto|productos)\b/,
+    /\b(medicamento|medicamentos|medicina|medicinas|tratamiento|tratamientos|inyeccion|inyecciones|producto|productos)\b/,
+    /\b(o que|qual|quais|explique)\b[\s\S]{0,60}\b(medicamento|medicamentos|tratamento|tratamentos|injecao|injecoes|produto|produtos)\b/,
+  ].some((pattern) => pattern.test(normalizedText))
 }
 
 function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
@@ -2647,6 +2684,11 @@ function bookingCopy(language, key, values = {}) {
       `For the free discovery call, I can still use ${values.slot}. Does that work for you?`,
       `Para la llamada gratuita de analisis, todavia puedo usar ${values.slot}. Te funciona?`,
       `Para a chamada gratuita de analise, ainda posso usar ${values.slot}. Funciona para voce?`,
+    ),
+    slotBridgeWithoutTime: tri(
+      'When you are ready, tell me if that time works or if you prefer another available option.',
+      'Cuando puedas, dime si ese horario te funciona o si prefieres otra opcion disponible.',
+      'Quando puder, me diga se esse horario funciona ou se prefere outra opcao disponivel.',
     ),
     offerSlots: tri(
       `These are the next available options for your free discovery call:\n${values.slots}\n\nWhich option works best? You can reply with the number or the time.`,
@@ -3146,6 +3188,7 @@ function isSlotRejection(content) {
 
   return (
     isNegativeAvailabilityReply(content) ||
+    isTooEarlyAvailabilityReply(content) ||
     /\b(no|nope|nah|not|doesn t work|doesnt work|otro|otra|different|later|mas tarde)\b/i.test(
       normalized,
     ) || isNegative(content)
@@ -3163,7 +3206,11 @@ function isNegativeReply(content) {
     return false
   }
 
-  if (isNegativeAvailabilityReply(content) || isNegatedAvailabilityPreference(content)) {
+  if (
+    isNegativeAvailabilityReply(content) ||
+    isTooEarlyAvailabilityReply(content) ||
+    isNegatedAvailabilityPreference(content)
+  ) {
     return true
   }
 
@@ -3188,6 +3235,16 @@ function isNegativeAvailabilityReply(content) {
   ].some((pattern) => pattern.test(normalized))
 }
 
+function isTooEarlyAvailabilityReply(content) {
+  const normalized = normalizeSearchText(content)
+
+  return [
+    /\b(too early|very early|so early|that is early|too soon in the morning|early morning)\b/,
+    /\b(muy temprano|demasiado temprano|muy pronto|demasiado pronto|tan temprano|es temprano)\b/,
+    /\b(muito cedo|cedo demais)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
 function isOutOfFlowInfoQuestion(content) {
   const normalized = normalizeSearchText(content)
 
@@ -3198,6 +3255,7 @@ function isOutOfFlowInfoQuestion(content) {
   if (
     isClientTreatmentPrivacyQuestion(normalized) ||
     isMedicalHistoryOrSafetyQuestion(normalized) ||
+    isProductOrMedicationQuestion(normalized) ||
     isPopularityOrBestSellerQuestion(normalized) ||
     isInjectionEffectTimingQuestion(normalized)
   ) {
@@ -4376,10 +4434,16 @@ function detectCustomerLanguage(content) {
     'vives',
     'llamada',
     'cuanto',
+    'cual',
+    'cuales',
     'ingles',
     'inglés',
     'precio',
     'cuesta',
+    'medicamento',
+    'medicamentos',
+    'medicina',
+    'medicinas',
     'informacion',
     'información',
     'ayuda',
