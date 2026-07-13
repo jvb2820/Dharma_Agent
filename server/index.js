@@ -2058,7 +2058,8 @@ function getPreferredTimeAfterSlotRejection({
   }
 
   if (isTooEarlyAvailabilityReply(latestUserText)) {
-    return 'afternoon'
+    const existingDate = extractPreferredDatePhrase(details.preferredTime)
+    return existingDate ? `${existingDate} afternoon` : 'afternoon'
   }
 
   if (isNegativeAvailabilityReply(latestUserText) || isNegatedAvailabilityPreference(latestUserText)) {
