@@ -1990,6 +1990,21 @@ async function offerSoonestRespondSlot({
     )
     availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
   }
+  let afterHoursFallback = false
+
+  if (isAfterHoursAvailabilityPreference(details, preferredTime) && availableOptions.length === 0) {
+    const nextMorningPreferredTime = getNextMorningPreferredTime(preferredTime)
+    const nextMorningOptions = await getAvailability({ limit: 100, preferredTime: nextMorningPreferredTime })
+    const morningOptions = nextMorningOptions.filter((option) => {
+      const localHour = getCustomerStateHour(option.startTime, details.state, option.timezone)
+
+      return localHour != null && localHour < 12
+    })
+
+    availableOptions = filterPreviouslyOfferedOptions(morningOptions.length ? morningOptions : nextMorningOptions, booking)
+    afterHoursFallback = availableOptions.length > 0
+  }
+
   const offeredOption = availableOptions[0]
 
   if (!offeredOption) {
@@ -1999,19 +2014,19 @@ async function offerSoonestRespondSlot({
     }
   }
 
-  const nextOptions = [offeredOption]
-  const offerKey = offerCopyKey || getSingleSlotOfferCopyKey({
+  const nextOptions = afterHoursFallback ? availableOptions.slice(0, 3) : [offeredOption]
+  const offerKey = afterHoursFallback ? 'offerNextMorningAfterHours' : offerCopyKey || getSingleSlotOfferCopyKey({
     closest,
     preferredTime,
     usedFallback: options.length === 0 && fallbackOptions.length > 0,
   })
 
   return {
-    text: nextOptions.length === 1
+    text: nextOptions.length === 1 && !afterHoursFallback
       ? bookingCopy(customerLanguage, offerKey, {
           slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone),
         })
-      : bookingCopy(customerLanguage, closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
+      : bookingCopy(customerLanguage, afterHoursFallback ? offerKey : closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
           slots: formatNumberedSlots(nextOptions, details.state),
         }),
     booking: {
@@ -2024,6 +2039,35 @@ async function offerSoonestRespondSlot({
       excludedDateKeys: booking.excludedDateKeys || [],
     },
   }
+}
+
+function isAfterHoursAvailabilityPreference(details = {}, preferredTime = '') {
+  const normalized = normalizeSearchText(preferredTime || details.preferredTime)
+  const earliestHour = Number.isInteger(details.earliestHour)
+    ? details.earliestHour
+    : extractEarliestHourFromPreferredTime(normalized)
+
+  return earliestHour >= 19
+}
+
+function extractEarliestHourFromPreferredTime(normalizedText) {
+  const match = String(normalizedText || '').match(/\bafter\s+(1[0-2]|0?[1-9])\s*(am|pm)?\b/)
+
+  if (!match) {
+    return null
+  }
+
+  return normalizeAvailabilityHour(Number(match[1]), match[2])
+}
+
+function getNextMorningPreferredTime(preferredTime = '') {
+  const datePhrase = extractPreferredDatePhrase(preferredTime)
+
+  if (datePhrase && !/\b(today|hoy|hoje)\b/i.test(datePhrase)) {
+    return `${datePhrase} morning`
+  }
+
+  return 'tomorrow morning'
 }
 
 function hasBookingAvailabilityExclusions(booking = {}) {
@@ -2744,6 +2788,11 @@ function bookingCopy(language, key, values = {}) {
       `📅 ${named('I do not have availability for that requested time right now, but I do have this option:', 'I do not have availability for that requested time right now, but I do have this option:')}\n${values.slots}\n\nDoes that work for you?`,
       `${named('no tengo disponibilidad para ese horario en este momento, pero tengo esta opcion:', 'No tengo disponibilidad para ese horario en este momento, pero tengo esta opcion:')}\n${values.slots}\n\nTe funciona?`,
       `${named('não tenho disponibilidade para esse horário agora, mas tenho esta opção:', 'Não tenho disponibilidade para esse horário agora, mas tenho esta opção:')}\n${values.slots}\n\nFunciona para você?`,
+    ),
+    offerNextMorningAfterHours: tri(
+      `I do not have availability after 7:00 PM in your time zone. I can offer these next morning options instead:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
+      `No tengo disponibilidad despues de las 7:00 PM en tu zona horaria. Puedo ofrecerte estas opciones para la siguiente manana:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
+      `Nao tenho disponibilidade depois das 7:00 PM no seu fuso horario. Posso oferecer estas opcoes para a manha seguinte:\n${values.slots}\n\nQual opcao funciona melhor? Responda com o numero.`,
     ),
     askChooseOption: tri(
       'Which option works best? Please reply with the number or the time so I can book it.',
@@ -3670,6 +3719,14 @@ function extractPreferredDatePhrase(content) {
     return 'today'
   }
 
+  const weekday = String(content || '').match(
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|domingo|lunes|martes|miercoles|mi[eé]rcoles|jueves|viernes|sabado|s[aá]bado|segunda|terca|terça|quarta|quinta|sexta)\b/i,
+  )
+
+  if (weekday) {
+    return weekday[0].trim()
+  }
+
   const explicitDate = String(content || '').match(
     /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?\b|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/i,
   )
@@ -4460,9 +4517,34 @@ function normalizeLanguageName(language) {
 
 function detectCustomerLanguage(content) {
   const text = String(content || '').toLowerCase()
+  const normalizedText = normalizeSearchText(content)
 
   if (!text.trim()) {
     return ''
+  }
+
+  if (
+    /\b(precos?|quanto custa|custam|pagamento|pagamentos|parcelas?|financiamento|voce|voces|meu|minha|obrigad[oa]|ola|horario|chamada|agendamento|portugues|informacao|remedio|injecao|tratamento|pergunta|duvida|endereco)\b/.test(
+      normalizedText,
+    )
+  ) {
+    return 'Portuguese'
+  }
+
+  if (
+    /\b(precios?|cuanto|cuantos|cuesta|cuestan|costos?|pagos?|cuotas?|financiamiento|espanol|ingles|telefono|numero|llamada|cita|agendar|informacion|medicamento|inyeccion|tratamiento|pregunta|duda|direccion|clinica)\b/.test(
+      normalizedText,
+    )
+  ) {
+    return 'Latin American Spanish'
+  }
+
+  if (
+    /\b(prices?|costs?|pricing|payment|payments|installments?|financing|english|phone|number|call|appointment|schedule|information|medicine|medication|injection|treatment|question|clinic|address|doctor|provider)\b/.test(
+      normalizedText,
+    )
+  ) {
+    return 'English'
   }
 
   const spanishSignals = [
