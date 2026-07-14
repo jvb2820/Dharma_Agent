@@ -98,6 +98,38 @@ export function buildBookedMessage({ bookingTeam, option, booked, customer = {},
   ].join('\n')
 }
 
+export function buildBookingPaymentInfoMessage(language = '') {
+  const languageName = normalizeBookedLanguageName(language)
+
+  if (languageName === 'Latin American Spanish') {
+    return [
+      '😊 Si prefieres pagar en cuotas, tenemos opciones de financiamiento disponibles. Puedes hacer tu registro previo aquí si te resulta más cómodo antes de la consulta:',
+      '',
+      '🔗 linktr.ee/dharmapayments',
+      '',
+      '¡Así hacemos todo más ágil para ti! 💛',
+    ].join('\n')
+  }
+
+  if (languageName === 'Portuguese') {
+    return [
+      '😊 Se preferir pagar em parcelas, temos opções de financiamento disponíveis. Você pode fazer seu cadastro prévio aqui se for mais confortável antes da consulta:',
+      '',
+      '🔗 linktr.ee/dharmapayments',
+      '',
+      'Assim deixamos tudo mais ágil para você! 💛',
+    ].join('\n')
+  }
+
+  return [
+    '😊 If you prefer to pay in installments, we have financing options available. You can complete your pre-registration here if it is more convenient before the consultation:',
+    '',
+    '🔗 linktr.ee/dharmapayments',
+    '',
+    'That way we can make everything faster for you! 💛',
+  ].join('\n')
+}
+
 function resolveBookedSpecialistName({ bookingTeam, option, booked }) {
   const team = bookingTeam === 'customer_service' ? 'customer_service' : 'sales'
   const names = BOOKING_SPECIALIST_NAMES[team]

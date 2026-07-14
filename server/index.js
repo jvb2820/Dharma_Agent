@@ -2,7 +2,7 @@ import http from 'node:http'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
-import { buildBookedMessage } from './booked.js'
+import { buildBookedMessage, buildBookingPaymentInfoMessage } from './booked.js'
 import { loadLocalEnv } from './env.js'
 import {
   formatCustomerStateSlot,
@@ -711,6 +711,8 @@ async function processRespondIncomingMessage(event) {
   })
 
   if (bookingResponse) {
+    const postReplyMessages = []
+
     if (bookingResponse.postReplyRespondAction?.type === 'booked') {
       await sendBookingConfirmationVideo({
         contactId: event.contactId,
@@ -721,6 +723,14 @@ async function processRespondIncomingMessage(event) {
         channelId: event.channelId,
         text: bookingResponse.text,
       })
+      const paymentInfoText = buildBookingPaymentInfoMessage(customerLanguage)
+
+      await sendRespondTextMessage({
+        contactId: event.contactId,
+        channelId: event.channelId,
+        text: paymentInfoText,
+      })
+      postReplyMessages.push({ role: 'agent', content: paymentInfoText })
       await finalizeRespondConversationAfterBooking({
         contactId: event.contactId,
         booked: bookingResponse.postReplyRespondAction.booked,
@@ -741,7 +751,11 @@ async function processRespondIncomingMessage(event) {
       customerLanguage,
       languageAsked: false,
       lastInteractionAt: Date.now(),
-      messages: [...messages, { role: 'agent', content: bookingResponse.text }].slice(-12),
+      messages: [
+        ...messages,
+        { role: 'agent', content: bookingResponse.text },
+        ...postReplyMessages,
+      ].slice(-12),
       booking: bookingResponse.booking,
       respondContactProfile,
     })
