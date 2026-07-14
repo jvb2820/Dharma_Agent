@@ -2314,13 +2314,13 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'We are a telemedicine clinic based in the U.S., and consultations are online.'
   }
 
-  if (/\b(cita|appointment|consulta|llamada)\b/.test(normalized) && /\b(precio|cuanto|cost|price|cuesta|custa)\b/.test(normalized)) {
+  if (/\b(cita|appointment|consulta|llamada|chamada)\b/.test(normalized) && /\b(precios?|cu[aá]nto|cuanto|costs?|prices?|cuesta|cuestan|custa|custam|precos?)\b/.test(normalized)) {
     if (spanish) return 'La llamada de analisis inicial es completamente gratis. En esa llamada te explican las opciones, precios y siguientes pasos sin compromiso.'
     if (portuguese) return 'A chamada inicial de analise e completamente gratuita. Nessa chamada explicam as opcoes, precos e proximos passos sem compromisso.'
     return 'The initial discovery call is completely free. During the call, the specialist explains options, pricing, and next steps with no obligation.'
   }
 
-  if (/\b(price|cost|payment|precio|cuanto|cuesta|costo|pago|preco|quanto custa)\b/.test(normalized)) {
+  if (hasPriceOrPaymentQuestion(normalized)) {
     if (spanish) return 'El paquete personalizado GLP-1 para perdida de peso empieza en $589 por hasta 4 semanas, y el acceso a prescripcion de Zepbound cuesta $299. Los tratamientos mas largos dependen de tu meta.'
     if (portuguese) return 'O pacote personalizado GLP-1 para perda de peso comeca em $589 por ate 4 semanas, e o acesso a prescricao de Zepbound custa $299. Tratamentos mais longos dependem do seu objetivo.'
     return 'The personalized GLP-1 weight-loss package starts at $589 for up to 4 weeks, and Zepbound prescription access is $299. Longer treatments depend on your goal.'
@@ -3287,11 +3287,34 @@ function isOutOfFlowInfoQuestion(content) {
     return true
   }
 
+  if (hasPriceOrPaymentQuestion(normalized) || isGeneralQuestionDetour(normalized)) {
+    return true
+  }
+
   return [
     /\b(what|whats|what is|tell me|explain|learn more|more about|about your|about the|how long|how soon|how fast|how does|how do|how it works|what happens|what includes|included|difference|safe|side effect|side effects|price|cost|payment|company|clinic|program|treatment|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|supplement|nutrition|peptide|doctor|doctors|provider|providers|fda|approved|review|reviews|location|located|address|where are you|dayanara|celebrity|public figure|client treatment|patient treatment)\b/.test(normalized),
     /\b(que es|de que|explica|explicame|quiero saber|mas informacion|mas sobre|como funciona|que incluye|incluye|diferencia|seguro|efectos secundarios|precio|cuanto|costo|pago|compania|clinica|programa|tratamiento|medicamento|inyeccion|suplemento|nutricion|peptido|doctor|doctores|medico|medicos|proveedor|proveedores|fda|aprobado|resena|resenas|ubicad|ubicacion|ubicaci[oó]n|direccion|direcci[oó]n|donde estan|dayanara|celebridad|figura publica|tratamiento de cliente|tratamiento de paciente)\b/.test(normalized),
     /\b(o que e|explique|quero saber|mais informacao|mais sobre|como funciona|o que inclui|inclui|diferenca|seguro|efeitos colaterais|preco|quanto custa|custo|pagamento|empresa|clinica|programa|tratamento|medicamento|injecao|suplemento|nutricao|peptideo|doutor|doutores|medico|medicos|provedor|provedores|fda|aprovado|avaliacao|avaliacoes|localiza|endereco|endere[cç]o|onde fica|dayanara|celebridade|figura publica|tratamento de cliente|tratamento de paciente)\b/.test(normalized),
   ].some(Boolean)
+}
+
+function hasPriceOrPaymentQuestion(normalizedText) {
+  return /\b(prices?|costs?|pricing|payment|payments|installments?|financing|precio|precios|cuanto|cuantos|cuesta|cuestan|costo|costos|pago|pagos|cuota|cuotas|financiamiento|preco|precos|quanto custa|custam|custo|custos|pagamento|pagamentos|parcela|parcelas|financiamento)\b/.test(
+    normalizedText,
+  )
+}
+
+function isGeneralQuestionDetour(normalizedText) {
+  const startsLikeQuestion =
+    /^(what|why|how|when|where|who|which|can|could|would|do|does|is|are|tell me|explain|que|cual|cuales|como|cuando|donde|por que|puedes|podrias|quisiera|o que|qual|quais|quando|onde|pode|poderia|gostaria)\b/.test(
+      normalizedText,
+    )
+  const hasQuestionTopic =
+    /\b(treatment|program|medicine|medication|injection|price|cost|payment|doctor|provider|clinic|company|appointment|call|consulta|tratamiento|programa|medicamento|inyeccion|precio|costo|pago|doctor|medico|clinica|cita|llamada|tratamento|injecao|preco|pagamento|doutor|chamada)\b/.test(
+      normalizedText,
+    )
+
+  return startsLikeQuestion && hasQuestionTopic
 }
 
 function isContextualOutOfFlowFollowUp(content, messages = []) {
