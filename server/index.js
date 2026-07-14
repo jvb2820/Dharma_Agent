@@ -4308,6 +4308,11 @@ function extractStateName(content) {
     ['washington dc', 'District of Columbia'],
     ['washington d c', 'District of Columbia'],
   ])
+  const abbreviationState = extractStateNameFromAbbreviation(content)
+
+  if (abbreviationState) {
+    return abbreviationState
+  }
 
   for (const [alias, state] of aliases.entries()) {
     if (new RegExp(`\\b${escapeRegExp(alias)}\\b`).test(normalized)) {
@@ -4324,6 +4329,83 @@ function extractStateName(content) {
     extractNonServiceableLocationName(content) ||
     ''
   )
+}
+
+function extractStateNameFromAbbreviation(content) {
+  const stateAbbreviations = new Map([
+    ['AL', 'Alabama'],
+    ['AK', 'Alaska'],
+    ['AZ', 'Arizona'],
+    ['AR', 'Arkansas'],
+    ['CA', 'California'],
+    ['CO', 'Colorado'],
+    ['CT', 'Connecticut'],
+    ['DE', 'Delaware'],
+    ['DC', 'District of Columbia'],
+    ['FL', 'Florida'],
+    ['GA', 'Georgia'],
+    ['HI', 'Hawaii'],
+    ['ID', 'Idaho'],
+    ['IL', 'Illinois'],
+    ['IN', 'Indiana'],
+    ['IA', 'Iowa'],
+    ['KS', 'Kansas'],
+    ['KY', 'Kentucky'],
+    ['LA', 'Louisiana'],
+    ['ME', 'Maine'],
+    ['MD', 'Maryland'],
+    ['MA', 'Massachusetts'],
+    ['MI', 'Michigan'],
+    ['MN', 'Minnesota'],
+    ['MS', 'Mississippi'],
+    ['MO', 'Missouri'],
+    ['MT', 'Montana'],
+    ['NE', 'Nebraska'],
+    ['NV', 'Nevada'],
+    ['NH', 'New Hampshire'],
+    ['NJ', 'New Jersey'],
+    ['NM', 'New Mexico'],
+    ['NY', 'New York'],
+    ['NC', 'North Carolina'],
+    ['ND', 'North Dakota'],
+    ['OH', 'Ohio'],
+    ['OK', 'Oklahoma'],
+    ['OR', 'Oregon'],
+    ['PA', 'Pennsylvania'],
+    ['PR', 'Puerto Rico'],
+    ['RI', 'Rhode Island'],
+    ['SC', 'South Carolina'],
+    ['SD', 'South Dakota'],
+    ['TN', 'Tennessee'],
+    ['TX', 'Texas'],
+    ['UT', 'Utah'],
+    ['VT', 'Vermont'],
+    ['VA', 'Virginia'],
+    ['WA', 'Washington'],
+    ['WV', 'West Virginia'],
+    ['WI', 'Wisconsin'],
+    ['WY', 'Wyoming'],
+  ])
+  const commonWordAbbreviations = new Set(['HI', 'IN', 'ME', 'OR'])
+  const tokenMatches = String(content || '').matchAll(/(^|[^A-Za-z])([A-Za-z]{2})(?=$|[^A-Za-z])/g)
+
+  for (const match of tokenMatches) {
+    const rawToken = match[2]
+    const abbreviation = rawToken.toUpperCase()
+    const state = stateAbbreviations.get(abbreviation)
+
+    if (!state) {
+      continue
+    }
+
+    if (commonWordAbbreviations.has(abbreviation) && rawToken === rawToken.toLowerCase()) {
+      continue
+    }
+
+    return state
+  }
+
+  return ''
 }
 
 function extractNonServiceableLocationName(content) {
