@@ -1482,6 +1482,21 @@ async function handleRespondBookingAutomation({
     }
 
     if (!nextDetails.phone) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+        const answer = await generateBookingOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        })
+
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        }
+      }
+
       return prependOutOfFlowAnswerIfNeeded({
         response: {
         text: bookingCopy(customerLanguage, 'askPhone'),
@@ -1500,6 +1515,21 @@ async function handleRespondBookingAutomation({
       customerLanguage,
     })
 
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      const answer = await generateBookingOutOfFlowAnswer({
+        messages,
+        latestUserText,
+        customerLanguage,
+        respondContactProfile,
+        booking: { ...existingBooking, bookingTeam, details: nextDetails },
+      })
+
+      return {
+        ...offer,
+        text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${offer.text}`,
+      }
+    }
+
     return prependOutOfFlowAnswerIfNeeded({
       response: offer,
       latestUserText,
@@ -1513,8 +1543,31 @@ async function handleRespondBookingAutomation({
     const nextDetails = withDefaultRespondDesiredTreatment(details)
 
     if (isOutOfFlowInfoQuestion(latestUserText)) {
-      existingBooking.details = nextDetails
-      return null
+      const answer = await generateBookingOutOfFlowAnswer({
+        messages,
+        latestUserText,
+        customerLanguage,
+        respondContactProfile,
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'goals' },
+      })
+
+      if (!nextDetails.phone) {
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: '' },
+        }
+      }
+
+      const offer = await offerSoonestRespondSlot({
+        booking: { ...existingBooking, bookingTeam, pendingField: '' },
+        details: nextDetails,
+        customerLanguage,
+      })
+
+      return {
+        ...offer,
+        text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${offer.text}`,
+      }
     }
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
@@ -1547,6 +1600,21 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'preferredTime') {
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages) && !extractPreferredTimeText(latestUserText)) {
+      const answer = await generateBookingOutOfFlowAnswer({
+        messages,
+        latestUserText,
+        customerLanguage,
+        respondContactProfile,
+        booking: { ...existingBooking, bookingTeam, details, pendingField: 'preferredTime' },
+      })
+
+      return {
+        text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPreferredTime')}`,
+        booking: { ...existingBooking, bookingTeam, details, pendingField: 'preferredTime' },
+      }
+    }
+
     const preferredTime = extractPreferredTimeText(latestUserText) || latestUserText.trim()
     const nextDetails = { ...details, preferredTime }
 
@@ -1610,6 +1678,21 @@ async function handleRespondBookingAutomation({
     }
 
     if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+        const answer = await generateBookingOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+        })
+
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, activeOption ? 'askName' : 'askNameBeforeSlot')}`,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+        }
+      }
+
       return {
         text: bookingCopy(customerLanguage, activeOption ? 'askName' : 'askNameBeforeSlot'),
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
@@ -1674,6 +1757,21 @@ async function handleRespondBookingAutomation({
     }
 
     if (!nextDetails.phone) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+        const answer = await generateBookingOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        })
+
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        }
+      }
+
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
@@ -1873,6 +1971,27 @@ async function handleRespondBookingAutomation({
     const option = selectedOption || existingBooking.offeredOption
 
     if (!hasBookableRespondCustomerName(details, respondContactProfile)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+        const answer = await generateBookingOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
+          booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'name' },
+        })
+
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askName')}`,
+          booking: {
+            ...existingBooking,
+            bookingTeam,
+            details,
+            offeredOption: option,
+            pendingField: 'name',
+          },
+        }
+      }
+
       return {
         text: bookingCopy(customerLanguage, 'askName'),
         booking: {
@@ -1886,6 +2005,27 @@ async function handleRespondBookingAutomation({
     }
 
     if (!details.phone) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+        const answer = await generateBookingOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
+          booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+        })
+
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+          booking: {
+            ...existingBooking,
+            bookingTeam,
+            details,
+            offeredOption: option,
+            pendingField: 'phone',
+          },
+        }
+      }
+
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
         booking: {
@@ -1940,6 +2080,21 @@ async function handleRespondBookingAutomation({
   }
 
   if (!details.state) {
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      const answer = await generatePendingStateOutOfFlowAnswer({
+        messages,
+        latestUserText,
+        customerLanguage,
+        respondContactProfile,
+        booking: { ...existingBooking, bookingTeam, details: { ...details, state: '' }, pendingField: 'state' },
+      })
+
+      return {
+        text: buildPendingStateOutOfFlowReply(answer, customerLanguage),
+        booking: { ...existingBooking, bookingTeam, details: { ...details, state: '' }, pendingField: 'state' },
+      }
+    }
+
     return {
       text: bookingCopy(customerLanguage, 'askState'),
       booking: { ...existingBooking, bookingTeam, details, pendingField: 'state' },
