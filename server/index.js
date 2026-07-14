@@ -1381,6 +1381,46 @@ async function handleRespondBookingAutomation({
     const state = latestSignals.state
 
     if (!state) {
+      if (existingBooking.details?.inferredState && isAffirmative(latestUserText)) {
+        latestSignals.state = existingBooking.details.inferredState
+      } else if (existingBooking.details?.inferredState && isNegativeReply(latestUserText)) {
+        return {
+          text: bookingCopy(customerLanguage, 'askStateDifferent'),
+          booking: {
+            ...existingBooking,
+            bookingTeam,
+            details: {
+              ...details,
+              inferredCity: '',
+              inferredState: '',
+            },
+            pendingField: 'state',
+          },
+        }
+      }
+    }
+
+    const confirmedState = latestSignals.state
+
+    if (!confirmedState) {
+      const inferredLocation = inferStateFromCity(latestUserText)
+
+      if (inferredLocation) {
+        return {
+          text: bookingCopy(customerLanguage, 'confirmInferredState', inferredLocation),
+          booking: {
+            ...existingBooking,
+            bookingTeam,
+            details: {
+              ...details,
+              inferredCity: inferredLocation.city,
+              inferredState: inferredLocation.state,
+            },
+            pendingField: 'state',
+          },
+        }
+      }
+
       if (isOutOfFlowInfoQuestion(latestUserText)) {
         const answer = await generatePendingStateOutOfFlowAnswer({
           messages,
@@ -1419,7 +1459,12 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    const nextDetails = withDefaultRespondDesiredTreatment({ ...details, state })
+    const nextDetails = withDefaultRespondDesiredTreatment({
+      ...details,
+      state: confirmedState,
+      inferredCity: '',
+      inferredState: '',
+    })
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
@@ -2713,6 +2758,16 @@ function bookingCopy(language, key, values = {}) {
       '📍Please tell us which state you live in to find out if we ship to your state?',
       '📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?',
       '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
+    ),
+    confirmInferredState: tri(
+      `Are you in ${values.city}, ${values.state}?`,
+      `Estas en ${values.city}, ${values.state}?`,
+      `Voce esta em ${values.city}, ${values.state}?`,
+    ),
+    askStateDifferent: tri(
+      'No problem. Which state do you live in?',
+      'No hay problema. En que estado vives?',
+      'Sem problema. Em qual estado voce mora?',
     ),
     askPhone: tri(
       'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
@@ -4329,6 +4384,67 @@ function extractStateName(content) {
     extractNonServiceableLocationName(content) ||
     ''
   )
+}
+
+function inferStateFromCity(content) {
+  const normalized = normalizeSearchText(content)
+  const cityStates = new Map([
+    ['atlanta', 'Georgia'],
+    ['austin', 'Texas'],
+    ['baltimore', 'Maryland'],
+    ['boston', 'Massachusetts'],
+    ['charlotte', 'North Carolina'],
+    ['chicago', 'Illinois'],
+    ['columbus', 'Ohio'],
+    ['dallas', 'Texas'],
+    ['denver', 'Colorado'],
+    ['detroit', 'Michigan'],
+    ['fort lauderdale', 'Florida'],
+    ['fort worth', 'Texas'],
+    ['houston', 'Texas'],
+    ['jacksonville', 'Florida'],
+    ['las vegas', 'Nevada'],
+    ['los angeles', 'California'],
+    ['miami', 'Florida'],
+    ['minneapolis', 'Minnesota'],
+    ['nashville', 'Tennessee'],
+    ['new york', 'New York'],
+    ['new york city', 'New York'],
+    ['nyc', 'New York'],
+    ['orlando', 'Florida'],
+    ['philadelphia', 'Pennsylvania'],
+    ['phoenix', 'Arizona'],
+    ['portland', 'Oregon'],
+    ['raleigh', 'North Carolina'],
+    ['sacramento', 'California'],
+    ['san antonio', 'Texas'],
+    ['san diego', 'California'],
+    ['san francisco', 'California'],
+    ['san jose', 'California'],
+    ['seattle', 'Washington'],
+    ['tampa', 'Florida'],
+    ['washington dc', 'District of Columbia'],
+    ['washington d c', 'District of Columbia'],
+  ])
+
+  for (const [city, state] of cityStates.entries()) {
+    if (new RegExp(`\\b${escapeRegExp(city)}\\b`).test(normalized)) {
+      return {
+        city: toTitleCase(city === 'nyc' ? 'New York City' : city.replace(/\bd c\b/, 'DC')),
+        state,
+      }
+    }
+  }
+
+  return null
+}
+
+function toTitleCase(value) {
+  return String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => (word === 'DC' ? word : `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`))
+    .join(' ')
 }
 
 function extractStateNameFromAbbreviation(content) {
