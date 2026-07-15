@@ -941,7 +941,7 @@ function getConfiguredPrioritySellers() {
     .filter((seller) => !disabledSlugs.has(seller.slug))
 }
 
-function getConfiguredCustomerServiceTeam() {
+export function getConfiguredCustomerServiceTeam() {
   const defaultTeam = CUSTOMER_SERVICE_TEAM.map((member) =>
     member.name === 'Alice' && process.env.HUBSPOT_ALICE_MEETING_SLUG
       ? { ...member, slug: process.env.HUBSPOT_ALICE_MEETING_SLUG }

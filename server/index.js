@@ -18,6 +18,7 @@ import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
   findHubSpotContactByEmail,
+  getConfiguredCustomerServiceTeam,
   getCustomerServiceAvailability,
   getPrioritySellerAvailability,
 } from './hubspotService.js'
@@ -934,7 +935,7 @@ async function transferRespondConversationToCustomerService({
 
   if (!assignee) {
     console.warn(
-      `Unable to transfer Respond conversation to Customer Service: no assignee configured. Configure RESPOND_CUSTOMER_SERVICE_ASSIGNEE or customer-service in RESPOND_BOOKING_ASSIGNEES.`,
+      `Unable to transfer Respond conversation to Customer Service: no configured Customer Service team member has a Respond assignee in RESPOND_BOOKING_ASSIGNEES.`,
     )
   } else {
     await assignRespondConversation({ contactId, assignee }).catch((error) => {
@@ -971,15 +972,30 @@ async function transferRespondConversationToCustomerService({
 }
 
 function getRespondCustomerServiceAssignee() {
-  const direct = String(process.env.RESPOND_CUSTOMER_SERVICE_ASSIGNEE || '').trim()
+  const assignees = parseRespondAssigneeMap(process.env.RESPOND_BOOKING_ASSIGNEES)
+  const customerServiceAssignees = getConfiguredCustomerServiceTeam()
+    .flatMap((member) => [
+      member.slug,
+      member.name,
+      member.fieldValue,
+    ])
+    .map((value) => assignees[normalizeRespondAssigneeKey(value)])
+    .filter(Boolean)
+  const uniqueAssignees = [...new Set(customerServiceAssignees)]
 
-  if (direct) {
-    return direct
+  if (uniqueAssignees.length) {
+    return pickRandomItem(uniqueAssignees)
   }
 
-  const assignees = parseRespondAssigneeMap(process.env.RESPOND_BOOKING_ASSIGNEES)
+  return ''
+}
 
-  return assignees['customer-service'] || assignees.customer_service || assignees.customerservice || ''
+function pickRandomItem(items = []) {
+  if (!items.length) {
+    return ''
+  }
+
+  return items[Math.floor(Math.random() * items.length)]
 }
 
 async function resolveRespondTransferTrigger(text) {
