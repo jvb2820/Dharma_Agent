@@ -15,9 +15,12 @@ const IRATE_PATTERNS = [
 
 export function getRespondAutomationDecision({ contactProfile, session = {}, event = {}, now = Date.now() } = {}) {
   const sessionHandoffActive = Boolean(session.transferHandoffAt || session.handoffAt)
+  const sessionHandoffAt = getSessionHandoffAt(session)
+  const sessionClosedAfterHandoff = Boolean(session.transferClosedAt)
   const assignee = getConversationAssignee(contactProfile) || (sessionHandoffActive ? 'customer_service' : '')
   const assigned = isConversationAssigned(contactProfile) || sessionHandoffActive
   const closed = isConversationClosed(contactProfile)
+  const conversationOpenedAt = getConversationOpenedAt(contactProfile)
   const idleResumeEnabled = isTransferIdleResumeEnabled()
   const lastHumanActivityAt = getLastHumanActivityAt(contactProfile, session)
   const idleExpired = isTransferIdleExpired({ lastHumanActivityAt, now })
@@ -29,6 +32,28 @@ export function getRespondAutomationDecision({ contactProfile, session = {}, eve
       closed,
       contactId: event.contactId,
       reason: 'Conversation is assigned but closed, so automation can restart on the new inbound message.',
+    }
+  }
+
+  if (
+    assigned &&
+    sessionHandoffActive &&
+    !closed &&
+    (sessionClosedAfterHandoff || didConversationOpenAfterHandoff({
+      conversationOpenedAt,
+      sessionHandoffAt,
+    }))
+  ) {
+    return {
+      action: 'allow_reopened_restart',
+      assignee,
+      closed,
+      contactId: event.contactId,
+      conversationOpenedAt,
+      lastHumanActivityAt,
+      reason: sessionClosedAfterHandoff
+        ? 'Conversation was previously closed after transfer and is now open again, so automation can restart.'
+        : 'Conversation was reopened by the contact after a previous transfer handoff, so automation can restart.',
     }
   }
 
@@ -136,6 +161,41 @@ export function getLastHumanActivityAt(profile = {}, session = {}) {
   }
 
   return null
+}
+
+export function getConversationOpenedAt(profile = {}) {
+  const conversation = getConversation(profile)
+  const candidates = [
+    conversation.openedAt,
+    conversation.opened_at,
+    conversation.reopenedAt,
+    conversation.reopened_at,
+    conversation.createdAt,
+    conversation.created_at,
+    profile.conversationOpenedAt,
+  ]
+
+  for (const candidate of candidates) {
+    const timestamp = normalizeTimestamp(candidate)
+
+    if (timestamp) {
+      return timestamp
+    }
+  }
+
+  return null
+}
+
+function getSessionHandoffAt(session = {}) {
+  return normalizeTimestamp(session.transferHandoffAt || session.handoffAt)
+}
+
+function didConversationOpenAfterHandoff({ conversationOpenedAt, sessionHandoffAt } = {}) {
+  if (!conversationOpenedAt || !sessionHandoffAt) {
+    return false
+  }
+
+  return conversationOpenedAt > sessionHandoffAt + 1000
 }
 
 export function isTransferIdleExpired({ lastHumanActivityAt, now = Date.now() } = {}) {

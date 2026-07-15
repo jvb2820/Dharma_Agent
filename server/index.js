@@ -476,6 +476,10 @@ async function handleRespondWebhook(request, response) {
     return
   }
 
+  if (event.contactId && !event.text) {
+    handleRespondConversationStateEvent(event)
+  }
+
   if (!event.contactId || !event.text || !event.isIncoming) {
     sendJson(response, 200, {
       ok: true,
@@ -578,6 +582,26 @@ function getDefaultInitialImageUrl() {
   return `${baseUrl.replace(/\/+$/, '')}/Images/before%20and%20after.png`
 }
 
+function handleRespondConversationStateEvent(event) {
+  const session = getRespondSession(event.contactId)
+
+  if (!session.transferHandoffAt && !session.handoffAt) {
+    return
+  }
+
+  if (event.isConversationClosedEvent) {
+    respondSessions.set(event.contactId, {
+      ...session,
+      transferClosedAt: Date.now(),
+      lastInteractionAt: Date.now(),
+    })
+    console.log('[respond-transfer-closed]', {
+      contactId: event.contactId,
+      eventName: event.eventName,
+    })
+  }
+}
+
 function getDefaultBookingConfirmationVideoUrl() {
   const baseUrl =
     process.env.WEB_SERVICE_URL ||
@@ -630,6 +654,13 @@ async function processRespondIncomingMessage(event) {
   if (automationDecision.action === 'allow_closed_restart') {
     clearRespondTransferSessionMarkers(event.contactId, session, respondContactProfile)
     console.log('[respond-transfer-restart]', formatRespondAutomationDecisionLog(automationDecision))
+    await unassignRespondConversationAfterReply(event.contactId)
+  }
+
+  if (automationDecision.action === 'allow_reopened_restart') {
+    clearRespondTransferSessionMarkers(event.contactId, session, respondContactProfile)
+    console.log('[respond-transfer-reopened-restart]', formatRespondAutomationDecisionLog(automationDecision))
+    await unassignRespondConversationAfterReply(event.contactId)
   }
 
   if (automationDecision.action === 'allow_idle_timeout') {
@@ -949,6 +980,7 @@ async function transferRespondConversationToCustomerService({
     languageAsked: false,
     lastInteractionAt: Date.now(),
     transferHandoffAt: Date.now(),
+    transferClosedAt: null,
     messages: [
       ...(session.messages || []),
       userMessage,
@@ -1039,6 +1071,7 @@ function clearRespondTransferSessionMarkers(contactId, session = {}, respondCont
 
   delete nextSession.transferHandoffAt
   delete nextSession.handoffAt
+  delete nextSession.transferClosedAt
 
   respondSessions.set(contactId, nextSession)
 }
@@ -1053,6 +1086,9 @@ function formatRespondAutomationDecisionLog(decision = {}) {
       idleHours: decision.idleHours,
       lastHumanActivityAt: decision.lastHumanActivityAt
         ? new Date(decision.lastHumanActivityAt).toISOString()
+        : '',
+      conversationOpenedAt: decision.conversationOpenedAt
+        ? new Date(decision.conversationOpenedAt).toISOString()
         : '',
       reason: decision.reason,
     }).filter(([, value]) => value !== undefined && value !== ''),
@@ -1306,6 +1342,15 @@ function buildRespondConversationSummary(contact = {}) {
         conversation.updated_at ||
         conversation.assignedAt ||
         conversation.assigned_at,
+      openedAt:
+        conversation.openedAt ||
+        conversation.opened_at ||
+        conversation.reopenedAt ||
+        conversation.reopened_at ||
+        conversation.createdAt ||
+        conversation.created_at ||
+        contact?.conversationOpenedAt ||
+        contact?.conversation_opened_at,
     }).filter(([, value]) => Boolean(value)),
   )
 }
@@ -4436,6 +4481,10 @@ function normalizeRespondWebhookEvent(body) {
       '',
     contactPhone: extractRespondContactPhone(contact, getRespondCustomFieldMap(contact)),
     isIncoming: !isOutgoing,
+    eventName,
+    isConversationClosedEvent: /conversation[\s._-]*clos|conversation[\s._-]*resolve|clos(ed|e)|resolv(ed|e)/i.test(
+      eventName,
+    ),
     skipReason: isOutgoing ? 'Ignoring outbound Respond message.' : '',
     text,
   }
