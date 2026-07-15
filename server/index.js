@@ -639,16 +639,30 @@ async function processRespondIncomingMessage(event) {
   })
 
   if (automationDecision.action === 'skip_human_owned') {
-    const transferHandoffAt = automationDecision.lastHumanActivityAt || session.transferHandoffAt || Date.now()
-
-    respondSessions.set(event.contactId, {
-      ...session,
-      transferHandoffAt,
-      lastInteractionAt: Date.now(),
-      respondContactProfile,
+    const resumedProfile = await getRespondTransferResumeProfile({
+      contactId: event.contactId,
+      session,
+      initialDecision: automationDecision,
     })
-    console.log('[respond-transfer-paused]', formatRespondAutomationDecisionLog(automationDecision))
-    return
+
+    if (resumedProfile) {
+      respondContactProfile = mergeRespondContactProfileFallbacks(resumedProfile, {
+        phone: event.contactPhone,
+      })
+      clearRespondTransferSessionMarkers(event.contactId, session, respondContactProfile)
+      console.log('[respond-transfer-delayed-resume]', formatRespondAutomationDecisionLog(automationDecision))
+    } else {
+      const transferHandoffAt = automationDecision.lastHumanActivityAt || session.transferHandoffAt || Date.now()
+
+      respondSessions.set(event.contactId, {
+        ...session,
+        transferHandoffAt,
+        lastInteractionAt: Date.now(),
+        respondContactProfile,
+      })
+      console.log('[respond-transfer-paused]', formatRespondAutomationDecisionLog(automationDecision))
+      return
+    }
   }
 
   if (automationDecision.action === 'allow_closed_restart') {
@@ -947,6 +961,50 @@ function refreshRespondBookingTeam(booking, profile) {
 async function unassignRespondConversationAfterReply(contactId) {
   await unassignRespondConversation(contactId).catch((error) => {
     console.warn(`Unable to unassign Respond conversation: ${error.message}`)
+  })
+}
+
+async function getRespondTransferResumeProfile({ contactId, session = {}, initialDecision = {} } = {}) {
+  const delayMs = Number(process.env.RESPOND_TRANSFER_RECHECK_DELAY_MS || 2500)
+
+  if (!contactId || delayMs <= 0) {
+    return null
+  }
+
+  await delay(delayMs)
+
+  const profile = await getRespondContactProfile(contactId, session.respondContactProfile)
+  const decision = getRespondAutomationDecision({
+    contactProfile: profile,
+    session,
+    event: { contactId },
+  })
+
+  if (decision.action === 'allow_unassigned_restart' || decision.action === 'allow_reopened_restart') {
+    console.log('[respond-transfer-recheck-resume]', {
+      contactId,
+      initialAction: initialDecision.action,
+      action: decision.action,
+      assignee: decision.assignee,
+      reason: decision.reason,
+    })
+    return profile
+  }
+
+  console.log('[respond-transfer-recheck-still-paused]', {
+    contactId,
+    initialAction: initialDecision.action,
+    action: decision.action,
+    assignee: decision.assignee,
+    reason: decision.reason,
+  })
+
+  return null
+}
+
+function delay(ms) {
+  return new Promise((resolveDelay) => {
+    setTimeout(resolveDelay, ms)
   })
 }
 

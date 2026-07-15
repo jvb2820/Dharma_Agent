@@ -25,6 +25,18 @@ export function getRespondAutomationDecision({ contactProfile, session = {}, eve
   const lastHumanActivityAt = getLastHumanActivityAt(contactProfile, session)
   const idleExpired = isTransferIdleExpired({ lastHumanActivityAt, now })
 
+  if (!sessionHandoffActive) {
+    return {
+      action: 'allow',
+      assignee,
+      closed,
+      contactId: event.contactId,
+      reason: assigned
+        ? 'Conversation is assigned, but there is no active bot transfer marker, so automation can continue.'
+        : 'Conversation is not assigned to a human.',
+    }
+  }
+
   if (assigned && closed) {
     return {
       action: 'allow_closed_restart',
