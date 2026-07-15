@@ -3870,8 +3870,10 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
 
   const nextDetails = { ...details }
   const conversationSignals = extractRespondBookingDetails(messages)
+  const recordedPhone = getRespondContactBookingDetails(respondContactProfile).phone
   const userProvidedPhone = Boolean(
     conversationSignals.phone ||
+      recordedPhone ||
       existingBooking.details?.phoneConfirmed ||
       nextDetails.phoneConfirmed,
   )
@@ -3879,6 +3881,9 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
 
   if (!userProvidedPhone) {
     delete nextDetails.phone
+  } else if (!nextDetails.phone && recordedPhone) {
+    nextDetails.phone = recordedPhone
+    nextDetails.phoneConfirmed = true
   } else if (nextDetails.phone) {
     nextDetails.phoneConfirmed = true
   }
