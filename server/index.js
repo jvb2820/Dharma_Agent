@@ -1750,6 +1750,321 @@ function getCurrentRespondBookingTeam(existingBooking = {}, profile = {}) {
     : existingBooking.bookingTeam || profileBookingTeam
 }
 
+const RESPOND_BOOKING_INTENTS = new Set([
+  'booking_detail',
+  'complex_question',
+  'pricing',
+  'medical_safety',
+  'provider_question',
+  'objection',
+  'support_issue',
+  'location_question',
+  'handoff',
+  'other',
+])
+const RESPOND_BOOKING_RISK_LEVELS = new Set(['low', 'medium', 'high'])
+const RESPOND_BOOKING_FIELDS = new Set(['state', 'phone', 'name', 'preferredTime', 'slot', 'none'])
+const HIGH_RISK_MODEL_INTENTS = new Set([
+  'pricing',
+  'medical_safety',
+  'provider_question',
+  'support_issue',
+  'location_question',
+  'handoff',
+])
+
+async function classifyRespondBookingIntent({
+  messages = [],
+  latestUserText = '',
+  customerLanguage = '',
+  booking = {},
+  latestSignals = {},
+} = {}) {
+  const startedAt = Date.now()
+  const fallback = inferRespondBookingIntent({
+    latestUserText,
+    messages,
+    latestSignals,
+  })
+
+  if (!process.env.OPENAI_API_KEY || !latestUserText.trim()) {
+    logModelUsage({
+      callType: 'respond_booking_intent',
+      ...fallback,
+      pendingField: booking.pendingField,
+      fallbackUsed: true,
+      durationMs: Date.now() - startedAt,
+    })
+    return fallback
+  }
+
+  try {
+    const text = await createOpenAIResponseText({
+      model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      instructions: [
+        'Classify the latest customer message for a clinic booking automation.',
+        'Return strict JSON only. No markdown, no prose.',
+        'Schema: {"intent":"booking_detail|complex_question|pricing|medical_safety|provider_question|objection|support_issue|location_question|handoff|other","risk_level":"low|medium|high","needs_rag":true|false,"should_answer_question":true|false,"answered_booking_field":"state|phone|name|preferredTime|slot|none"}',
+        'Use answered_booking_field only when the latest customer message clearly provides that exact booking detail. Do not infer state from a city unless the customer states the state.',
+        'Set should_answer_question true when the customer asks a question, raises an objection, asks for safety/provider/pricing/product details, or needs a contextual answer before the booking flow continues.',
+        'Set needs_rag true for pricing, products, provider/doctor, FDA, shipping, legitimacy, safety, medical, support, refund, or compliance topics.',
+        'When uncertain, choose other, medium risk, and should_answer_question false.',
+      ].join('\n'),
+      input: buildModelIntentInput({
+        messages,
+        latestUserText,
+        customerLanguage,
+        booking,
+        latestSignals,
+      }),
+    })
+    const parsed = parseJsonObject(text)
+    const classified = normalizeRespondBookingIntent(parsed, fallback)
+
+    logModelUsage({
+      callType: 'respond_booking_intent',
+      ...classified,
+      pendingField: booking.pendingField,
+      fallbackUsed: false,
+      durationMs: Date.now() - startedAt,
+    })
+    return classified
+  } catch (error) {
+    console.warn(`Respond booking intent classification skipped: ${error.message}`)
+    logModelUsage({
+      callType: 'respond_booking_intent',
+      ...fallback,
+      pendingField: booking.pendingField,
+      fallbackUsed: true,
+      durationMs: Date.now() - startedAt,
+    })
+    return fallback
+  }
+}
+
+function buildModelIntentInput({
+  messages = [],
+  latestUserText = '',
+  customerLanguage = '',
+  booking = {},
+  latestSignals = {},
+}) {
+  const recentConversation = messages
+    .slice(-6)
+    .map((item) => `${item.role || 'user'}: ${redactPromptLogText(item.content || '')}`)
+    .join('\n')
+  const knownSignals = Object.entries({
+    state: latestSignals.state,
+    phone: latestSignals.phone ? 'provided' : '',
+    preferredTime: latestSignals.preferredTime,
+    desiredTreatment: latestSignals.desiredTreatment,
+  })
+    .filter(([, value]) => Boolean(value))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('; ')
+
+  return [
+    customerLanguage ? `Customer language: ${customerLanguage}` : '',
+    `Pending booking field: ${booking.pendingField || 'none'}`,
+    booking.offeredOption || booking.options?.length ? 'A real calendar slot has already been offered by the application.' : '',
+    knownSignals ? `Latest deterministic booking signals: ${knownSignals}` : '',
+    `Latest customer message: ${redactPromptLogText(latestUserText)}`,
+    recentConversation ? `Recent conversation:\n${recentConversation}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function inferRespondBookingIntent({ latestUserText = '', messages = [], latestSignals = {} } = {}) {
+  const normalized = normalizeSearchText(latestUserText)
+  const answeredField =
+    latestSignals.state ? 'state' :
+    latestSignals.phone ? 'phone' :
+    latestSignals.preferredTime ? 'preferredTime' :
+    'none'
+
+  if (answeredField !== 'none') {
+    return {
+      intent: 'booking_detail',
+      risk_level: 'low',
+      needs_rag: false,
+      should_answer_question: false,
+      answered_booking_field: answeredField,
+    }
+  }
+
+  if (isMedicalHistoryOrSafetyQuestion(normalized)) {
+    return {
+      intent: 'medical_safety',
+      risk_level: 'high',
+      needs_rag: true,
+      should_answer_question: true,
+      answered_booking_field: 'none',
+    }
+  }
+
+  if (hasPriceOrPaymentQuestion(normalized)) {
+    return {
+      intent: 'pricing',
+      risk_level: 'high',
+      needs_rag: true,
+      should_answer_question: true,
+      answered_booking_field: 'none',
+    }
+  }
+
+  if (isSalesObjection(normalized)) {
+    return {
+      intent: 'objection',
+      risk_level: 'medium',
+      needs_rag: true,
+      should_answer_question: true,
+      answered_booking_field: 'none',
+    }
+  }
+
+  if (isSupportOrHandoffRequest(normalized)) {
+    return {
+      intent: 'support_issue',
+      risk_level: 'high',
+      needs_rag: true,
+      should_answer_question: true,
+      answered_booking_field: 'none',
+    }
+  }
+
+  if (/\b(doctor|doctors|provider|providers|medico|medicos|doctores|proveedor|doutor)\b/.test(normalized)) {
+    return {
+      intent: 'provider_question',
+      risk_level: 'high',
+      needs_rag: true,
+      should_answer_question: true,
+      answered_booking_field: 'none',
+    }
+  }
+
+  if (isLocationQuestion(normalized)) {
+    return {
+      intent: 'location_question',
+      risk_level: 'medium',
+      needs_rag: true,
+      should_answer_question: true,
+      answered_booking_field: 'none',
+    }
+  }
+
+  if (isOutOfFlowInfoQuestion(latestUserText) || isContextualOutOfFlowFollowUp(latestUserText, messages)) {
+    return {
+      intent: 'complex_question',
+      risk_level: 'medium',
+      needs_rag: true,
+      should_answer_question: true,
+      answered_booking_field: 'none',
+    }
+  }
+
+  return {
+    intent: 'other',
+    risk_level: 'medium',
+    needs_rag: false,
+    should_answer_question: false,
+    answered_booking_field: 'none',
+  }
+}
+
+function isSalesObjection(normalized) {
+  return [
+    /\b(expensive|too much|costly|afford|pricey|scared|afraid|nervous|not sure|unsure|legit|trust|safe)\b/,
+    /\b(caro|cara|costoso|costosa|miedo|nerviosa|nervioso|seguro|segura|confiable|legitimo|legitima)\b/,
+    /\b(caro|cara|medo|nervoso|nervosa|seguro|segura|confiavel|legitimo|legitima)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function isSupportOrHandoffRequest(normalized) {
+  return [
+    /\b(refund|replacement|complaint|order issue|side effects|already a client|customer service|support|human|agent)\b/,
+    /\b(reembolso|devolucion|reemplazo|queja|reclamo|servicio al cliente|soporte|humano|persona)\b/,
+    /\b(reembolso|troca|substituicao|reclamacao|atendimento|suporte|humano|pessoa)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function normalizeRespondBookingIntent(value = {}, fallback) {
+  const intent = RESPOND_BOOKING_INTENTS.has(value.intent) ? value.intent : fallback.intent
+  const riskLevel = RESPOND_BOOKING_RISK_LEVELS.has(value.risk_level)
+    ? value.risk_level
+    : fallback.risk_level
+  const answeredBookingField = RESPOND_BOOKING_FIELDS.has(value.answered_booking_field)
+    ? value.answered_booking_field
+    : fallback.answered_booking_field
+
+  return {
+    intent,
+    risk_level: riskLevel,
+    needs_rag: typeof value.needs_rag === 'boolean' ? value.needs_rag : fallback.needs_rag,
+    should_answer_question:
+      typeof value.should_answer_question === 'boolean'
+        ? value.should_answer_question
+        : fallback.should_answer_question,
+    answered_booking_field: answeredBookingField,
+  }
+}
+
+function shouldRequireRagForModelAnswer(modelIntent = {}) {
+  return (
+    modelIntent.needs_rag ||
+    modelIntent.risk_level === 'high' ||
+    HIGH_RISK_MODEL_INTENTS.has(modelIntent.intent)
+  )
+}
+
+function logModelUsage({
+  callType,
+  intent = 'other',
+  risk_level: riskLevel = 'medium',
+  needs_rag: needsRag = false,
+  should_answer_question: shouldAnswerQuestion = false,
+  answered_booking_field: answeredBookingField = 'none',
+  pendingField = '',
+  ragMatchCount = null,
+  guardrailBlocked = false,
+  guardrailReason = '',
+  fallbackUsed = false,
+  durationMs = null,
+} = {}) {
+  const payload = {
+    call_type: callType,
+    intent,
+    risk_level: riskLevel,
+    needs_rag: Boolean(needsRag),
+    should_answer_question: Boolean(shouldAnswerQuestion),
+    answered_booking_field: answeredBookingField || 'none',
+    pending_field: pendingField || '',
+    rag_match_count: ragMatchCount,
+    guardrail_blocked: Boolean(guardrailBlocked),
+    guardrail_reason: guardrailReason || '',
+    fallback_used: Boolean(fallbackUsed),
+    duration_ms: durationMs,
+  }
+
+  console.info(`[model_usage] ${JSON.stringify(payload)}`)
+}
+
+function redactPromptLogText(value) {
+  return String(value || '')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+    .replace(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)?\d{3}[\s.-]?\d{4,}/g, '[phone]')
+    .replace(/\b\d{1,5}\s+[A-Za-z0-9 .'-]+\s+(street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|blvd|boulevard)\b/gi, '[address]')
+    .slice(0, 1200)
+}
+
+function parseJsonObject(value) {
+  const text = String(value || '').trim()
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim()
+  const candidate = fenced || text.match(/\{[\s\S]*\}/)?.[0] || text
+
+  return JSON.parse(candidate)
+}
+
 async function handleRespondBookingAutomation({
   session,
   messages,
@@ -1774,6 +2089,13 @@ async function handleRespondBookingAutomation({
   }
   details = applyAvailabilityConstraintFromPreferredTime(details)
   details = withDefaultRespondDesiredTreatment(details)
+  const modelIntent = await classifyRespondBookingIntent({
+    messages,
+    latestUserText,
+    customerLanguage,
+    booking: { ...existingBooking, bookingTeam, details },
+    latestSignals,
+  })
 
   if (existingBooking.pendingField === 'state') {
     const state = latestSignals.state
@@ -1835,7 +2157,7 @@ async function handleRespondBookingAutomation({
         }
       }
 
-      if (isOutOfFlowInfoQuestion(latestUserText)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generatePendingStateOutOfFlowAnswer({
           messages,
           latestUserText,
@@ -1847,6 +2169,7 @@ async function handleRespondBookingAutomation({
             details: { ...details, state: '' },
             pendingField: 'state',
           },
+          modelIntent,
         })
 
         return {
@@ -1896,13 +2219,14 @@ async function handleRespondBookingAutomation({
     }
 
     if (!nextDetails.phone) {
-      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
           latestUserText,
           customerLanguage,
           respondContactProfile,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+          modelIntent,
         })
 
         return {
@@ -1929,13 +2253,14 @@ async function handleRespondBookingAutomation({
       customerLanguage,
     })
 
-    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
       const answer = await generateBookingOutOfFlowAnswer({
         messages,
         latestUserText,
         customerLanguage,
         respondContactProfile,
         booking: { ...existingBooking, bookingTeam, details: nextDetails },
+        modelIntent,
       })
 
       return {
@@ -1956,13 +2281,14 @@ async function handleRespondBookingAutomation({
   if (existingBooking.pendingField === 'goals') {
     const nextDetails = withDefaultRespondDesiredTreatment(details)
 
-    if (isOutOfFlowInfoQuestion(latestUserText)) {
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
       const answer = await generateBookingOutOfFlowAnswer({
         messages,
         latestUserText,
         customerLanguage,
         respondContactProfile,
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'goals' },
+        modelIntent,
       })
 
       if (!nextDetails.phone) {
@@ -2014,13 +2340,14 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'preferredTime') {
-    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages) && !extractPreferredTimeText(latestUserText)) {
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent) && !extractPreferredTimeText(latestUserText)) {
       const answer = await generateBookingOutOfFlowAnswer({
         messages,
         latestUserText,
         customerLanguage,
         respondContactProfile,
         booking: { ...existingBooking, bookingTeam, details, pendingField: 'preferredTime' },
+        modelIntent,
       })
 
       return {
@@ -2064,13 +2391,14 @@ async function handleRespondBookingAutomation({
     const nextDetails = phone ? { ...details, phone } : details
 
     if (!nextDetails.phone) {
-      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
           latestUserText,
           customerLanguage,
           respondContactProfile,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+          modelIntent,
         })
 
         return {
@@ -2092,13 +2420,14 @@ async function handleRespondBookingAutomation({
     }
 
     if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
-      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
           latestUserText,
           customerLanguage,
           respondContactProfile,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+          modelIntent,
         })
 
         return {
@@ -2139,7 +2468,7 @@ async function handleRespondBookingAutomation({
 
   if (existingBooking.pendingField === 'name') {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
-    const isOutOfFlowQuestion = shouldAnswerBeforeReturningToBooking(latestUserText, messages)
+    const isOutOfFlowQuestion = shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)
     const nameDetails = splitCustomerName(latestUserText)
     const nextDetails = mergeNonEmptyDetails(
       details,
@@ -2156,6 +2485,7 @@ async function handleRespondBookingAutomation({
           customerLanguage,
           respondContactProfile,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+          modelIntent,
         })
 
         return {
@@ -2171,13 +2501,14 @@ async function handleRespondBookingAutomation({
     }
 
     if (!nextDetails.phone) {
-      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
           latestUserText,
           customerLanguage,
           respondContactProfile,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+          modelIntent,
         })
 
         return {
@@ -2223,7 +2554,7 @@ async function handleRespondBookingAutomation({
   )
   const hasActiveSlotOffer = Boolean(existingBooking.offeredOption || existingBooking.options?.length)
 
-  if (hasActiveSlotOffer && !selectedOption && isOutOfFlowInfoQuestion(latestUserText)) {
+  if (hasActiveSlotOffer && !selectedOption && shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
     return await buildOutOfFlowAnswerWithBookingContext({
       messages,
       latestUserText,
@@ -2231,6 +2562,7 @@ async function handleRespondBookingAutomation({
       booking: existingBooking,
       details,
       respondContactProfile,
+      modelIntent,
     })
   }
 
@@ -2385,13 +2717,14 @@ async function handleRespondBookingAutomation({
     const option = selectedOption || existingBooking.offeredOption
 
     if (!hasBookableRespondCustomerName(details, respondContactProfile)) {
-      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
           latestUserText,
           customerLanguage,
           respondContactProfile,
           booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'name' },
+          modelIntent,
         })
 
         return {
@@ -2419,13 +2752,14 @@ async function handleRespondBookingAutomation({
     }
 
     if (!details.phone) {
-      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
           latestUserText,
           customerLanguage,
           respondContactProfile,
           booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+          modelIntent,
         })
 
         return {
@@ -2494,13 +2828,14 @@ async function handleRespondBookingAutomation({
   }
 
   if (!details.state) {
-    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
       const answer = await generatePendingStateOutOfFlowAnswer({
         messages,
         latestUserText,
         customerLanguage,
         respondContactProfile,
         booking: { ...existingBooking, bookingTeam, details: { ...details, state: '' }, pendingField: 'state' },
+        modelIntent,
       })
 
       return {
@@ -2516,13 +2851,14 @@ async function handleRespondBookingAutomation({
   }
 
   if (!details.phone) {
-    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages)) {
+    if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
       const answer = await generateBookingOutOfFlowAnswer({
         messages,
         latestUserText,
         customerLanguage,
         respondContactProfile,
         booking: { ...existingBooking, bookingTeam, details, pendingField: 'phone' },
+        modelIntent,
       })
 
       return {
@@ -2905,6 +3241,7 @@ async function buildOutOfFlowAnswerWithBookingContext({
   booking = {},
   details = {},
   respondContactProfile,
+  modelIntent,
 }) {
   const answer = isClientTreatmentPrivacyQuestion(latestUserText)
     ? getOutOfFlowAnswer(latestUserText, customerLanguage)
@@ -2914,6 +3251,7 @@ async function buildOutOfFlowAnswerWithBookingContext({
         customerLanguage,
         respondContactProfile,
         booking: { ...booking, details },
+        modelIntent,
       })
 
   if (!answer) {
@@ -3495,9 +3833,11 @@ async function generatePendingStateOutOfFlowAnswer({
   customerLanguage,
   respondContactProfile,
   booking,
+  modelIntent,
 }) {
+  const startedAt = Date.now()
   const fallbackAnswer = getOutOfFlowAnswer(latestUserText, customerLanguage)
-  const ragContext = await buildRagContext({
+  const ragResult = await buildRagContextResult({
     agent: RESPOND_AGENT,
     messages,
     message: latestUserText,
@@ -3507,6 +3847,20 @@ async function generatePendingStateOutOfFlowAnswer({
     messages,
     message: latestUserText,
   })
+  const requiresRag = shouldRequireRagForModelAnswer(modelIntent)
+
+  if (requiresRag && ragResult.matchCount === 0) {
+    logModelUsage({
+      callType: 'pending_state_out_of_flow_answer',
+      ...modelIntent,
+      pendingField: booking?.pendingField,
+      ragMatchCount: 0,
+      fallbackUsed: true,
+      durationMs: Date.now() - startedAt,
+    })
+    return fallbackAnswer || getContextualOutOfFlowFallbackAnswer(customerLanguage)
+  }
+
   const instructions = buildInstructions({
     agent: RESPOND_AGENT,
     customerLanguage,
@@ -3516,13 +3870,16 @@ async function generatePendingStateOutOfFlowAnswer({
       'Do not ask for state, location, shipping availability, or where they live in this answer; the application will append one state question after your answer.',
       'If the customer asks about a doctor, provider, or who handles the medical review, answer that question first in the customer language. Use this structure: Dharma works with a network of licensed providers in the states where we offer care; after the medical form is completed, the case is assigned to a licensed doctor in the customer state, or their state if no state is known; during the free analysis call, our specialist explains treatment options, the process, and answers questions.',
       'Do not start with a greeting. Keep it concise but specific enough to actually answer the question.',
+      requiresRag
+        ? 'This is a high-risk or knowledge-dependent topic. Use only retrieved company context and approved policy language. If the retrieved context does not support a specific claim, say the specialist/team can review it instead of guessing.'
+        : '',
     ].join('\n'),
   })
   const input = buildInput({
     messages,
     message: latestUserText,
     customerLanguage,
-    context: [memoryContext, ragContext].filter(Boolean).join('\n\n'),
+    context: [memoryContext, ragResult.context].filter(Boolean).join('\n\n'),
     respondContactProfile,
     booking,
   })
@@ -3531,8 +3888,38 @@ async function generatePendingStateOutOfFlowAnswer({
     model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
     instructions,
     input,
+  }).then((answer) => {
+    const validated = validateControlledModelAnswer(answer, {
+      fallbackAnswer,
+      customerLanguage,
+      messages,
+      booking,
+      callType: 'pending_state_out_of_flow_answer',
+      modelIntent,
+      ragMatchCount: ragResult.matchCount,
+      durationMs: Date.now() - startedAt,
+    })
+
+    logModelUsage({
+      callType: 'pending_state_out_of_flow_answer',
+      ...modelIntent,
+      pendingField: booking?.pendingField,
+      ragMatchCount: ragResult.matchCount,
+      guardrailBlocked: validated.blocked,
+      fallbackUsed: validated.fallbackUsed,
+      durationMs: Date.now() - startedAt,
+    })
+    return validated.text
   }).catch((error) => {
     console.warn(`Unable to generate pending-state answer: ${error.message}`)
+    logModelUsage({
+      callType: 'pending_state_out_of_flow_answer',
+      ...modelIntent,
+      pendingField: booking?.pendingField,
+      ragMatchCount: ragResult.matchCount,
+      fallbackUsed: true,
+      durationMs: Date.now() - startedAt,
+    })
     return fallbackAnswer
   })
 }
@@ -3543,11 +3930,13 @@ async function generateBookingOutOfFlowAnswer({
   customerLanguage,
   respondContactProfile,
   booking,
+  modelIntent,
 }) {
+  const startedAt = Date.now()
   const fallbackAnswer =
     getOutOfFlowAnswer(latestUserText, customerLanguage) ||
     getContextualOutOfFlowFallbackAnswer(customerLanguage)
-  const ragContext = await buildRagContext({
+  const ragResult = await buildRagContextResult({
     agent: RESPOND_AGENT,
     messages,
     message: latestUserText,
@@ -3557,6 +3946,20 @@ async function generateBookingOutOfFlowAnswer({
     messages,
     message: latestUserText,
   })
+  const requiresRag = shouldRequireRagForModelAnswer(modelIntent)
+
+  if (requiresRag && ragResult.matchCount === 0) {
+    logModelUsage({
+      callType: 'booking_out_of_flow_answer',
+      ...modelIntent,
+      pendingField: booking?.pendingField,
+      ragMatchCount: 0,
+      fallbackUsed: true,
+      durationMs: Date.now() - startedAt,
+    })
+    return fallbackAnswer
+  }
+
   const instructions = buildInstructions({
     agent: RESPOND_AGENT,
     customerLanguage,
@@ -3567,13 +3970,16 @@ async function generateBookingOutOfFlowAnswer({
       'Do not mention the exact offered appointment slot or ask whether the slot works in this generated answer.',
       'If the customer asks about a doctor, provider, or who handles the medical review, answer that question before returning to the active booking step in the customer language. Use this structure: Dharma works with a network of licensed providers in the states where we offer care; after the medical form is completed, the case is assigned to a licensed doctor in the customer state, or their state if no state is known; during the free analysis call, our specialist explains treatment options, the process, and answers questions.',
       'Do not start with a greeting. Keep it concise and specific enough to answer the question.',
+      requiresRag
+        ? 'This is a high-risk or knowledge-dependent topic. Use only retrieved company context and approved policy language. If the retrieved context does not support a specific claim, say the specialist/team can review it instead of guessing.'
+        : '',
     ].join('\n'),
   })
   const input = buildInput({
     messages,
     message: latestUserText,
     customerLanguage,
-    context: [memoryContext, ragContext].filter(Boolean).join('\n\n'),
+    context: [memoryContext, ragResult.context].filter(Boolean).join('\n\n'),
     respondContactProfile,
     booking,
   })
@@ -3582,8 +3988,38 @@ async function generateBookingOutOfFlowAnswer({
     model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
     instructions,
     input,
+  }).then((answer) => {
+    const validated = validateControlledModelAnswer(answer, {
+      fallbackAnswer,
+      customerLanguage,
+      messages,
+      booking,
+      callType: 'booking_out_of_flow_answer',
+      modelIntent,
+      ragMatchCount: ragResult.matchCount,
+      durationMs: Date.now() - startedAt,
+    })
+
+    logModelUsage({
+      callType: 'booking_out_of_flow_answer',
+      ...modelIntent,
+      pendingField: booking?.pendingField,
+      ragMatchCount: ragResult.matchCount,
+      guardrailBlocked: validated.blocked,
+      fallbackUsed: validated.fallbackUsed,
+      durationMs: Date.now() - startedAt,
+    })
+    return validated.text
   }).catch((error) => {
     console.warn(`Unable to generate booking out-of-flow answer: ${error.message}`)
+    logModelUsage({
+      callType: 'booking_out_of_flow_answer',
+      ...modelIntent,
+      pendingField: booking?.pendingField,
+      ragMatchCount: ragResult.matchCount,
+      fallbackUsed: true,
+      durationMs: Date.now() - startedAt,
+    })
     return fallbackAnswer
   })
 }
@@ -3607,6 +4043,113 @@ function buildPendingStateOutOfFlowReply(answer, customerLanguage) {
   const cleanedAnswer = stripStateQuestionFromGeneratedAnswer(answer)
 
   return cleanedAnswer ? `${cleanedAnswer}\n\n${askState}` : askState
+}
+
+function validateControlledModelAnswer(
+  answer,
+  {
+    fallbackAnswer,
+    customerLanguage,
+    messages = [],
+    booking = {},
+    callType = 'controlled_model_answer',
+    modelIntent = {},
+    ragMatchCount = 0,
+    durationMs = 0,
+  } = {},
+) {
+  const strippedAnswer =
+    booking?.pendingField === 'state'
+      ? stripStateQuestionFromGeneratedAnswer(answer)
+      : stripBookingPromptFromGeneratedAnswer(answer)
+  const text = strippedAnswer.trim()
+  const safeFallback = fallbackAnswer || getContextualOutOfFlowFallbackAnswer(customerLanguage)
+  const reason = getControlledModelAnswerBlockReason(text, {
+    messages,
+    booking,
+  })
+
+  if (!text || reason) {
+    if (reason) {
+      logModelUsage({
+        callType,
+        ...modelIntent,
+        pendingField: booking?.pendingField,
+        ragMatchCount,
+        guardrailBlocked: true,
+        guardrailReason: reason,
+        fallbackUsed: true,
+        durationMs,
+      })
+    }
+
+    return {
+      text: safeFallback,
+      blocked: Boolean(reason),
+      fallbackUsed: true,
+    }
+  }
+
+  return {
+    text,
+    blocked: false,
+    fallbackUsed: false,
+  }
+}
+
+function getControlledModelAnswerBlockReason(text, { messages = [], booking = {} } = {}) {
+  const normalized = normalizeSearchText(text)
+
+  if (!normalized) {
+    return 'empty_answer'
+  }
+
+  if (hasUnconfirmedBookingLanguage(text)) {
+    return 'unconfirmed_booking_claim'
+  }
+
+  if (hasCustomerAvailabilityQuestion(text) && booking) {
+    return 'invented_or_requested_availability'
+  }
+
+  if (text.split(/\n+/).some((line) => isBookingPromptLine(line) || isStateQuestionLine(line))) {
+    return 'model_asked_booking_step'
+  }
+
+  if (hasForbiddenControlledModelClaim(normalized)) {
+    return 'forbidden_claim'
+  }
+
+  if (hasUnsupportedLocationClaim(text, messages, booking)) {
+    return 'unsupported_location_claim'
+  }
+
+  return ''
+}
+
+function hasForbiddenControlledModelClaim(normalized) {
+  return [
+    /\b(refund|replacement|credit|compensation)\b[\s\S]{0,60}\b(approved|confirmed|guaranteed|will receive|we will send|we can issue)\b/,
+    /\b(garantizado|garantizada|garantizamos|garantia)\b[\s\S]{0,80}\b(resultado|bajar|perder|adelgazar|seguro)\b/,
+    /\b(guarantee|guaranteed|will lose|safe for everyone|no side effects|works for everyone)\b/,
+    /\b(send|provide|share|give)\b[\s\S]{0,50}\b(full address|shipping address|home address|direccion completa|direcci[oó]n completa)\b/,
+    /\b(start|stop|change)\b[\s\S]{0,40}\b(medication|medicine|dose|dosage|medicamento|dosis)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function hasUnsupportedLocationClaim(text, messages = [], booking = {}) {
+  const normalized = normalizeSearchText(text)
+  const knownState = booking?.details?.state || extractRespondBookingDetails(messages).state
+
+  if (/\b(previously mentioned|you mentioned earlier|as you said|as you shared)\b[\s\S]{0,80}\b(state|city|location|michigan|delaware)\b/.test(normalized)) {
+    return true
+  }
+
+  if (!knownState && /\b(your state|your city|your location)\b[\s\S]{0,80}\b(michigan|delaware|california|texas|florida|new york)\b/.test(normalized)) {
+    return true
+  }
+
+  return false
 }
 
 function stripStateQuestionFromGeneratedAnswer(answer) {
@@ -4027,8 +4570,16 @@ function isContextualOutOfFlowFollowUp(content, messages = []) {
   return asksAboutPriorContext && asksForHelpOrExplanation && Boolean(priorUserQuestion)
 }
 
-function shouldAnswerBeforeReturningToBooking(content, messages = []) {
-  return isOutOfFlowInfoQuestion(content) || isContextualOutOfFlowFollowUp(content, messages)
+function shouldAnswerBeforeReturningToBooking(content, messages = [], modelIntent = null) {
+  if (modelIntent?.answered_booking_field && modelIntent.answered_booking_field !== 'none') {
+    return false
+  }
+
+  return (
+    Boolean(modelIntent?.should_answer_question) ||
+    isOutOfFlowInfoQuestion(content) ||
+    isContextualOutOfFlowFollowUp(content, messages)
+  )
 }
 
 function isPriorOutOfFlowTopic(content) {
@@ -5420,10 +5971,16 @@ function detectCustomerLanguage(content) {
 }
 
 async function buildRagContext({ agent, messages = [], message }) {
+  const result = await buildRagContextResult({ agent, messages, message })
+
+  return result.context
+}
+
+async function buildRagContextResult({ agent, messages = [], message }) {
   const lastUserMessage = getLastUserMessage({ messages, message })
 
   if (!lastUserMessage.trim()) {
-    return ''
+    return { context: '', matchCount: 0 }
   }
 
   const matches = await searchKnowledge({
@@ -5431,7 +5988,10 @@ async function buildRagContext({ agent, messages = [], message }) {
     agentId: agent?.id || 'sales',
   })
 
-  return formatKnowledgeContext(matches)
+  return {
+    context: formatKnowledgeContext(matches),
+    matchCount: matches.length,
+  }
 }
 
 async function buildMemoryContext({ agent, messages = [], message }) {
