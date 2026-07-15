@@ -1772,6 +1772,22 @@ const HIGH_RISK_MODEL_INTENTS = new Set([
   'location_question',
   'handoff',
 ])
+const ALLOWED_RAG_SOURCE_TYPES = new Set([
+  'company_info',
+  'raw_conversation',
+  'approved_example',
+  'sales_script',
+  'product_info',
+  'compliance',
+])
+const DEFAULT_RAG_SOURCE_TYPES = [
+  'company_info',
+  'raw_conversation',
+  'approved_example',
+  'sales_script',
+  'product_info',
+  'compliance',
+]
 
 async function classifyRespondBookingIntent({
   messages = [],
@@ -2017,6 +2033,132 @@ function shouldRequireRagForModelAnswer(modelIntent = {}) {
   )
 }
 
+async function planRagSearch({
+  agent,
+  messages = [],
+  message = '',
+  modelIntent = null,
+  fallbackQuery = '',
+} = {}) {
+  const startedAt = Date.now()
+  const fallback = inferRagSearchPlan({
+    message,
+    modelIntent,
+    fallbackQuery,
+  })
+
+  if (!process.env.OPENAI_API_KEY || !fallback.query.trim()) {
+    logModelUsage({
+      callType: 'rag_query_plan',
+      ...(modelIntent || {}),
+      fallbackUsed: true,
+      durationMs: Date.now() - startedAt,
+    })
+    return fallback
+  }
+
+  try {
+    const text = await createOpenAIResponseText({
+      model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      instructions: [
+        'Plan a retrieval search for a clinic sales/support assistant.',
+        'Return strict JSON only. No markdown, no prose.',
+        'Schema: {"query":"short search query","source_types":["company_info|raw_conversation|approved_example|sales_script|product_info|compliance"],"match_count":1-8}',
+        'Rewrite the query to retrieve the most relevant company knowledge for the latest customer message. Include important context from the recent conversation when pronouns like that, it, this, or about that are used.',
+        'Choose only source types from the schema. Use compliance for FDA, safety, privacy, refunds, medical, provider, and shipping policy questions. Use product_info for products, pricing, Semaglutide, Tirzepatide, Zepbound, supplements, and side effects. Use sales_script or approved_example for objections and sales workflow. Use company_info for legitimacy, location, appointments, and general company facts.',
+        'Do not include phone numbers, emails, names, addresses, diagnoses, medication lists, or private details in the query.',
+      ].join('\n'),
+      input: buildRagPlanInput({
+        agent,
+        messages,
+        message,
+        modelIntent,
+        fallback,
+      }),
+    })
+    const parsed = parseJsonObject(text)
+    const plan = normalizeRagSearchPlan(parsed, fallback)
+
+    logModelUsage({
+      callType: 'rag_query_plan',
+      ...(modelIntent || {}),
+      fallbackUsed: false,
+      durationMs: Date.now() - startedAt,
+    })
+    return plan
+  } catch (error) {
+    console.warn(`RAG query planning skipped: ${error.message}`)
+    logModelUsage({
+      callType: 'rag_query_plan',
+      ...(modelIntent || {}),
+      fallbackUsed: true,
+      durationMs: Date.now() - startedAt,
+    })
+    return fallback
+  }
+}
+
+function buildRagPlanInput({
+  agent,
+  messages = [],
+  message = '',
+  modelIntent = null,
+  fallback = {},
+}) {
+  const recentConversation = messages
+    .slice(-6)
+    .map((item) => `${item.role || 'user'}: ${redactPromptLogText(item.content || '')}`)
+    .join('\n')
+
+  return [
+    `Agent: ${agent?.id || 'sales'}`,
+    modelIntent ? `Intent: ${modelIntent.intent || 'other'}` : '',
+    modelIntent ? `Risk level: ${modelIntent.risk_level || 'medium'}` : '',
+    `Fallback query: ${redactPromptLogText(fallback.query || message)}`,
+    `Latest customer message: ${redactPromptLogText(message)}`,
+    recentConversation ? `Recent conversation:\n${recentConversation}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function inferRagSearchPlan({ message = '', modelIntent = null, fallbackQuery = '' } = {}) {
+  const query = redactPromptLogText(fallbackQuery || message).trim()
+  const intent = modelIntent?.intent || inferRespondBookingIntent({ latestUserText: message }).intent
+  const sourceTypesByIntent = {
+    pricing: ['product_info', 'sales_script', 'company_info', 'compliance'],
+    medical_safety: ['compliance', 'product_info', 'company_info'],
+    provider_question: ['compliance', 'company_info', 'sales_script'],
+    objection: ['sales_script', 'approved_example', 'product_info', 'company_info'],
+    support_issue: ['compliance', 'company_info', 'sales_script'],
+    location_question: ['company_info', 'compliance'],
+    handoff: ['compliance', 'company_info'],
+    complex_question: ['company_info', 'product_info', 'compliance', 'sales_script'],
+  }
+
+  return {
+    query,
+    source_types: sourceTypesByIntent[intent] || DEFAULT_RAG_SOURCE_TYPES,
+    match_count: HIGH_RISK_MODEL_INTENTS.has(intent) ? 8 : 6,
+  }
+}
+
+function normalizeRagSearchPlan(value = {}, fallback) {
+  const query = redactPromptLogText(value.query || fallback.query || '').trim()
+  const sourceTypes = Array.isArray(value.source_types)
+    ? value.source_types.filter((sourceType) => ALLOWED_RAG_SOURCE_TYPES.has(sourceType))
+    : []
+  const matchCount = Number(value.match_count)
+
+  return {
+    query: query || fallback.query,
+    source_types: sourceTypes.length ? [...new Set(sourceTypes)].slice(0, 4) : fallback.source_types,
+    match_count: Number.isInteger(matchCount) && matchCount >= 1 && matchCount <= 8
+      ? matchCount
+      : fallback.match_count,
+  }
+}
+
 function logModelUsage({
   callType,
   intent = 'other',
@@ -2026,6 +2168,7 @@ function logModelUsage({
   answered_booking_field: answeredBookingField = 'none',
   pendingField = '',
   ragMatchCount = null,
+  ragSourceTypes = null,
   guardrailBlocked = false,
   guardrailReason = '',
   fallbackUsed = false,
@@ -2040,6 +2183,7 @@ function logModelUsage({
     answered_booking_field: answeredBookingField || 'none',
     pending_field: pendingField || '',
     rag_match_count: ragMatchCount,
+    rag_source_types: Array.isArray(ragSourceTypes) ? ragSourceTypes : null,
     guardrail_blocked: Boolean(guardrailBlocked),
     guardrail_reason: guardrailReason || '',
     fallback_used: Boolean(fallbackUsed),
@@ -3841,6 +3985,7 @@ async function generatePendingStateOutOfFlowAnswer({
     agent: RESPOND_AGENT,
     messages,
     message: latestUserText,
+    modelIntent,
   })
   const memoryContext = await buildMemoryContext({
     agent: RESPOND_AGENT,
@@ -3855,6 +4000,7 @@ async function generatePendingStateOutOfFlowAnswer({
       ...modelIntent,
       pendingField: booking?.pendingField,
       ragMatchCount: 0,
+      ragSourceTypes: ragResult.sourceTypes,
       fallbackUsed: true,
       durationMs: Date.now() - startedAt,
     })
@@ -3905,6 +4051,7 @@ async function generatePendingStateOutOfFlowAnswer({
       ...modelIntent,
       pendingField: booking?.pendingField,
       ragMatchCount: ragResult.matchCount,
+      ragSourceTypes: ragResult.sourceTypes,
       guardrailBlocked: validated.blocked,
       fallbackUsed: validated.fallbackUsed,
       durationMs: Date.now() - startedAt,
@@ -3917,6 +4064,7 @@ async function generatePendingStateOutOfFlowAnswer({
       ...modelIntent,
       pendingField: booking?.pendingField,
       ragMatchCount: ragResult.matchCount,
+      ragSourceTypes: ragResult.sourceTypes,
       fallbackUsed: true,
       durationMs: Date.now() - startedAt,
     })
@@ -3940,6 +4088,7 @@ async function generateBookingOutOfFlowAnswer({
     agent: RESPOND_AGENT,
     messages,
     message: latestUserText,
+    modelIntent,
   })
   const memoryContext = await buildMemoryContext({
     agent: RESPOND_AGENT,
@@ -3954,6 +4103,7 @@ async function generateBookingOutOfFlowAnswer({
       ...modelIntent,
       pendingField: booking?.pendingField,
       ragMatchCount: 0,
+      ragSourceTypes: ragResult.sourceTypes,
       fallbackUsed: true,
       durationMs: Date.now() - startedAt,
     })
@@ -4005,6 +4155,7 @@ async function generateBookingOutOfFlowAnswer({
       ...modelIntent,
       pendingField: booking?.pendingField,
       ragMatchCount: ragResult.matchCount,
+      ragSourceTypes: ragResult.sourceTypes,
       guardrailBlocked: validated.blocked,
       fallbackUsed: validated.fallbackUsed,
       durationMs: Date.now() - startedAt,
@@ -4017,6 +4168,7 @@ async function generateBookingOutOfFlowAnswer({
       ...modelIntent,
       pendingField: booking?.pendingField,
       ragMatchCount: ragResult.matchCount,
+      ragSourceTypes: ragResult.sourceTypes,
       fallbackUsed: true,
       durationMs: Date.now() - startedAt,
     })
@@ -5970,27 +6122,39 @@ function detectCustomerLanguage(content) {
   return ''
 }
 
-async function buildRagContext({ agent, messages = [], message }) {
-  const result = await buildRagContextResult({ agent, messages, message })
+async function buildRagContext({ agent, messages = [], message, modelIntent }) {
+  const result = await buildRagContextResult({ agent, messages, message, modelIntent })
 
   return result.context
 }
 
-async function buildRagContextResult({ agent, messages = [], message }) {
+async function buildRagContextResult({ agent, messages = [], message, modelIntent }) {
   const lastUserMessage = getLastUserMessage({ messages, message })
 
   if (!lastUserMessage.trim()) {
-    return { context: '', matchCount: 0 }
+    return { context: '', matchCount: 0, query: '', sourceTypes: [] }
   }
 
+  const plan = await planRagSearch({
+    agent,
+    messages,
+    message: lastUserMessage,
+    modelIntent,
+    fallbackQuery: lastUserMessage,
+  })
+
   const matches = await searchKnowledge({
-    query: lastUserMessage,
+    query: plan.query,
     agentId: agent?.id || 'sales',
+    sourceTypes: plan.source_types,
+    matchCount: plan.match_count,
   })
 
   return {
     context: formatKnowledgeContext(matches),
     matchCount: matches.length,
+    query: plan.query,
+    sourceTypes: plan.source_types,
   }
 }
 
