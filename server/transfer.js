@@ -9,8 +9,10 @@ const TRANSFER_REQUEST_PATTERNS = [
 ]
 const IRATE_PATTERNS = [
   /\b(angry|upset|mad|furious|frustrated|annoyed|unhappy|disappointed|complaint|complain|ridiculous|terrible|horrible|awful|unacceptable|scam|fraud|lawsuit|lawyer|attorney|cancel|refund|chargeback|report you|bad service|worst)\b/,
-  /\b(enojad[oa]|molest[oa]|furios[oa]|frustrad[oa]|decepcionad[oa]|queja|reclamo|reclamar|ridiculo|terrible|horrible|pesimo|inaceptable|estafa|fraude|demanda|abogado|abogada|cancelar|reembolso|devolucion|contracargo|reportar|mal servicio|peor)\b/,
+  /\b(enojad[oa]|molest[oa]|furios[oa]|frustrad[oa]|decepcionad[oa]|queja|reclamo|reclamar|ridiculo|terrible|horrible|pesimo|inaceptable|estafa|estafador(?:es|a|as)?|fraude|demanda|abogado|abogada|cancelar|refund|reembolso|devolucion|contracargo|reportar|mal servicio|peor)\b/,
   /\b(brav[oa]|irritad[oa]|furios[oa]|frustrad[oa]|chatead[oa]|decepcionad[oa]|reclamacao|reclamar|queixa|ridiculo|terrivel|horrivel|pessimo|inaceitavel|golpe|fraude|processo|advogado|advogada|cancelar|reembolso|estorno|denunciar|mau atendimento|pior)\b/,
+  /\b(quiero|necesito|dame|devuelvan|devuelveme|exijo)\b[\s\S]{0,50}\b(refund|reembolso|devolucion|dinero|money)\b/,
+  /\b(estafador(?:es|a|as)?|estafa|fraude|scam)\b[\s\S]{0,80}\b(refund|reembolso|devolucion|dinero|money)\b/,
 ]
 
 export function getRespondAutomationDecision({ contactProfile, session = {}, event = {}, now = Date.now() } = {}) {

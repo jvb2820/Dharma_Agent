@@ -1107,6 +1107,7 @@ async function resolveRespondTransferTrigger(text) {
         'Classify whether a customer support/sales chat message requires immediate transfer to Customer Service.',
         'Return only compact JSON with keys: shouldTransfer boolean, type string, reason string.',
         'Transfer if the customer is irate, angry, threatening legal/report/chargeback action, strongly complaining, asking for a manager/human/customer service/support/specialist, or explicitly requesting transfer/escalation.',
+        'Transfer if the customer asks for a refund while expressing fraud/scam/frustration language, including Spanglish such as "quiero mi refund" or Spanish accusations such as "estafadores".',
         'Classify messages in any language. Do not transfer for normal product questions, normal booking answers, or mild confusion.',
       ].join('\n'),
       input: `Customer message:\n${text}`,
