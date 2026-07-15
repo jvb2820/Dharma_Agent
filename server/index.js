@@ -3957,9 +3957,9 @@ function bookingCopy(language, key, values = {}) {
       'Esse horário funciona. Qual nome completo devo colocar no agendamento? 📲',
     ),
     askNameBeforeSlot: tri(
-      'Perfect, I have your number. What full name should I use to check and book the appointment? 📲',
-      'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita? 📲',
-      'Perfeito, já tenho seu número. Qual nome completo devo usar para verificar e agendar a consulta? 📲',
+      'Perfect 😊 May I have your full name so I can book your free discovery call? 📲',
+      'Perfecto 😊 Me das tu nombre completo para poder agendar tu llamada de analisis gratis? 📲',
+      'Perfeito 😊 Pode me enviar seu nome completo para eu agendar sua chamada gratuita de analise? 📲',
     ),
     offerSlot: tri(
       `📅 ${named('I have this available time for your free discovery call:', 'I have this available time for your free discovery call:')} ${values.slot}. Does that work for you?`,
