@@ -2552,7 +2552,7 @@ async function handleRespondBookingAutomation({
         })
 
         return {
-          text: `${answer}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
         }
       }
@@ -3012,7 +3012,7 @@ async function handleRespondBookingAutomation({
       })
 
       return {
-        text: `${answer}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+        text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
         booking: { ...existingBooking, bookingTeam, details, pendingField: 'phone' },
       }
     }
@@ -4383,8 +4383,11 @@ function isBookingPromptLine(line) {
   return [
     /\b(friday|monday|tuesday|wednesday|thursday|saturday|sunday|jul|july|jan|feb|mar|apr|may|jun|aug|sep|oct|nov|dec)\b[\s\S]{0,80}\b(am|pm|florida time|eastern time)\b/,
     /\b(does that work|still work|work for you|reserve that spot|book this call|available time|available slot|discovery call on)\b/,
+    /\b(to move forward|to continue|to book|book the appointment|appointment details|please send|please share)\b[\s\S]{0,100}\b(phone|phone number|number|full name|name)\b/,
     /\b(te funciona|reservar ese espacio|agendar esta llamada|horario disponible|llamada gratuita)\b/,
+    /\b(para avanzar|para continuar|para agendar|agendar la cita|detalles de tu cita|enviame|envia|comparte)\b[\s\S]{0,100}\b(telefono|numero|nombre completo|nombre)\b/,
     /\b(funciona para voce|funciona para voc[eê]|reservar esse horario|horario disponivel|chamada gratuita)\b/,
+    /\b(para avancar|para continuar|para agendar|detalhes do seu agendamento|me envie|compartilhe)\b[\s\S]{0,100}\b(telefone|numero|nome completo|nome)\b/,
   ].some((pattern) => pattern.test(normalized))
 }
 
