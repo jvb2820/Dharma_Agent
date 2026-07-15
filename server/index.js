@@ -2388,13 +2388,20 @@ async function handleRespondBookingAutomation({
       return prependOutOfFlowAnswerIfNeeded({
         response: {
         text: bookingCopy(customerLanguage, 'askPhone'),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: '' },
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
         },
         latestUserText,
         customerLanguage,
         booking: existingBooking,
         details: nextDetails,
       })
+    }
+
+    if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
+      return {
+        text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
+      }
     }
 
     const offer = await offerSoonestRespondSlot({
@@ -2444,7 +2451,14 @@ async function handleRespondBookingAutomation({
       if (!nextDetails.phone) {
         return {
           text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
-          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: '' },
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        }
+      }
+
+      if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askNameBeforeSlot')}`,
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
         }
       }
 
@@ -2478,7 +2492,14 @@ async function handleRespondBookingAutomation({
     if (!nextDetails.phone) {
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: '' },
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+      }
+    }
+
+    if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
+      return {
+        text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
+        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
       }
     }
 
@@ -2721,7 +2742,8 @@ async function handleRespondBookingAutomation({
     !isBookingFlowSignal(latestUserText) &&
     !latestSignals.state &&
     !latestSignals.desiredTreatment &&
-    !latestSignals.preferredTime
+    !latestSignals.preferredTime &&
+    !latestSignals.phone
   ) {
     return null
   }
@@ -3027,6 +3049,13 @@ async function handleRespondBookingAutomation({
       booking: existingBooking,
       details,
     })
+  }
+
+  if (!hasBookableRespondCustomerName(details, respondContactProfile)) {
+    return {
+      text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
+      booking: { ...existingBooking, bookingTeam, details, pendingField: 'name' },
+    }
   }
 
   if (existingBooking.offeredOption && !isNegativeReply(latestUserText)) {
