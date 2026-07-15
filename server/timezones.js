@@ -55,14 +55,29 @@ const STATE_TIME_ZONES = {
   Wyoming: 'America/Denver',
 }
 
+const TIME_ZONE_LABELS = {
+  'America/Anchorage': 'Alaska Time',
+  'America/Boise': 'Mountain Time',
+  'America/Chicago': 'Central Time',
+  'America/Denver': 'Mountain Time',
+  'America/Detroit': 'Eastern Time',
+  'America/Indiana/Indianapolis': 'Eastern Time',
+  'America/Los_Angeles': 'Pacific Time',
+  'America/New_York': 'Eastern Time',
+  'America/Phoenix': 'Mountain Standard Time',
+  'America/Puerto_Rico': 'Atlantic Time',
+  'Pacific/Honolulu': 'Hawaii Time',
+}
+
 export function getStateTimeZone(state, fallbackTimezone = DEFAULT_TIMEZONE) {
   return STATE_TIME_ZONES[normalizeStateName(state)] || fallbackTimezone || DEFAULT_TIMEZONE
 }
 
 export function getStateTimeLabel(state, fallbackLabel = 'Eastern Time') {
   const normalizedState = normalizeStateName(state)
+  const timezone = STATE_TIME_ZONES[normalizedState]
 
-  return normalizedState ? `${normalizedState} Time` : fallbackLabel
+  return (timezone && TIME_ZONE_LABELS[timezone]) || fallbackLabel
 }
 
 export function formatCustomerStateSlot(timestamp, state, fallbackTimezone = DEFAULT_TIMEZONE) {

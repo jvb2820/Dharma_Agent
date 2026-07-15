@@ -14,6 +14,7 @@ import {
   US_STATES,
   isPrescribedTreatmentDeliveryState,
 } from '../src/data/states.js'
+import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
@@ -1709,6 +1710,7 @@ function formatBookingContextForPrompt(booking = {}) {
     booking.pendingField === 'state' && !details.state
       ? 'The next required flow step is the customer state. If the latest customer message asks a question or goes out of flow, answer it briefly first, then ask which state they live in before offering availability or asking for phone.'
       : '',
+    'Never invent a customer city, state, or previously mentioned location. Only use a state shown above as Known state or explicitly stated by the latest customer message.',
     'If the latest customer message asks an information question, answer it from company knowledge first. Then briefly return to the current booking flow without asking for details already known or inventing availability.',
   ].filter(Boolean)
 
@@ -1777,7 +1779,7 @@ async function handleRespondBookingAutomation({
     const state = latestSignals.state
 
     if (!state) {
-      if (existingBooking.details?.inferredState && isAffirmative(latestUserText)) {
+      if (existingBooking.details?.inferredState && isInferredStateAffirmation(latestUserText)) {
         latestSignals.state = existingBooking.details.inferredState
       } else if (existingBooking.details?.inferredState && isNegativeReply(latestUserText)) {
         return {
@@ -1802,6 +1804,22 @@ async function handleRespondBookingAutomation({
       const inferredLocation = inferStateFromCity(latestUserText)
 
       if (inferredLocation) {
+        if (inferredLocation.ambiguous) {
+          return {
+            text: bookingCopy(customerLanguage, 'askCityState', inferredLocation),
+            booking: {
+              ...existingBooking,
+              bookingTeam,
+              details: {
+                ...details,
+                inferredCity: '',
+                inferredState: '',
+              },
+              pendingField: 'state',
+            },
+          }
+        }
+
         return {
           text: bookingCopy(customerLanguage, 'confirmInferredState', inferredLocation),
           booking: {
@@ -3320,6 +3338,11 @@ function bookingCopy(language, key, values = {}) {
       'No hay problema. En que estado vives?',
       'Sem problema. Em qual estado voce mora?',
     ),
+    askCityState: tri(
+      `I can help with that. Which state is ${values.city} in?`,
+      `Claro. En que estado esta ${values.city}?`,
+      `Claro. Em qual estado fica ${values.city}?`,
+    ),
     askPhone: tri(
       'Perfect. To check the available slot and move forward, please send the best phone number for the call.',
       'Perfecto. Para revisar el horario disponible y avanzar con la cita, enviame por favor el mejor numero de telefono para la llamada.',
@@ -3851,6 +3874,12 @@ function isSlotAffirmation(content, latestSignals = {}) {
   }
 
   return true
+}
+
+function isInferredStateAffirmation(content) {
+  const normalized = normalizeSearchText(content)
+
+  return isAffirmative(content) || /\b(that city|same city|there|ahi|alli|esa ciudad|essa cidade|cidade)\b/.test(normalized)
 }
 
 function isStateConfirmationReply(content, latestSignals = {}) {
@@ -4943,50 +4972,27 @@ function extractStateName(content) {
 
 function inferStateFromCity(content) {
   const normalized = normalizeSearchText(content)
-  const cityStates = new Map([
-    ['atlanta', 'Georgia'],
-    ['austin', 'Texas'],
-    ['baltimore', 'Maryland'],
-    ['boston', 'Massachusetts'],
-    ['charlotte', 'North Carolina'],
-    ['chicago', 'Illinois'],
-    ['columbus', 'Ohio'],
-    ['dallas', 'Texas'],
-    ['denver', 'Colorado'],
-    ['detroit', 'Michigan'],
-    ['fort lauderdale', 'Florida'],
-    ['fort worth', 'Texas'],
-    ['houston', 'Texas'],
-    ['jacksonville', 'Florida'],
-    ['las vegas', 'Nevada'],
-    ['los angeles', 'California'],
-    ['miami', 'Florida'],
-    ['minneapolis', 'Minnesota'],
-    ['nashville', 'Tennessee'],
-    ['new york', 'New York'],
-    ['new york city', 'New York'],
-    ['nyc', 'New York'],
-    ['orlando', 'Florida'],
-    ['philadelphia', 'Pennsylvania'],
-    ['phoenix', 'Arizona'],
-    ['portland', 'Oregon'],
-    ['raleigh', 'North Carolina'],
-    ['sacramento', 'California'],
-    ['san antonio', 'Texas'],
-    ['san diego', 'California'],
-    ['san francisco', 'California'],
-    ['san jose', 'California'],
-    ['seattle', 'Washington'],
-    ['tampa', 'Florida'],
-    ['washington dc', 'District of Columbia'],
-    ['washington d c', 'District of Columbia'],
-  ])
+  const cityStates = Object.entries(CITY_STATE_OPTIONS).sort(
+    ([leftCity], [rightCity]) => rightCity.length - leftCity.length,
+  )
 
-  for (const [city, state] of cityStates.entries()) {
+  for (const [cityKey, states] of cityStates) {
+    const city = cityKey.replace(/_/g, ' ')
+
     if (new RegExp(`\\b${escapeRegExp(city)}\\b`).test(normalized)) {
+      const displayCity = toTitleCase(city === 'nyc' ? 'New York City' : city.replace(/\bd c\b/, 'DC'))
+
+      if (states.length > 1) {
+        return {
+          city: displayCity,
+          states,
+          ambiguous: true,
+        }
+      }
+
       return {
-        city: toTitleCase(city === 'nyc' ? 'New York City' : city.replace(/\bd c\b/, 'DC')),
-        state,
+        city: displayCity,
+        state: states[0],
       }
     }
   }
