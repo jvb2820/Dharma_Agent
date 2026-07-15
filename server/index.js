@@ -3871,9 +3871,9 @@ function bookingCopy(language, key, values = {}) {
       `Claro. Em qual estado fica ${values.city}?`,
     ),
     askPhone: tri(
-      'Perfect 😊 To book the appointment, please send the best phone number to use for your appointment details. 📲',
-      'Perfecto 😊 Para agendar la cita, enviame por favor el mejor numero de telefono para los detalles de tu cita. 📲',
-      'Perfeito 😊 Para agendar a consulta, por favor me envie o melhor número de telefone para os detalhes do seu agendamento. 📲',
+      'Perfect 😊 This is for your free discovery call with one of our treatment specialists. 📲',
+      'Perfecto 😊 Es para tu llamada de analisis gratis con uno de nuestros especialistas en tratamientos. 📲',
+      'Perfeito 😊 É para sua chamada gratuita de analise com um dos nossos especialistas em tratamentos. 📲',
     ),
     askName: tri(
       'That time works. What full name should I put on the appointment? 📲',
@@ -4383,11 +4383,11 @@ function isBookingPromptLine(line) {
   return [
     /\b(friday|monday|tuesday|wednesday|thursday|saturday|sunday|jul|july|jan|feb|mar|apr|may|jun|aug|sep|oct|nov|dec)\b[\s\S]{0,80}\b(am|pm|florida time|eastern time)\b/,
     /\b(does that work|still work|work for you|reserve that spot|book this call|available time|available slot|discovery call on)\b/,
-    /\b(to move forward|to continue|to book|book the appointment|appointment details|please send|please share)\b[\s\S]{0,100}\b(phone|phone number|number|full name|name)\b/,
+    /\b(to move forward|to continue|to proceed|to book|book the appointment|appointment details|please send|please share|may i please have|may i have|can i have)\b[\s\S]{0,120}\b(phone|phone number|number|full name|name)\b/,
     /\b(te funciona|reservar ese espacio|agendar esta llamada|horario disponible|llamada gratuita)\b/,
-    /\b(para avanzar|para continuar|para agendar|agendar la cita|detalles de tu cita|enviame|envia|comparte)\b[\s\S]{0,100}\b(telefono|numero|nombre completo|nombre)\b/,
+    /\b(para avanzar|para continuar|para proceder|para agendar|agendar la cita|detalles de tu cita|enviame|envia|comparte|me puedes enviar|puedes enviarme)\b[\s\S]{0,120}\b(telefono|numero|nombre completo|nombre)\b/,
     /\b(funciona para voce|funciona para voc[eê]|reservar esse horario|horario disponivel|chamada gratuita)\b/,
-    /\b(para avancar|para continuar|para agendar|detalhes do seu agendamento|me envie|compartilhe)\b[\s\S]{0,100}\b(telefone|numero|nome completo|nome)\b/,
+    /\b(para avancar|para continuar|para prosseguir|para agendar|detalhes do seu agendamento|me envie|compartilhe|pode me enviar)\b[\s\S]{0,120}\b(telefone|numero|nome completo|nome)\b/,
   ].some((pattern) => pattern.test(normalized))
 }
 
