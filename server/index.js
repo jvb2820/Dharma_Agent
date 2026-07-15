@@ -3871,9 +3871,9 @@ function bookingCopy(language, key, values = {}) {
       `Claro. Em qual estado fica ${values.city}?`,
     ),
     askPhone: tri(
-      'Perfect 😊 This is for your free discovery call with one of our treatment specialists. 📲',
-      'Perfecto 😊 Es para tu llamada de analisis gratis con uno de nuestros especialistas en tratamientos. 📲',
-      'Perfeito 😊 É para sua chamada gratuita de analise com um dos nossos especialistas em tratamentos. 📲',
+      'Perfect 😊 To book the appointment for your free discovery call, please send the best phone number to use for your appointment details. 📲',
+      'Perfecto 😊 Para agendar la cita de tu llamada de analisis gratis, enviame por favor el mejor numero de telefono para los detalles de tu cita. 📲',
+      'Perfeito 😊 Para agendar sua consulta da chamada gratuita de analise, por favor me envie o melhor número de telefone para os detalhes do seu agendamento. 📲',
     ),
     askName: tri(
       'That time works. What full name should I put on the appointment? 📲',
