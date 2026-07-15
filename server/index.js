@@ -41,6 +41,11 @@ import {
   unassignRespondConversation,
   updateRespondContact,
 } from './respondService.js'
+import {
+  buildRespondTransferMessage,
+  detectRespondTransferTrigger,
+  getRespondAutomationDecision,
+} from './transfer.js'
 
 loadLocalEnv()
 
@@ -602,6 +607,36 @@ async function processRespondIncomingMessage(event) {
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
     phone: event.contactPhone,
   })
+  const automationDecision = getRespondAutomationDecision({
+    contactProfile: respondContactProfile,
+    session,
+    event,
+  })
+
+  if (automationDecision.action === 'skip_human_owned') {
+    const transferHandoffAt = automationDecision.lastHumanActivityAt || session.transferHandoffAt || Date.now()
+
+    respondSessions.set(event.contactId, {
+      ...session,
+      transferHandoffAt,
+      lastInteractionAt: Date.now(),
+      respondContactProfile,
+    })
+    console.log('[respond-transfer-paused]', formatRespondAutomationDecisionLog(automationDecision))
+    return
+  }
+
+  if (automationDecision.action === 'allow_closed_restart') {
+    clearRespondTransferSessionMarkers(event.contactId, session, respondContactProfile)
+    console.log('[respond-transfer-restart]', formatRespondAutomationDecisionLog(automationDecision))
+  }
+
+  if (automationDecision.action === 'allow_idle_timeout') {
+    clearRespondTransferSessionMarkers(event.contactId, session, respondContactProfile)
+    console.log('[respond-transfer-idle-resume]', formatRespondAutomationDecisionLog(automationDecision))
+    await unassignRespondConversationAfterReply(event.contactId)
+  }
+
   const userMessage = {
     role: 'user',
     content: event.text,
@@ -615,6 +650,20 @@ async function processRespondIncomingMessage(event) {
     session.customerLanguage ||
     respondContactProfile?.bookingDetails?.preferredLanguage ||
     ''
+  const transferTrigger = await resolveRespondTransferTrigger(event.text)
+
+  if (transferTrigger) {
+    await transferRespondConversationToCustomerService({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      customerLanguage: preferredLanguage || 'English',
+      session,
+      respondContactProfile,
+      transferTrigger,
+      userMessage,
+    })
+    return
+  }
 
   if (shouldRestartRespondConversation(session)) {
     const initialLanguage = preferredLanguage || 'English'
@@ -864,6 +913,136 @@ async function unassignRespondConversationAfterReply(contactId) {
   })
 }
 
+async function transferRespondConversationToCustomerService({
+  contactId,
+  channelId,
+  customerLanguage,
+  session = {},
+  respondContactProfile = null,
+  transferTrigger,
+  userMessage,
+}) {
+  const text = buildRespondTransferMessage({ customerLanguage, trigger: transferTrigger })
+
+  await sendRespondTextMessage({
+    contactId,
+    channelId,
+    text,
+  })
+
+  const assignee = getRespondCustomerServiceAssignee()
+
+  if (!assignee) {
+    console.warn(
+      `Unable to transfer Respond conversation to Customer Service: no assignee configured. Configure RESPOND_CUSTOMER_SERVICE_ASSIGNEE or customer-service in RESPOND_BOOKING_ASSIGNEES.`,
+    )
+  } else {
+    await assignRespondConversation({ contactId, assignee }).catch((error) => {
+      console.warn(`Unable to transfer Respond conversation to Customer Service: ${error.message}`)
+    })
+  }
+
+  respondSessions.set(contactId, {
+    ...session,
+    customerLanguage,
+    languageAsked: false,
+    lastInteractionAt: Date.now(),
+    transferHandoffAt: Date.now(),
+    messages: [
+      ...(session.messages || []),
+      userMessage,
+      { role: 'agent', content: text },
+    ].slice(-12),
+    booking: session.booking || null,
+    respondContactProfile,
+  })
+
+  console.log(
+    '[respond-transfer-customer-service]',
+    Object.fromEntries(
+      Object.entries({
+        contactId,
+        assignee,
+        triggerType: transferTrigger?.type,
+        reason: transferTrigger?.reason,
+      }).filter(([, value]) => Boolean(value)),
+    ),
+  )
+}
+
+function getRespondCustomerServiceAssignee() {
+  const direct = String(process.env.RESPOND_CUSTOMER_SERVICE_ASSIGNEE || '').trim()
+
+  if (direct) {
+    return direct
+  }
+
+  const assignees = parseRespondAssigneeMap(process.env.RESPOND_BOOKING_ASSIGNEES)
+
+  return assignees['customer-service'] || assignees.customer_service || assignees.customerservice || ''
+}
+
+async function resolveRespondTransferTrigger(text) {
+  const keywordTrigger = detectRespondTransferTrigger(text)
+
+  if (keywordTrigger || !process.env.OPENAI_API_KEY) {
+    return keywordTrigger
+  }
+
+  try {
+    const result = await createOpenAIResponseText({
+      model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      instructions: [
+        'Classify whether a customer support/sales chat message requires immediate transfer to Customer Service.',
+        'Return only compact JSON with keys: shouldTransfer boolean, type string, reason string.',
+        'Transfer if the customer is irate, angry, threatening legal/report/chargeback action, strongly complaining, asking for a manager/human/customer service/support/specialist, or explicitly requesting transfer/escalation.',
+        'Classify messages in any language. Do not transfer for normal product questions, normal booking answers, or mild confusion.',
+      ].join('\n'),
+      input: `Customer message:\n${text}`,
+    })
+    const parsed = JSON.parse(result)
+
+    if (parsed?.shouldTransfer === true) {
+      return {
+        type: parsed.type === 'transfer_request' ? 'transfer_request' : 'irate_customer',
+        reason: String(parsed.reason || 'Model classified this message as requiring Customer Service transfer.'),
+      }
+    }
+  } catch (error) {
+    console.warn(`Unable to classify Respond transfer trigger with model: ${error.message}`)
+  }
+
+  return null
+}
+
+function clearRespondTransferSessionMarkers(contactId, session = {}, respondContactProfile = null) {
+  const nextSession = {
+    ...session,
+    respondContactProfile,
+  }
+
+  delete nextSession.transferHandoffAt
+  delete nextSession.handoffAt
+
+  respondSessions.set(contactId, nextSession)
+}
+
+function formatRespondAutomationDecisionLog(decision = {}) {
+  return Object.fromEntries(
+    Object.entries({
+      contactId: decision.contactId,
+      action: decision.action,
+      assignee: decision.assignee,
+      closed: decision.closed,
+      idleHours: decision.idleHours,
+      lastHumanActivityAt: decision.lastHumanActivityAt
+        ? new Date(decision.lastHumanActivityAt).toISOString()
+        : '',
+      reason: decision.reason,
+    }).filter(([, value]) => value !== undefined && value !== ''),
+  )
+}
+
 async function finalizeRespondConversationAfterBooking({ contactId, booked, option }) {
   const assignment = getRespondAssigneeForBookedSpecialist(booked, option)
   const assignee = assignment.assignee
@@ -987,12 +1166,15 @@ async function getRespondContactProfile(contactId, fallbackProfile = null) {
 }
 
 function classifyRespondContact(contact) {
+  const conversation = buildRespondConversationSummary(contact)
+
   if (!contact?.id) {
     return {
       status: 'new_or_no_record',
       label: 'New or no existing Respond record',
       reason: 'Respond contact lookup did not return a profile.',
       bookingDetails: {},
+      conversation,
     }
   }
 
@@ -1021,6 +1203,7 @@ function classifyRespondContact(contact) {
       reason: 'Respond fields or tags indicate an existing client/patient.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
       bookingDetails,
+      conversation,
     }
   }
 
@@ -1031,6 +1214,7 @@ function classifyRespondContact(contact) {
       reason: 'Respond fields or tags indicate an existing scheduled/evaluated lead.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
       bookingDetails,
+      conversation,
     }
   }
 
@@ -1041,6 +1225,7 @@ function classifyRespondContact(contact) {
       reason: 'Respond contact has a hubspot_id custom field.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
       bookingDetails,
+      conversation,
     }
   }
 
@@ -1051,6 +1236,7 @@ function classifyRespondContact(contact) {
       reason: 'Respond fields indicate prior conversation handling, but not confirmed client status.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
       bookingDetails,
+      conversation,
     }
   }
 
@@ -1060,7 +1246,52 @@ function classifyRespondContact(contact) {
     reason: 'No current Respond fields indicate a prior client, lead, HubSpot record, or handled conversation.',
     fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
     bookingDetails,
+    conversation,
   }
+}
+
+function buildRespondConversationSummary(contact = {}) {
+  const conversation =
+    contact?.conversation ||
+    contact?.conversationInfo ||
+    contact?.conversation_info ||
+    contact?.currentConversation ||
+    contact?.current_conversation ||
+    {}
+
+  return Object.fromEntries(
+    Object.entries({
+      status:
+        conversation.status ||
+        conversation.conversationStatus ||
+        conversation.conversation_status ||
+        conversation.state ||
+        contact?.conversationStatus ||
+        contact?.conversation_status,
+      assignee:
+        conversation.assignee ||
+        conversation.assignedTo ||
+        conversation.assigned_to ||
+        conversation.assigneeId ||
+        conversation.assignee_id ||
+        conversation.assigneeEmail ||
+        conversation.assignee_email ||
+        contact?.assignee ||
+        contact?.assignedTo ||
+        contact?.assigned_to,
+      lastHumanActivityAt:
+        conversation.lastHumanActivityAt ||
+        conversation.last_human_activity_at ||
+        conversation.lastAssigneeActivityAt ||
+        conversation.last_assignee_activity_at ||
+        conversation.lastMessageAt ||
+        conversation.last_message_at ||
+        conversation.updatedAt ||
+        conversation.updated_at ||
+        conversation.assignedAt ||
+        conversation.assigned_at,
+    }).filter(([, value]) => Boolean(value)),
+  )
 }
 
 function getRespondCustomFieldMap(contact) {
