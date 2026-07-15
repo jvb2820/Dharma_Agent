@@ -48,6 +48,12 @@ import {
   detectRespondTransferTrigger,
   getRespondAutomationDecision,
 } from './transfer.js'
+import {
+  createDummyEmailFromProvidedPhone,
+  isExactRespondClientStatus,
+  shouldUseNewClientBookingFlow,
+  splitCustomerFullName,
+} from './newClientFlow.js'
 
 loadLocalEnv()
 
@@ -1718,21 +1724,11 @@ function formatBookingContextForPrompt(booking = {}) {
 }
 
 function getBookingTeamForRespondContact(profile) {
-  const contactStatus = String(profile?.fields?.contactStatus || '').trim()
-
-  return profile?.status === 'returning_client' || /\bclient\b/i.test(contactStatus)
-    ? 'customer_service'
-    : 'sales'
-}
-
-function isRespondClientContact(profile = {}) {
-  const contactStatus = String(profile?.fields?.contactStatus || '').trim()
-
-  return profile?.status === 'returning_client' || /\bclient\b/i.test(contactStatus)
+  return isExactRespondClientStatus(profile) ? 'customer_service' : 'sales'
 }
 
 function shouldConfirmNameBeforeRespondBooking(profile = {}, details = {}) {
-  return profile?.status === 'new_or_no_record' && !isRespondClientContact(profile) && !details.nameConfirmed
+  return shouldUseNewClientBookingFlow(profile) && !(details.nameConfirmed && details.firstName && details.lastName)
 }
 
 function hasBookableRespondCustomerName(details = {}, profile = {}) {
@@ -1742,7 +1738,7 @@ function hasBookableRespondCustomerName(details = {}, profile = {}) {
 function getCurrentRespondBookingTeam(existingBooking = {}, profile = {}) {
   const profileBookingTeam = getBookingTeamForRespondContact(profile)
   const hasCurrentRoutingSignal =
-    profile?.status === 'returning_client' ||
+    isExactRespondClientStatus(profile) ||
     Boolean(String(profile?.fields?.contactStatus || '').trim())
 
   return hasCurrentRoutingSignal
@@ -2218,7 +2214,10 @@ async function handleRespondBookingAutomation({
   const existingBooking = session.booking || {}
   const bookingTeam = getCurrentRespondBookingTeam(existingBooking, respondContactProfile)
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
+  const conversationSignals = extractRespondBookingDetails(messages)
+  const conversationNameDetails = extractRespondFullNameDetails(messages)
   const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
+  const latestNameDetails = splitCustomerFullName(latestUserText)
   const latestPreferredTime = resolveRespondPreferredTime({
     existingDetails: existingBooking.details,
     latestSignals,
@@ -2227,12 +2226,19 @@ async function handleRespondBookingAutomation({
   let details = {
     ...getRespondContactBookingDetails(respondContactProfile),
     ...(existingBooking.details || {}),
-    ...extractRespondBookingDetails(messages),
+    ...conversationSignals,
+    ...conversationNameDetails,
     ...latestSignals,
+    ...latestNameDetails,
     ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
   }
   details = applyAvailabilityConstraintFromPreferredTime(details)
   details = withDefaultRespondDesiredTreatment(details)
+  details = applyNewClientBookingRequirements(details, {
+    existingBooking,
+    messages,
+    respondContactProfile,
+  })
   const modelIntent = await classifyRespondBookingIntent({
     messages,
     latestUserText,
@@ -2532,7 +2538,7 @@ async function handleRespondBookingAutomation({
     }
 
     const phone = latestSignals.phone || extractPhoneNumber(latestUserText)
-    const nextDetails = phone ? { ...details, phone } : details
+    const nextDetails = phone ? { ...details, phone, phoneConfirmed: true } : details
 
     if (!nextDetails.phone) {
       if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
@@ -2613,7 +2619,7 @@ async function handleRespondBookingAutomation({
   if (existingBooking.pendingField === 'name') {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     const isOutOfFlowQuestion = shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)
-    const nameDetails = splitCustomerName(latestUserText)
+    const nameDetails = splitCustomerFullName(latestUserText)
     const nextDetails = mergeNonEmptyDetails(
       details,
       isOutOfFlowQuestion
@@ -3761,6 +3767,16 @@ function extractRespondBookingDetails(messages) {
   )
 }
 
+function extractRespondFullNameDetails(messages) {
+  return (
+    [...messages]
+      .reverse()
+      .filter((item) => item.role === 'user')
+      .map((item) => splitCustomerFullName(item.content || ''))
+      .find((details) => details.firstName && details.lastName) || {}
+  )
+}
+
 function extractRespondBookingDetailsFromText(content) {
   const availabilityPreference = extractAvailabilityPreference(content)
 
@@ -3776,13 +3792,42 @@ function extractRespondBookingDetailsFromText(content) {
   )
 }
 
+function applyNewClientBookingRequirements(details, { existingBooking = {}, messages = [], respondContactProfile = {} } = {}) {
+  if (!shouldUseNewClientBookingFlow(respondContactProfile)) {
+    return details
+  }
+
+  const nextDetails = { ...details }
+  const conversationSignals = extractRespondBookingDetails(messages)
+  const userProvidedPhone = Boolean(
+    conversationSignals.phone ||
+      existingBooking.details?.phoneConfirmed ||
+      nextDetails.phoneConfirmed,
+  )
+  const userProvidedFullName = Boolean(nextDetails.nameConfirmed && nextDetails.firstName && nextDetails.lastName)
+
+  if (!userProvidedPhone) {
+    delete nextDetails.phone
+  } else if (nextDetails.phone) {
+    nextDetails.phoneConfirmed = true
+  }
+
+  if (!userProvidedFullName) {
+    delete nextDetails.firstName
+    delete nextDetails.lastName
+    delete nextDetails.nameConfirmed
+  }
+
+  return nextDetails
+}
+
 function buildRespondBookingCustomer(details, customerLanguage) {
   const bookingDetails = withDefaultRespondDesiredTreatment(details)
 
   return {
     firstName: bookingDetails.firstName || 'New',
     lastName: bookingDetails.lastName || 'Lead',
-    email: createDummyEmailFromPhone(bookingDetails.phone),
+    email: createDummyEmailFromProvidedPhone(bookingDetails.phone),
     phone: bookingDetails.phone,
     preferredLanguage: customerLanguage,
     desiredTreatment: bookingDetails.desiredTreatment,
@@ -3831,14 +3876,14 @@ function bookingCopy(language, key, values = {}) {
       'Perfeito. Para verificar o horário disponível e avançar com o agendamento, por favor me envie o melhor número de telefone para a chamada.',
     ),
     askName: tri(
-      'That time works. What name should I put on the appointment? 📲',
-      'Ese horario funciona. Que nombre pongo para la cita? 📲',
-      'Esse horário funciona. Qual nome devo colocar no agendamento? 📲',
+      'That time works. What full name should I put on the appointment? 📲',
+      'Ese horario funciona. Que nombre completo pongo para la cita? 📲',
+      'Esse horário funciona. Qual nome completo devo colocar no agendamento? 📲',
     ),
     askNameBeforeSlot: tri(
-      'Perfect, I have your number. What name should I use to check and book the appointment? 📲',
-      'Perfecto, ya tengo tu numero. Que nombre pongo para revisar y agendar la cita? 📲',
-      'Perfeito, já tenho seu número. Qual nome devo usar para verificar e agendar a consulta? 📲',
+      'Perfect, I have your number. What full name should I use to check and book the appointment? 📲',
+      'Perfecto, ya tengo tu numero. Que nombre completo pongo para revisar y agendar la cita? 📲',
+      'Perfeito, já tenho seu número. Qual nome completo devo usar para verificar e agendar a consulta? 📲',
     ),
     offerSlot: tri(
       `📅 ${named('I have this available time for your free discovery call:', 'I have this available time for your free discovery call:')} ${values.slot}. Does that work for you?`,
@@ -5869,30 +5914,6 @@ function extractPhoneNumber(content) {
     String(content || '').match(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)?\d{3}[\s.-]?\d{4,}/)
       ?.[0] || ''
   )
-}
-
-function createDummyEmailFromPhone(phone) {
-  const digits = normalizePhoneDigitsForEmail(phone)
-
-  if (!digits) {
-    return ''
-  }
-
-  return `${digits}@dummy.com`
-}
-
-function normalizePhoneDigitsForEmail(phone) {
-  const digits = String(phone || '').replace(/\D/g, '')
-
-  if (digits.length === 10) {
-    return `1${digits}`
-  }
-
-  if (digits.length === 11 && digits.startsWith('1')) {
-    return digits
-  }
-
-  return digits
 }
 
 function extractDesiredTreatmentName(content) {
