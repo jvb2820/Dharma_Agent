@@ -1017,7 +1017,11 @@ async function transferRespondConversationToCustomerService({
   transferTrigger,
   userMessage,
 }) {
-  const text = buildRespondTransferMessage({ customerLanguage, trigger: transferTrigger })
+  const text = await resolveRespondTransferMessage({
+    customerLanguage,
+    latestUserText: userMessage?.content || '',
+    transferTrigger,
+  })
 
   await sendRespondTextMessage({
     contactId,
@@ -1091,6 +1095,42 @@ function pickRandomItem(items = []) {
   }
 
   return items[Math.floor(Math.random() * items.length)]
+}
+
+async function resolveRespondTransferMessage({ customerLanguage, latestUserText, transferTrigger }) {
+  if (isFixedTransferMessageLanguage(customerLanguage) || !process.env.OPENAI_API_KEY) {
+    return buildRespondTransferMessage({ customerLanguage, trigger: transferTrigger })
+  }
+
+  try {
+    return await createOpenAIResponseText({
+      model: process.env.OPENAI_MODEL || DEFAULT_MODEL,
+      instructions: [
+        'Write one short customer-facing handoff message in the same language as the customer message.',
+        'Return only the message text. Do not include JSON, labels, notes, or quotation marks.',
+        'Use a kind, calm tone with one warm emoji at the start and one prayer/thanks emoji at the end.',
+        transferTrigger?.type === 'transfer_request'
+          ? 'The customer explicitly asked to be transferred. Say we can connect them now and that Customer Service will help in more detail.'
+          : 'The customer is frustrated or asking for a refund/escalation. Say you understand their frustration, are sorry for the situation, and will escalate the case to Customer Service specialists who handle cases like this.',
+        'Do not continue booking, do not ask for state/phone/name, and do not promise a refund or resolution.',
+      ].join('\n'),
+      input: `Customer message:\n${latestUserText}`,
+    })
+  } catch (error) {
+    console.warn(`Unable to localize Respond transfer message with model: ${error.message}`)
+    return buildRespondTransferMessage({ customerLanguage, trigger: transferTrigger })
+  }
+}
+
+function isFixedTransferMessageLanguage(customerLanguage) {
+  const language = String(customerLanguage || '').toLowerCase()
+
+  return (
+    language.includes('english') ||
+    language.includes('spanish') ||
+    language.includes('portuguese') ||
+    /\b(en|es|pt)\b/.test(language)
+  )
 }
 
 async function resolveRespondTransferTrigger(text) {

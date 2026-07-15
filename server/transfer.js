@@ -275,6 +275,12 @@ export function detectRespondTransferTrigger(text = '') {
 }
 
 export function buildRespondTransferMessage({ customerLanguage = 'English', trigger = null } = {}) {
+  const updatedMessage = buildRespondTransferMessageForTrigger({ customerLanguage, trigger })
+
+  if (updatedMessage) {
+    return updatedMessage
+  }
+
   const language = String(customerLanguage || '').toLowerCase()
 
   if (language.includes('spanish') || /\bes\b/.test(language)) {
@@ -302,6 +308,57 @@ export function buildRespondTransferMessage({ customerLanguage = 'English', trig
     `💛 ${intro}`,
     '',
     'I am transferring you now to our Customer Service team so a specialist who is experienced with this kind of situation can review your case and help you in more detail. 🙏',
+  ].join('\n')
+}
+
+function buildRespondTransferMessageForTrigger({ customerLanguage = 'English', trigger = null } = {}) {
+  const language = String(customerLanguage || '').toLowerCase()
+  const isRequestedTransfer = trigger?.type === 'transfer_request'
+
+  if (language.includes('spanish') || /\bes\b/.test(language)) {
+    if (isRequestedTransfer) {
+      return [
+        '💛 Claro. Te conecto ahora con nuestro equipo.',
+        '',
+        'Voy a transferirte con Customer Service para que un especialista experto en este tipo de situación pueda revisar tu caso y ayudarte con más detalle. 🙏',
+      ].join('\n')
+    }
+
+    return [
+      '💛 Entiendo tu frustración y siento mucho que estés pasando por esta situación.',
+      '',
+      'Voy a escalar tu caso ahora con nuestro equipo de Customer Service para que un especialista experto en manejar este tipo de situaciones pueda revisarlo y ayudarte con más detalle. 🙏',
+    ].join('\n')
+  }
+
+  if (language.includes('portuguese') || /\bpt\b/.test(language)) {
+    if (isRequestedTransfer) {
+      return [
+        '💛 Claro. Vou conectar você agora com nossa equipe.',
+        '',
+        'Vou transferir você para o Customer Service, para que um especialista experiente nesse tipo de situação possa revisar seu caso e ajudar com mais detalhes. 🙏',
+      ].join('\n')
+    }
+
+    return [
+      '💛 Entendo sua frustração e sinto muito que você esteja passando por essa situação.',
+      '',
+      'Vou escalar seu caso agora para nossa equipe de Customer Service, para que um especialista experiente em lidar com esse tipo de situação possa revisar tudo e ajudar com mais detalhes. 🙏',
+    ].join('\n')
+  }
+
+  if (isRequestedTransfer) {
+    return [
+      '💛 Of course. I can connect you with our team now.',
+      '',
+      'I am transferring you to Customer Service so a specialist who is experienced with this kind of situation can review your case and help you in more detail. 🙏',
+    ].join('\n')
+  }
+
+  return [
+    '💛 I understand your frustration, and I am really sorry you are dealing with this.',
+    '',
+    'I will escalate this now to our Customer Service team so a specialist who handles cases like this can review everything and help you in more detail. 🙏',
   ].join('\n')
 }
 
