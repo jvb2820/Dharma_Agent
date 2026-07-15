@@ -3549,7 +3549,7 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
 
   return (
     isNamedPersonTreatmentQuestion(rawText, normalizedText) ||
-    /\b(dayanara|dayanara torres|celebrity|celebrities|famous|public figure)\b/.test(
+    /\b(celebrity|celebrities|famous|public figure)\b/.test(
       normalizedText,
     ) ||
     /\b(famosa|famoso|celebridad|celebridades|figura publica)\b/.test(
@@ -3602,14 +3602,35 @@ function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
   const capitalizedWords = String(rawText || '').match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || []
   const hasLikelyName =
     capitalizedWords.length >= 2 ||
+    hasLikelyNamedPersonNearTreatment(normalizedText) ||
     /\b(?:did|does|que|fue|foi)\s+[a-zà-ÿ'-]{3,}\s+[a-zà-ÿ'-]{3,}\s+(?:use|uses|used|take|takes|took|uso|utilizo|utiliza|tomo|toma|usou|usa|tomou)\b/.test(
       normalizedText,
     ) ||
     /\b[a-zà-ÿ'-]{3,}\s+[a-zà-ÿ'-]{3,}\s+(?:use|uses|used|take|takes|took|uso|utilizo|utiliza|tomo|toma|usou|usa|tomou)\b/.test(
       normalizedText,
     )
+  const asksAboutNamedPersonTreatment =
+    hasTreatmentReference &&
+    hasLikelyName &&
+    /\b(know|learn|tell me|information|info|about|which|what|medication|medicine|treatment|program|injection|saber|informacion|informacion|sobre|cual|que|medicamento|tratamiento|programa|inyeccion|saber|informacao|sobre|qual|tratamento|injecao)\b/.test(
+      normalizedText,
+    )
 
-  return asksAboutClientMedicine || (asksUse && hasTreatmentReference && (hasThirdPersonReference || hasLikelyName))
+  return (
+    asksAboutClientMedicine ||
+    asksAboutNamedPersonTreatment ||
+    (asksUse && hasTreatmentReference && (hasThirdPersonReference || hasLikelyName))
+  )
+}
+
+function hasLikelyNamedPersonNearTreatment(normalizedText) {
+  const nameToken = '[a-zà-ÿ][a-zà-ÿ\'-]{2,}'
+  const treatmentToken =
+    '(?:semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|program|tratamiento|medicamento|inyeccion|inyecciones|programa|tratamento|injecao)'
+  const beforeTreatment = new RegExp(`\\b${nameToken}\\s+${nameToken}\\b[\\s\\S]{0,80}\\b${treatmentToken}\\b`)
+  const afterTreatment = new RegExp(`\\b${treatmentToken}\\b[\\s\\S]{0,80}\\b${nameToken}\\s+${nameToken}\\b`)
+
+  return beforeTreatment.test(normalizedText) || afterTreatment.test(normalizedText)
 }
 
 function isMedicalHistoryOrSafetyQuestion(normalizedText) {
