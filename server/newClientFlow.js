@@ -51,12 +51,17 @@ export function splitCustomerFullName(content = '') {
 }
 
 export function hasConfirmedFullName(details = {}) {
-  return Boolean(details.nameConfirmed && details.firstName && details.lastName)
+  return Boolean(
+    details.nameConfirmed &&
+      details.firstName &&
+      details.lastName &&
+      isFullNameCandidate([details.firstName, details.lastName].filter(Boolean).join(' ')),
+  )
 }
 
 function extractExplicitName(content) {
   const patterns = [
-    /\b(?:my\s+(?:full\s+)?name\s+is|name\s+is|i\s+am|i'm|im|this\s+is|it'?s|its)\s+([^.!?,;\n]+)/i,
+    /\b(?:my\s+(?:full\s+)?name\s+is|name\s+is|this\s+is|it'?s|its)\s+([^.!?,;\n]+)/i,
     /\b(?:book(?:\s+it)?\s+(?:for|under)|put\s+(?:it\s+)?(?:for|under)|use\s+(?:the\s+)?name)\s+([^.!?,;\n]+)/i,
     /\b(?:mi\s+nombre\s+es|soy|me\s+llamo|a\s+nombre\s+de)\s+([^.!?,;\n]+)/i,
     /\b(?:meu\s+nome\s+e|meu\s+nome\s+é|sou|em\s+nome\s+de)\s+([^.!?,;\n]+)/i,
@@ -100,7 +105,7 @@ function isFullNameCandidate(value) {
     return false
   }
 
-  return !/\b(yes|yeah|yep|ok|okay|sure|no|not|later|tomorrow|today|morning|afternoon|evening|si|claro|dale|hola|hello|hi|price|cost|weight|loss|injection|state|florida|california)\b/.test(
+  return !/\b(yes|yeah|yep|ok|okay|sure|no|not|only|available|availability|later|tomorrow|today|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|si|claro|dale|hola|hello|hi|price|cost|weight|loss|injection|state|florida|california|client|medication|medicine|treatment|appointment|call)\b/.test(
     normalized,
   )
 }

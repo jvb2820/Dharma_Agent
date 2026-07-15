@@ -50,6 +50,7 @@ import {
 } from './transfer.js'
 import {
   createDummyEmailFromProvidedPhone,
+  hasConfirmedFullName,
   isExactRespondClientStatus,
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
@@ -1728,7 +1729,7 @@ function getBookingTeamForRespondContact(profile) {
 }
 
 function shouldConfirmNameBeforeRespondBooking(profile = {}, details = {}) {
-  return shouldUseNewClientBookingFlow(profile) && !(details.nameConfirmed && details.firstName && details.lastName)
+  return shouldUseNewClientBookingFlow(profile) && !hasConfirmedFullName(details)
 }
 
 function hasBookableRespondCustomerName(details = {}, profile = {}) {
@@ -2627,6 +2628,7 @@ async function handleRespondBookingAutomation({
       booking: { ...existingBooking, bookingTeam, pendingField: '', offeredOption: activeOption },
       details: nextDetails,
       customerLanguage,
+      respondContactProfile,
     }).catch((error) =>
       buildRespondBookingFailure(
         { ...existingBooking, bookingTeam, pendingField: '', offeredOption: activeOption },
@@ -2708,6 +2710,7 @@ async function handleRespondBookingAutomation({
       booking: { ...existingBooking, bookingTeam, offeredOption: activeOption },
       details: nextDetails,
       customerLanguage,
+      respondContactProfile,
     }).catch((error) =>
       buildRespondBookingFailure(
         { ...existingBooking, bookingTeam, offeredOption: activeOption },
@@ -2962,6 +2965,7 @@ async function handleRespondBookingAutomation({
       booking: { ...existingBooking, bookingTeam, offeredOption: option },
       details,
       customerLanguage,
+      respondContactProfile,
     }).catch((error) =>
       buildRespondBookingFailure(
         { ...existingBooking, bookingTeam, offeredOption: option },
@@ -3643,13 +3647,30 @@ function isLocationQuestion(normalizedText) {
   ].some((pattern) => pattern.test(normalizedText))
 }
 
-async function bookAcceptedRespondSlot({ booking, details, customerLanguage }) {
+async function bookAcceptedRespondSlot({ booking, details, customerLanguage, respondContactProfile }) {
   const option = booking.offeredOption || booking.options?.[0]
 
   if (!option) {
     return {
       text: bookingCopy(customerLanguage, 'checking'),
       booking: { ...booking, details },
+    }
+  }
+
+  if (shouldUseNewClientBookingFlow(respondContactProfile) && !hasConfirmedFullName(details)) {
+    return {
+      text: bookingCopy(customerLanguage, 'askName'),
+      booking: {
+        ...booking,
+        details: {
+          ...details,
+          firstName: '',
+          lastName: '',
+          nameConfirmed: false,
+        },
+        offeredOption: option,
+        pendingField: 'name',
+      },
     }
   }
 
