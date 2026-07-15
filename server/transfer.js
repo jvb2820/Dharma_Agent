@@ -17,8 +17,8 @@ export function getRespondAutomationDecision({ contactProfile, session = {}, eve
   const sessionHandoffActive = Boolean(session.transferHandoffAt || session.handoffAt)
   const sessionHandoffAt = getSessionHandoffAt(session)
   const sessionClosedAfterHandoff = Boolean(session.transferClosedAt)
-  const assignee = getConversationAssignee(contactProfile) || (sessionHandoffActive ? 'customer_service' : '')
-  const assigned = isConversationAssigned(contactProfile) || sessionHandoffActive
+  const assignee = getConversationAssignee(contactProfile)
+  const assigned = isConversationAssigned(contactProfile)
   const closed = isConversationClosed(contactProfile)
   const conversationOpenedAt = getConversationOpenedAt(contactProfile)
   const idleResumeEnabled = isTransferIdleResumeEnabled()
@@ -54,6 +54,18 @@ export function getRespondAutomationDecision({ contactProfile, session = {}, eve
       reason: sessionClosedAfterHandoff
         ? 'Conversation was previously closed after transfer and is now open again, so automation can restart.'
         : 'Conversation was reopened by the contact after a previous transfer handoff, so automation can restart.',
+    }
+  }
+
+  if (!assigned && sessionHandoffActive) {
+    return {
+      action: 'allow_unassigned_restart',
+      assignee,
+      closed,
+      contactId: event.contactId,
+      conversationOpenedAt,
+      lastHumanActivityAt,
+      reason: 'Conversation has a previous transfer marker but is currently unassigned, so automation can restart.',
     }
   }
 

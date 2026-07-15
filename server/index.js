@@ -663,6 +663,11 @@ async function processRespondIncomingMessage(event) {
     await unassignRespondConversationAfterReply(event.contactId)
   }
 
+  if (automationDecision.action === 'allow_unassigned_restart') {
+    clearRespondTransferSessionMarkers(event.contactId, session, respondContactProfile)
+    console.log('[respond-transfer-unassigned-restart]', formatRespondAutomationDecisionLog(automationDecision))
+  }
+
   if (automationDecision.action === 'allow_idle_timeout') {
     clearRespondTransferSessionMarkers(event.contactId, session, respondContactProfile)
     console.log('[respond-transfer-idle-resume]', formatRespondAutomationDecisionLog(automationDecision))
