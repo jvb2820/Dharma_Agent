@@ -3,7 +3,7 @@ export function isExactRespondClientStatus(profile = {}) {
     profile?.fields?.contactStatus || profile?.exactContactStatus,
   )
 
-  return exactStatus === 'client' || profile?.status === 'returning_client'
+  return exactStatus === 'client'
 }
 
 export function shouldUseNewClientBookingFlow(profile = {}) {
@@ -109,7 +109,7 @@ function isFullNameCandidate(value) {
     return false
   }
 
-  return !/\b(yes|yeah|yep|ok|okay|sure|no|not|only|available|availability|later|tomorrow|today|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|si|claro|dale|hola|hello|hi|price|cost|weight|loss|injection|state|florida|california|client|medication|medicine|treatment|appointment|call)\b/.test(
+  return !/\b(yes|yeah|yep|ok|okay|sure|no|not|only|available|availability|later|tomorrow|today|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|si|claro|dale|hola|hello|hi|price|cost|weight|loss|injection|state|florida|california|client|medication|medicine|treatment|appointment|call|y|para|hoy|manana|ahora|tarde|quiero|precios|e|para|hoje|amanha|agora)\b/.test(
     normalized,
   )
 }

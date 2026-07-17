@@ -5,6 +5,7 @@ import {
   hasConfirmedFullName,
   isExactRespondClientStatus,
   shouldUseNewClientBookingFlow,
+  splitCustomerFullName,
 } from './newClientFlow.js'
 
 test('exact Client status uses the recurring-client flow', () => {
@@ -19,13 +20,6 @@ test('recurring clients do not need a confirmed full name', () => {
   const requiresName = shouldUseNewClientBookingFlow(profile) && !hasConfirmedFullName({})
 
   assert.equal(requiresName, false)
-})
-
-test('a classified recurring client skips the new-client name requirement', () => {
-  const profile = { status: 'returning_client' }
-
-  assert.equal(isExactRespondClientStatus(profile), true)
-  assert.equal(shouldUseNewClientBookingFlow(profile), false)
 })
 
 test('returning leads and non-client statuses remain in the new-client flow', () => {
@@ -44,4 +38,10 @@ test('exact client status fallback is recognized when supplied by profile classi
 
   assert.equal(isExactRespondClientStatus(profile), true)
   assert.equal(shouldUseNewClientBookingFlow(profile), false)
+})
+
+test('booking phrases are never accepted as customer names', () => {
+  for (const phrase of ['y para hoy', 'para mañana', 'quiero precios', 'e para hoje']) {
+    assert.deepEqual(splitCustomerFullName(phrase), {})
+  }
 })

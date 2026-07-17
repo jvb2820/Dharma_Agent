@@ -2222,9 +2222,11 @@ async function handleRespondBookingAutomation({
   const bookingTeam = getCurrentRespondBookingTeam(existingBooking, respondContactProfile)
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
   const conversationSignals = extractRespondBookingDetails(messages)
-  const conversationNameDetails = extractRespondFullNameDetails(messages)
   const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
-  const latestNameDetails = splitCustomerFullName(latestUserText)
+  const latestNameDetails =
+    existingBooking.pendingField === 'name'
+      ? splitCustomerFullName(latestUserText)
+      : {}
   const latestPreferredTime = resolveRespondPreferredTime({
     existingDetails: existingBooking.details,
     latestSignals,
@@ -2234,7 +2236,6 @@ async function handleRespondBookingAutomation({
     ...getRespondContactBookingDetails(respondContactProfile),
     ...(existingBooking.details || {}),
     ...conversationSignals,
-    ...conversationNameDetails,
     ...latestSignals,
     ...latestNameDetails,
     ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
@@ -2712,6 +2713,26 @@ async function handleRespondBookingAutomation({
     details.state,
   )
   const hasActiveSlotOffer = Boolean(existingBooking.offeredOption || existingBooking.options?.length)
+
+  // A state clarification changes only how the same instant is displayed. It
+  // must not reject the active option or fetch a different appointment.
+  if (hasActiveSlotOffer && latestSignals.state && !selectedOption) {
+    const option = existingBooking.offeredOption || existingBooking.options?.[0]
+    const nextDetails = { ...details, state: latestSignals.state }
+
+    return {
+      text: bookingCopy(customerLanguage, 'reofferSlot', {
+        slot: formatCustomerStateSlot(option.startTime, nextDetails.state, option.timezone),
+      }),
+      booking: {
+        ...existingBooking,
+        bookingTeam,
+        details: nextDetails,
+        offeredOption: option,
+        options: [],
+      },
+    }
+  }
 
   if (hasActiveSlotOffer && !selectedOption && shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
     return await buildOutOfFlowAnswerWithBookingContext({
@@ -3814,16 +3835,6 @@ function extractRespondBookingDetails(messages) {
       dayPart: latestAvailabilityPreference?.dayPart,
       phone: extractPhoneNumber(joined),
     }).filter(([, value]) => Boolean(value)),
-  )
-}
-
-function extractRespondFullNameDetails(messages) {
-  return (
-    [...messages]
-      .reverse()
-      .filter((item) => item.role === 'user')
-      .map((item) => splitCustomerFullName(item.content || ''))
-      .find((details) => details.firstName && details.lastName) || {}
   )
 }
 
@@ -5880,6 +5891,21 @@ function extractStateNameFromAbbreviation(content) {
 
     if (!state) {
       continue
+    }
+
+    // Lowercase two-letter words are frequently ordinary language (notably
+    // Spanish/Portuguese "de", which previously became Delaware). Accept a
+    // lowercase abbreviation only when the whole message is that abbreviation.
+    if (rawToken === rawToken.toLowerCase()) {
+      const normalizedContent = normalizeSearchText(content)
+      const isStandaloneAbbreviation = normalizedContent === rawToken
+      const hasStateContext = new RegExp(
+        String.raw`\b(?:state|estado|in|en|from|de)\s+${escapeRegExp(rawToken)}\b`,
+      ).test(normalizedContent)
+
+      if (!isStandaloneAbbreviation && !hasStateContext) {
+        continue
+      }
     }
 
     if (commonWordAbbreviations.has(abbreviation) && rawToken === rawToken.toLowerCase()) {
