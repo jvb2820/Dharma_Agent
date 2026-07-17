@@ -6094,7 +6094,7 @@ function detectCustomerLanguage(content) {
   }
 
   if (
-    /\b(precios?|cuanto|cuantos|cuesta|cuestan|costos?|pagos?|cuotas?|financiamiento|espanol|ingles|telefono|numero|llamada|cita|agendar|informacion|medicamento|inyeccion|tratamiento|pregunta|duda|direccion|clinica)\b/.test(
+    /\b(precios?|cuanto|cuantos|cuesta|cuestan|costos?|pagos?|cuotas?|financiamiento|espanol|ingles|telefono|numero|llamada|cita|agendar|informacion|medicamento|inyeccion|tratamiento|pregunta|duda|direccion|clinica|manana|aceptan?|seguro medico|hablar|hablo|voy)\b/.test(
       normalizedText,
     )
   ) {
@@ -6144,6 +6144,11 @@ function detectCustomerLanguage(content) {
     'que',
     'hablo',
     'hablar',
+    'voy a',
+    'aceptan',
+    'seguro medico',
+    'maÃ±ana',
+    'manana',
     'favor',
     'porfa',
     'ella',
