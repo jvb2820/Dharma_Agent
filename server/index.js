@@ -47,6 +47,7 @@ import {
   detectRespondTransferTrigger,
   getRespondAutomationDecision,
   isDoctorOrProviderQuestion,
+  isGeneralProductOrMedicationClarification,
 } from './transfer.js'
 import {
   createDummyEmailFromProvidedPhone,
@@ -1152,6 +1153,10 @@ async function resolveRespondTransferTrigger(text) {
     return null
   }
 
+  if (isGeneralProductOrMedicationClarification(text)) {
+    return null
+  }
+
   const keywordTrigger = detectRespondTransferTrigger(text)
 
   if (keywordTrigger || !process.env.OPENAI_API_KEY) {
@@ -1168,6 +1173,7 @@ async function resolveRespondTransferTrigger(text) {
         'Transfer if the customer asks for a refund while expressing fraud/scam/frustration language, including Spanglish such as "quiero mi refund" or Spanish accusations such as "estafadores".',
         'Classify messages in any language. Do not transfer for normal product questions, normal booking answers, or mild confusion.',
         'A question about speaking with a doctor, physician, medical provider, or licensed provider is a normal booking question. Never transfer it to Customer Service; it must remain in the booking flow.',
+        'A customer clarifying that they want general medication, treatment, product, or offering information is not complaining and is not requesting a human. Never transfer that clarification to Customer Service.',
       ].join('\n'),
       input: `Customer message:\n${text}`,
     })
@@ -3546,6 +3552,21 @@ function getOutOfFlowAnswer(content, customerLanguage) {
 function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormalizedText = '') {
   const rawText = String(contentOrNormalizedText || '')
   const normalizedText = maybeNormalizedText || normalizeSearchText(rawText)
+  const explicitlyRejectsNamedPersonQuestion =
+    /\b(no|not)\b[\s\S]{0,40}\b(person|persona|client|cliente|patient|paciente|celebrity|celebridad)\b/.test(
+      normalizedText,
+    )
+  const hasExplicitPrivacySubject =
+    /\b(celebrity|celebrities|famous|public figure|famosa|famoso|celebridad|celebridades|figura publica|client|patient|cliente|paciente|she|he|her|his|ella|el|ellos|ellas|ele|ela)\b/.test(
+      normalizedText,
+    ) || (String(rawText || '').match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || []).length >= 2
+
+  if (
+    isGeneralProductOrMedicationClarification(normalizedText) &&
+    (explicitlyRejectsNamedPersonQuestion || !hasExplicitPrivacySubject)
+  ) {
+    return false
+  }
 
   return (
     isNamedPersonTreatmentQuestion(rawText, normalizedText) ||
@@ -3602,7 +3623,6 @@ function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
   const capitalizedWords = String(rawText || '').match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || []
   const hasLikelyName =
     capitalizedWords.length >= 2 ||
-    hasLikelyNamedPersonNearTreatment(normalizedText) ||
     /\b(?:did|does|que|fue|foi)\s+[a-zà-ÿ'-]{3,}\s+[a-zà-ÿ'-]{3,}\s+(?:use|uses|used|take|takes|took|uso|utilizo|utiliza|tomo|toma|usou|usa|tomou)\b/.test(
       normalizedText,
     ) ||
@@ -3621,16 +3641,6 @@ function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
     asksAboutNamedPersonTreatment ||
     (asksUse && hasTreatmentReference && (hasThirdPersonReference || hasLikelyName))
   )
-}
-
-function hasLikelyNamedPersonNearTreatment(normalizedText) {
-  const nameToken = '[a-zà-ÿ][a-zà-ÿ\'-]{2,}'
-  const treatmentToken =
-    '(?:semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|program|tratamiento|medicamento|inyeccion|inyecciones|programa|tratamento|injecao)'
-  const beforeTreatment = new RegExp(`\\b${nameToken}\\s+${nameToken}\\b[\\s\\S]{0,80}\\b${treatmentToken}\\b`)
-  const afterTreatment = new RegExp(`\\b${treatmentToken}\\b[\\s\\S]{0,80}\\b${nameToken}\\s+${nameToken}\\b`)
-
-  return beforeTreatment.test(normalizedText) || afterTreatment.test(normalizedText)
 }
 
 function isMedicalHistoryOrSafetyQuestion(normalizedText) {
@@ -5591,6 +5601,7 @@ Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para a
 *Você pode ver tudo aqui* 👉 https://dharmanutritionclinic.com/collections/supplements`,
     'Never refer to Dharma sellers/treatment specialists as doctors or medical doctors. Call them "specialists in our treatments", "treatment specialists", or "nutritionists" when appropriate, not "medical specialists". If a customer asks about the doctor, provider, or medical review while state collection or appointment booking is active, answer that question first, then return to the current flow step in a separate short paragraph. In the customer language, explain that Dharma works with a network of licensed providers in the states where we offer care; after the customer completes the medical form, their case is assigned to a licensed doctor in their state, using the known state name when available, such as California; during the free analysis call, our specialist explains treatment options, the process, and answers questions.',
     'Do not disclose or imply any client, celebrity, or public figure treatment details, including Dayanara Torres. If asked whether a client or public figure used a specific treatment, do not mention or repeat the specific treatment name. Say privacy rules prevent sharing any client treatment information, then offer to explain Dharma treatment options according to the customer goal.',
+    'Teachable rule: When a customer asks what medication or treatment we offer generally—or clarifies that they are not asking about a person—answer with our general Semaglutide and Tirzepatide options, never use the client-privacy script, and then return to the active booking step.',
     'When discussing trust or legitimacy, say Dharma Clinic is LegitScript-certified and has more than 1500 positive Google reviews.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',

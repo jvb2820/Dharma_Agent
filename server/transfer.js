@@ -1,12 +1,4 @@
 const DEFAULT_TRANSFER_IDLE_HOURS = 24
-const TRANSFER_REQUEST_PATTERNS = [
-  /\b(human|person|representative|agent|manager|supervisor|customer service|customer care|support team|specialist)\b/,
-  /\b(speak|talk|chat|connect|transfer|escalate|forward|switch|pass me|put me)\b/,
-  /\b(representante|persona|humano|humana|agente|gerente|supervisor|servicio al cliente|atencion al cliente|soporte|especialista)\b/,
-  /\b(hablar|conectar|transferir|pasar|comunicar|derivar|escalar)\b/,
-  /\b(representante|pessoa|humano|humana|agente|gerente|supervisor|atendimento|suporte|especialista)\b/,
-  /\b(falar|conectar|transferir|passar|encaminhar|escalar)\b/,
-]
 const IRATE_PATTERNS = [
   /\b(angry|upset|mad|furious|frustrated|annoyed|unhappy|disappointed|complaint|complain|ridiculous|terrible|horrible|awful|unacceptable|scam|fraud|lawsuit|lawyer|attorney|cancel|refund|chargeback|report you|bad service|worst)\b/,
   /\b(enojad[oa]|molest[oa]|furios[oa]|frustrad[oa]|decepcionad[oa]|queja|reclamo|reclamar|ridiculo|terrible|horrible|pesimo|inaceptable|estafa|estafador(?:es|a|as)?|fraude|demanda|abogado|abogada|cancelar|refund|reembolso|devolucion|contracargo|reportar|mal servicio|peor)\b/,
@@ -257,11 +249,21 @@ export function detectRespondTransferTrigger(text = '') {
     return null
   }
 
-  const requestedTransfer =
-    TRANSFER_REQUEST_PATTERNS.some((pattern) => pattern.test(normalized)) &&
-    /\b(speak|talk|chat|connect|transfer|escalate|forward|switch|pass|put|human|person|representative|agent|manager|supervisor|customer service|customer care|support|specialist|hablar|conectar|transferir|pasar|comunicar|derivar|escalar|persona|humano|humana|representante|agente|gerente|supervisor|servicio|atencion|soporte|especialista|falar|encaminhar|pessoa|atendimento)\b/.test(
+  if (isGeneralProductOrMedicationClarification(normalized)) {
+    return null
+  }
+
+  const hasTransferAction =
+    /\b(speak|talk|chat|connect|transfer|escalate|forward|switch|pass|put|hablar|conectar|transferir|pasar|comunicar|derivar|escalar|falar|encaminhar)\b/.test(
       normalized,
     )
+  const hasHumanTransferTarget =
+    /\b(human|person|representative|agent|manager|supervisor|customer service|customer care|support|specialist|persona|humano|humana|representante|agente|gerente|supervisor|servicio al cliente|atencion al cliente|soporte|especialista|pessoa|atendimento)\b/.test(
+      normalized,
+    )
+  const requestedTransfer =
+    (hasTransferAction && hasHumanTransferTarget) ||
+    /\b(human|agent|manager|customer service|representative|humano|humana|agente|gerente|servicio al cliente|representante)\s+(please|por favor|ahora)?\b/.test(normalized)
 
   if (requestedTransfer) {
     return {
@@ -286,6 +288,20 @@ export function isDoctorOrProviderQuestion(text = '') {
   return /\b(doctor|doctors|doctora|doctoras|medico|medicos|medica|medicas|provider|providers|proveedor|proveedores|provedor|provedores|doutor|doutora)\b/.test(
     normalized,
   )
+}
+
+export function isGeneralProductOrMedicationClarification(text = '') {
+  const normalized = normalizeTriggerText(text)
+  const hasProductTopic =
+    /\b(medication|medications|medicine|treatment|treatments|product|products|injection|injections|medicamento|medicamentos|medicina|tratamiento|tratamientos|producto|productos|inyeccion|inyecciones|ofrecen|ofrece|oferecen|oferecem|oferezen|medicamento|tratamento|produto|injecao)\b/.test(
+      normalized,
+    )
+  const asksGenerally =
+    /\b(what|which|want to know|tell me|offer|offers|do you offer|quiero saber|wuiero saber|cual|que ofrecen|que ofrece|qhw oferezen|no quiero saber de (una )?persona|no wuiero saber de (una )?persona|quero saber|qual|o que oferecem)\b/.test(
+      normalized,
+    )
+
+  return hasProductTopic && asksGenerally
 }
 
 export function buildRespondTransferMessage({ customerLanguage = 'English', trigger = null } = {}) {

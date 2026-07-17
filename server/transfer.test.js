@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { detectRespondTransferTrigger, isDoctorOrProviderQuestion } from './transfer.js'
+import {
+  detectRespondTransferTrigger,
+  isDoctorOrProviderQuestion,
+  isGeneralProductOrMedicationClarification,
+} from './transfer.js'
 
 test('does not transfer Spanish questions about speaking with a doctor', () => {
   const message = 'No, voy hablar con un doctor?'
@@ -29,4 +33,15 @@ test('still transfers explicit Customer Service requests', () => {
 
 test('still transfers irate complaints', () => {
   assert.equal(detectRespondTransferTrigger('Esto es una estafa, quiero mi reembolso')?.type, 'irate_customer')
+})
+
+test('does not transfer general medication questions or product clarifications', () => {
+  for (const message of [
+    'No, wuiero saber cual es el medicamento',
+    'Pero no wuiero saber de una persona quiero saber lo qhw oferezen',
+    'I want to know which medication you offer',
+  ]) {
+    assert.equal(isGeneralProductOrMedicationClarification(message), true)
+    assert.equal(detectRespondTransferTrigger(message), null)
+  }
 })
