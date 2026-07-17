@@ -3487,6 +3487,12 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return ''
   }
 
+  // General questions about Dharma's own medications always take precedence
+  // over client/privacy classification.
+  if (isGeneralProductOrMedicationClarification(normalized)) {
+    return getGeneralMedicationOfferingAnswer(customerLanguage)
+  }
+
   if (isClientTreatmentPrivacyQuestion(content, normalized)) {
     if (spanish) return 'Lo siento, por nuestra politica de privacidad no podemos compartir, confirmar ni insinuar informacion sobre tratamientos de ningun cliente, sin importar quien sea. Con gusto podemos explicarte nuestras opciones de manera general, y un especialista puede orientarte durante la llamada gratuita segun tu meta.'
     if (portuguese) return 'Sinto muito, pela nossa politica de privacidade nao podemos compartilhar, confirmar nem sugerir informacoes sobre tratamentos de nenhum cliente, independentemente de quem seja. Podemos explicar nossas opcoes de forma geral, e um especialista pode orientar voce durante a chamada gratuita conforme seu objetivo.'
@@ -3539,14 +3545,26 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     /\b(treatment|program|medication|medicine|injection|semaglutide|tirzepatide|zepbound|glp 1|tratamiento|medicamento|inyeccion|programa|injecao)\b/.test(normalized) ||
     isProductOrMedicationQuestion(normalized)
   ) {
-    if (spanish) return 'Ofrecemos inyecciones para perdida de peso, como Semaglutide o Tirzepatide, que ayudan a reducir el apetito y quemar grasa corporal cuando un proveedor determina que eres candidata. Primero hacemos una llamada gratuita para explicar opciones y siguientes pasos.'
-    if (portuguese) return 'Oferecemos injecoes para perda de peso, como Semaglutide ou Tirzepatide, que ajudam a reduzir o apetite e queimar gordura corporal quando um provedor determina que e adequado. Primeiro fazemos uma chamada gratuita para explicar opcoes e proximos passos.'
-    return 'We offer weight-loss injections, such as Semaglutide or Tirzepatide, that help reduce appetite and burn body fat when a provider determines they are appropriate. First, we do a free call to explain options and next steps.'
+    return getGeneralMedicationOfferingAnswer(customerLanguage)
   }
 
   if (spanish) return 'Claro, te explico brevemente: la llamada gratis es para revisar tu meta, responder tus dudas y orientarte sobre las opciones disponibles.'
   if (portuguese) return 'Claro, explico brevemente: a chamada gratuita serve para revisar seu objetivo, responder suas duvidas e orientar sobre as opcoes disponiveis.'
   return 'Of course. The free call is to review your goal, answer questions, and guide you through the available options.'
+}
+
+function getGeneralMedicationOfferingAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Ofrecemos inyecciones para perdida de peso, como Semaglutide o Tirzepatide, que ayudan a reducir el apetito y apoyar la perdida de grasa corporal cuando un proveedor determina que son apropiadas para ti. Primero hacemos una llamada gratuita para explicar las opciones y los siguientes pasos.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Oferecemos injecoes para perda de peso, como Semaglutide ou Tirzepatide, que ajudam a reduzir o apetite e apoiar a perda de gordura corporal quando um provedor determina que sao apropriadas para voce. Primeiro fazemos uma chamada gratuita para explicar as opcoes e os proximos passos.'
+  }
+
+  return 'We offer weight-loss injections such as Semaglutide or Tirzepatide, which can help reduce appetite and support body-fat loss when a provider determines they are appropriate for you. First, we do a free call to explain the options and next steps.'
 }
 
 function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormalizedText = '') {
@@ -4100,6 +4118,10 @@ async function generatePendingStateOutOfFlowAnswer({
   booking,
   modelIntent,
 }) {
+  if (isGeneralProductOrMedicationClarification(latestUserText)) {
+    return getGeneralMedicationOfferingAnswer(customerLanguage)
+  }
+
   const startedAt = Date.now()
   const fallbackAnswer = getOutOfFlowAnswer(latestUserText, customerLanguage)
   const ragResult = await buildRagContextResult({
@@ -4201,6 +4223,10 @@ async function generateBookingOutOfFlowAnswer({
   booking,
   modelIntent,
 }) {
+  if (isGeneralProductOrMedicationClarification(latestUserText)) {
+    return getGeneralMedicationOfferingAnswer(customerLanguage)
+  }
+
   const startedAt = Date.now()
   const fallbackAnswer =
     getOutOfFlowAnswer(latestUserText, customerLanguage) ||

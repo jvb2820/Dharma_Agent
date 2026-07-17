@@ -38,6 +38,7 @@ test('still transfers irate complaints', () => {
 test('does not transfer general medication questions or product clarifications', () => {
   for (const message of [
     'No, wuiero saber cual es el medicamento',
+    'Pero no quiero saber de una persona, quiero saber lo que ofrecen',
     'Pero no wuiero saber de una persona quiero saber lo qhw oferezen',
     'I want to know which medication you offer',
   ]) {
