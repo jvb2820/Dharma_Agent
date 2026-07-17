@@ -56,6 +56,7 @@ import {
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
 } from './newClientFlow.js'
+import { hasExplicitNamedPersonMedicationQuestion } from './privacyGuard.js'
 
 loadLocalEnv()
 
@@ -3570,6 +3571,13 @@ function getGeneralMedicationOfferingAnswer(customerLanguage) {
 function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormalizedText = '') {
   const rawText = String(contentOrNormalizedText || '')
   const normalizedText = maybeNormalizedText || normalizeSearchText(rawText)
+
+  // A concrete named-person question always takes precedence over the general
+  // medication/offering guard, including lowercase or misspelled names.
+  if (hasExplicitNamedPersonMedicationQuestion(rawText)) {
+    return true
+  }
+
   const explicitlyRejectsNamedPersonQuestion =
     /\b(no|not)\b[\s\S]{0,40}\b(person|persona|client|cliente|patient|paciente|celebrity|celebridad)\b/.test(
       normalizedText,
