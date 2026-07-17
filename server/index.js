@@ -4118,10 +4118,6 @@ async function generatePendingStateOutOfFlowAnswer({
   booking,
   modelIntent,
 }) {
-  if (isGeneralProductOrMedicationClarification(latestUserText)) {
-    return getGeneralMedicationOfferingAnswer(customerLanguage)
-  }
-
   const startedAt = Date.now()
   const fallbackAnswer = getOutOfFlowAnswer(latestUserText, customerLanguage)
   const ragResult = await buildRagContextResult({
@@ -4158,6 +4154,9 @@ async function generatePendingStateOutOfFlowAnswer({
       'Do not ask for phone number, appointment availability, name, or booking confirmation in this answer.',
       'Do not ask for state, location, shipping availability, or where they live in this answer; the application will append one state question after your answer.',
       'If the customer asks about a doctor, provider, or who handles the medical review, answer that question first in the customer language. Use this structure: Dharma works with a network of licensed providers in the states where we offer care; after the medical form is completed, the case is assigned to a licensed doctor in the customer state, or their state if no state is known; during the free analysis call, our specialist explains treatment options, the process, and answers questions.',
+      isGeneralProductOrMedicationClarification(latestUserText)
+        ? 'The latest message asks about Dharma medications, treatments, products, or offerings generally—not another person. Answer from retrieved knowledge about our Semaglutide and Tirzepatide options. Do not use a privacy disclaimer or transfer language. If the prior reply already gave a basic overview, add concise useful detail or answer the follow-up angle instead of repeating the same wording.'
+        : '',
       'Do not start with a greeting. Keep it concise but specific enough to actually answer the question.',
       requiresRag
         ? 'This is a high-risk or knowledge-dependent topic. Use only retrieved company context and approved policy language. If the retrieved context does not support a specific claim, say the specialist/team can review it instead of guessing.'
@@ -4178,7 +4177,12 @@ async function generatePendingStateOutOfFlowAnswer({
     instructions,
     input,
   }).then((answer) => {
-    const validated = validateControlledModelAnswer(answer, {
+    const safeAnswer = preventMedicationPrivacyRegression({
+      answer,
+      latestUserText,
+      fallbackAnswer,
+    })
+    const validated = validateControlledModelAnswer(safeAnswer, {
       fallbackAnswer,
       customerLanguage,
       messages,
@@ -4223,10 +4227,6 @@ async function generateBookingOutOfFlowAnswer({
   booking,
   modelIntent,
 }) {
-  if (isGeneralProductOrMedicationClarification(latestUserText)) {
-    return getGeneralMedicationOfferingAnswer(customerLanguage)
-  }
-
   const startedAt = Date.now()
   const fallbackAnswer =
     getOutOfFlowAnswer(latestUserText, customerLanguage) ||
@@ -4266,6 +4266,9 @@ async function generateBookingOutOfFlowAnswer({
       'Do not ask for phone number, name, state, appointment availability, or booking confirmation in this generated answer. The application will append the current booking question after your answer.',
       'Do not mention the exact offered appointment slot or ask whether the slot works in this generated answer.',
       'If the customer asks about a doctor, provider, or who handles the medical review, answer that question before returning to the active booking step in the customer language. Use this structure: Dharma works with a network of licensed providers in the states where we offer care; after the medical form is completed, the case is assigned to a licensed doctor in the customer state, or their state if no state is known; during the free analysis call, our specialist explains treatment options, the process, and answers questions.',
+      isGeneralProductOrMedicationClarification(latestUserText)
+        ? 'The latest message asks about Dharma medications, treatments, products, or offerings generally—not another person. Answer from retrieved knowledge about our Semaglutide and Tirzepatide options. Do not use a privacy disclaimer or transfer language. If the prior reply already gave a basic overview, add concise useful detail or answer the follow-up angle instead of repeating the same wording.'
+        : '',
       'Do not start with a greeting. Keep it concise and specific enough to answer the question.',
       requiresRag
         ? 'This is a high-risk or knowledge-dependent topic. Use only retrieved company context and approved policy language. If the retrieved context does not support a specific claim, say the specialist/team can review it instead of guessing.'
@@ -4286,7 +4289,12 @@ async function generateBookingOutOfFlowAnswer({
     instructions,
     input,
   }).then((answer) => {
-    const validated = validateControlledModelAnswer(answer, {
+    const safeAnswer = preventMedicationPrivacyRegression({
+      answer,
+      latestUserText,
+      fallbackAnswer,
+    })
+    const validated = validateControlledModelAnswer(safeAnswer, {
       fallbackAnswer,
       customerLanguage,
       messages,
@@ -4321,6 +4329,20 @@ async function generateBookingOutOfFlowAnswer({
     })
     return fallbackAnswer
   })
+}
+
+function preventMedicationPrivacyRegression({ answer, latestUserText, fallbackAnswer }) {
+  if (!isGeneralProductOrMedicationClarification(latestUserText)) {
+    return answer
+  }
+
+  const normalizedAnswer = normalizeSearchText(answer)
+  const containsPrivacyRefusal =
+    /\b(privacy|privacidad|privacidade|cannot share|can not share|no podemos compartir|nao podemos compartilhar|client information|informacion de ningun cliente|informacao de cliente)\b/.test(
+      normalizedAnswer,
+    )
+
+  return containsPrivacyRefusal ? fallbackAnswer : answer
 }
 
 function getContextualOutOfFlowFallbackAnswer(customerLanguage) {
