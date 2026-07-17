@@ -3488,12 +3488,6 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return ''
   }
 
-  // General questions about Dharma's own medications always take precedence
-  // over client/privacy classification.
-  if (isGeneralProductOrMedicationClarification(normalized)) {
-    return getGeneralMedicationOfferingAnswer(customerLanguage)
-  }
-
   if (isClientTreatmentPrivacyQuestion(content, normalized)) {
     if (spanish) return 'Lo siento, por nuestra politica de privacidad no podemos compartir, confirmar ni insinuar informacion sobre tratamientos de ningun cliente, sin importar quien sea. Con gusto podemos explicarte nuestras opciones de manera general, y un especialista puede orientarte durante la llamada gratuita segun tu meta.'
     if (portuguese) return 'Sinto muito, pela nossa politica de privacidade nao podemos compartilhar, confirmar nem sugerir informacoes sobre tratamentos de nenhum cliente, independentemente de quem seja. Podemos explicar nossas opcoes de forma geral, e um especialista pode orientar voce durante a chamada gratuita conforme seu objetivo.'
@@ -4126,6 +4120,10 @@ async function generatePendingStateOutOfFlowAnswer({
   booking,
   modelIntent,
 }) {
+  if (isClientTreatmentPrivacyQuestion(latestUserText)) {
+    return getOutOfFlowAnswer(latestUserText, customerLanguage)
+  }
+
   const startedAt = Date.now()
   const fallbackAnswer = getOutOfFlowAnswer(latestUserText, customerLanguage)
   const ragResult = await buildRagContextResult({
@@ -4235,6 +4233,10 @@ async function generateBookingOutOfFlowAnswer({
   booking,
   modelIntent,
 }) {
+  if (isClientTreatmentPrivacyQuestion(latestUserText)) {
+    return getOutOfFlowAnswer(latestUserText, customerLanguage)
+  }
+
   const startedAt = Date.now()
   const fallbackAnswer =
     getOutOfFlowAnswer(latestUserText, customerLanguage) ||
