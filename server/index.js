@@ -35,7 +35,6 @@ import {
 } from './memoryService.js'
 import {
   assignRespondConversation,
-  closeRespondConversation,
   getRespondContact,
   sendRespondImageMessage,
   sendRespondTextMessage,
@@ -840,12 +839,12 @@ async function processRespondIncomingMessage(event) {
         text: paymentInfoText,
       })
       postReplyMessages.push({ role: 'agent', content: paymentInfoText })
-      await finalizeRespondConversationAfterBooking({
+      await assignRespondConversationAfterBooking({
         contactId: event.contactId,
         booked: bookingResponse.postReplyRespondAction.booked,
         option: bookingResponse.postReplyRespondAction.option,
       }).catch((error) => {
-        console.warn(`Unable to finalize Respond conversation after booking: ${error.message}`)
+        console.warn(`Unable to assign Respond conversation after booking: ${error.message}`)
       })
     } else {
       await sendRespondTextMessage({
@@ -1215,37 +1214,20 @@ function formatRespondAutomationDecisionLog(decision = {}) {
   )
 }
 
-async function finalizeRespondConversationAfterBooking({ contactId, booked, option }) {
+async function assignRespondConversationAfterBooking({ contactId, booked, option }) {
   const assignment = getRespondAssigneeForBookedSpecialist(booked, option)
   const assignee = assignment.assignee
 
   if (!assignee) {
     console.warn(
-      `Unable to assign and close Respond conversation: no assignee configured for booked specialist ${booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName || 'unknown'}. Tried keys: ${assignment.keys.join(', ') || 'none'}. Configured keys: ${assignment.configuredKeys.join(', ') || 'none'}.`,
+      `Unable to assign Respond conversation: no assignee configured for booked specialist ${booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName || 'unknown'}. Tried keys: ${assignment.keys.join(', ') || 'none'}. Configured keys: ${assignment.configuredKeys.join(', ') || 'none'}.`,
     )
     return
   }
 
-  const assignmentResult = await assignRespondConversation({ contactId, assignee })
-    .then((result) => ({ ok: true, result }))
-    .catch((error) => ({ ok: false, error }))
-  const closeResult = await closeRespondConversation({
-    contactId,
-    closingNoteId: process.env.RESPOND_BOOKING_CLOSING_NOTE_ID,
-  })
-    .then((result) => ({ ok: true, result }))
-    .catch((error) => ({ ok: false, error }))
+  await assignRespondConversation({ contactId, assignee })
 
-  if (!assignmentResult.ok || !closeResult.ok) {
-    const failures = [
-      assignmentResult.ok ? '' : `assign failed: ${assignmentResult.error.message}`,
-      closeResult.ok ? '' : `close failed: ${closeResult.error.message}`,
-    ].filter(Boolean)
-
-    throw new Error(failures.join('; '))
-  }
-
-  console.log('[respond-booking-finalized]', {
+  console.log('[respond-booking-assigned]', {
     contactId,
     assignee,
     bookedSpecialist: booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName,
