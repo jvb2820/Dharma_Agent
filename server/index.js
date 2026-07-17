@@ -2741,6 +2741,23 @@ async function handleRespondBookingAutomation({
     }
   }
 
+  if (hasActiveSlotOffer && !selectedOption && isGreetingOnly(latestUserText)) {
+    const option = existingBooking.offeredOption || existingBooking.options?.[0]
+
+    return {
+      text: `${acknowledgeGreeting(customerLanguage)}\n\n${bookingCopy(customerLanguage, 'reofferSlot', {
+        slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone),
+      })}`,
+      booking: {
+        ...existingBooking,
+        bookingTeam,
+        details,
+        offeredOption: option,
+        options: [],
+      },
+    }
+  }
+
   if (hasActiveSlotOffer && !selectedOption && shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
     return await buildOutOfFlowAnswerWithBookingContext({
       messages,
@@ -4125,7 +4142,10 @@ async function generatePendingStateOutOfFlowAnswer({
   }
 
   const startedAt = Date.now()
-  const fallbackAnswer = getOutOfFlowAnswer(latestUserText, customerLanguage)
+  const medicationFollowUp = isContextualMedicationFollowUp(latestUserText, messages)
+  const fallbackAnswer = medicationFollowUp
+    ? getMedicationFunctionAnswer(customerLanguage)
+    : getOutOfFlowAnswer(latestUserText, customerLanguage)
   const ragResult = await buildRagContextResult({
     agent: RESPOND_AGENT,
     messages,
@@ -4160,7 +4180,7 @@ async function generatePendingStateOutOfFlowAnswer({
       'Do not ask for phone number, appointment availability, name, or booking confirmation in this answer.',
       'Do not ask for state, location, shipping availability, or where they live in this answer; the application will append one state question after your answer.',
       'If the customer asks about a doctor, provider, or who handles the medical review, answer that question first in the customer language. Use this structure: Dharma works with a network of licensed providers in the states where we offer care; after the medical form is completed, the case is assigned to a licensed doctor in the customer state, or their state if no state is known; during the free analysis call, our specialist explains treatment options, the process, and answers questions.',
-      isGeneralProductOrMedicationClarification(latestUserText)
+      (isGeneralProductOrMedicationClarification(latestUserText) || medicationFollowUp)
         ? 'The latest message asks about Dharma medications, treatments, products, or offerings generally—not another person. Answer from retrieved knowledge about our Semaglutide and Tirzepatide options. Do not use a privacy disclaimer or transfer language. If the prior reply already gave a basic overview, add concise useful detail or answer the follow-up angle instead of repeating the same wording.'
         : '',
       'Do not start with a greeting. Keep it concise but specific enough to actually answer the question.',
@@ -4187,6 +4207,7 @@ async function generatePendingStateOutOfFlowAnswer({
       answer,
       latestUserText,
       fallbackAnswer,
+      medicationFollowUp,
     })
     const validated = validateControlledModelAnswer(safeAnswer, {
       fallbackAnswer,
@@ -4238,7 +4259,9 @@ async function generateBookingOutOfFlowAnswer({
   }
 
   const startedAt = Date.now()
+  const medicationFollowUp = isContextualMedicationFollowUp(latestUserText, messages)
   const fallbackAnswer =
+    (medicationFollowUp ? getMedicationFunctionAnswer(customerLanguage) : '') ||
     getOutOfFlowAnswer(latestUserText, customerLanguage) ||
     getContextualOutOfFlowFallbackAnswer(customerLanguage)
   const ragResult = await buildRagContextResult({
@@ -4276,7 +4299,7 @@ async function generateBookingOutOfFlowAnswer({
       'Do not ask for phone number, name, state, appointment availability, or booking confirmation in this generated answer. The application will append the current booking question after your answer.',
       'Do not mention the exact offered appointment slot or ask whether the slot works in this generated answer.',
       'If the customer asks about a doctor, provider, or who handles the medical review, answer that question before returning to the active booking step in the customer language. Use this structure: Dharma works with a network of licensed providers in the states where we offer care; after the medical form is completed, the case is assigned to a licensed doctor in the customer state, or their state if no state is known; during the free analysis call, our specialist explains treatment options, the process, and answers questions.',
-      isGeneralProductOrMedicationClarification(latestUserText)
+      (isGeneralProductOrMedicationClarification(latestUserText) || medicationFollowUp)
         ? 'The latest message asks about Dharma medications, treatments, products, or offerings generally—not another person. Answer from retrieved knowledge about our Semaglutide and Tirzepatide options. Do not use a privacy disclaimer or transfer language. If the prior reply already gave a basic overview, add concise useful detail or answer the follow-up angle instead of repeating the same wording.'
         : '',
       'Do not start with a greeting. Keep it concise and specific enough to answer the question.',
@@ -4303,6 +4326,7 @@ async function generateBookingOutOfFlowAnswer({
       answer,
       latestUserText,
       fallbackAnswer,
+      medicationFollowUp,
     })
     const validated = validateControlledModelAnswer(safeAnswer, {
       fallbackAnswer,
@@ -4341,8 +4365,8 @@ async function generateBookingOutOfFlowAnswer({
   })
 }
 
-function preventMedicationPrivacyRegression({ answer, latestUserText, fallbackAnswer }) {
-  if (!isGeneralProductOrMedicationClarification(latestUserText)) {
+function preventMedicationPrivacyRegression({ answer, latestUserText, fallbackAnswer, medicationFollowUp = false }) {
+  if (!medicationFollowUp && !isGeneralProductOrMedicationClarification(latestUserText)) {
     return answer
   }
 
@@ -4353,6 +4377,42 @@ function preventMedicationPrivacyRegression({ answer, latestUserText, fallbackAn
     )
 
   return containsPrivacyRefusal ? fallbackAnswer : answer
+}
+
+function isContextualMedicationFollowUp(latestUserText, messages = []) {
+  const normalized = normalizeSearchText(latestUserText)
+  const isShortFollowUp = [
+    /\b(what does it do|what do they do|how does it work|how do they work|tell me more|and how)\b/,
+    /\b(que hace|que hacen|como funciona|como funcionan|dime mas|y como)\b/,
+    /\b(o que faz|o que fazem|como funciona|como funcionam|me fale mais|e como)\b/,
+  ].some((pattern) => pattern.test(normalized))
+
+  if (!isShortFollowUp) {
+    return false
+  }
+
+  const recentContext = messages
+    .slice(-6, -1)
+    .map((item) => normalizeSearchText(item.content || ''))
+    .join(' ')
+
+  return /\b(semaglutide|tirzepatide|zepbound|glp 1|medications?|medicines?|treatments?|injections?|medicamentos?|medicinas?|tratamientos?|inyecciones?|tratamentos?|injecoes?)\b/.test(
+    recentContext,
+  )
+}
+
+function getMedicationFunctionAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Semaglutide y Tirzepatide ayudan a reducir el apetito y aumentar la sensacion de saciedad, lo que puede apoyar la perdida de peso y grasa corporal. La opcion apropiada y la elegibilidad se revisan con el proveedor.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Semaglutide e Tirzepatide ajudam a reduzir o apetite e aumentar a sensacao de saciedade, o que pode apoiar a perda de peso e gordura corporal. A opcao adequada e a elegibilidade sao avaliadas pelo provedor.'
+  }
+
+  return 'Semaglutide and Tirzepatide help reduce appetite and increase feelings of fullness, which can support weight and body-fat loss. A provider reviews which option is appropriate and whether you are eligible.'
 }
 
 function getContextualOutOfFlowFallbackAnswer(customerLanguage) {
@@ -5563,7 +5623,10 @@ function hasCustomerAvailabilityQuestion(text) {
 }
 
 function hasBookingContext({ messages = [], session = {} }) {
-  const details = extractRespondBookingDetails(messages)
+  const details = {
+    ...(session.booking?.details || {}),
+    ...extractRespondBookingDetails(messages),
+  }
   const booking = session.booking || {}
 
   return Boolean(
