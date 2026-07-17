@@ -6145,7 +6145,7 @@ function detectCustomerLanguage(content) {
   }
 
   if (
-    /\b(prices?|costs?|pricing|payment|payments|installments?|financing|english|phone|number|call|appointment|schedule|information|medicine|medication|injection|treatment|question|clinic|address|doctor|provider)\b/.test(
+    /\b(prices?|costs?|pricing|payment|payments|installments?|financing|english|phone|number|call|appointment|schedule|information|medicines?|medications?|injections?|treatments?|questions?|clinic|address|doctors?|providers?)\b/.test(
       normalizedText,
     )
   ) {
@@ -6227,6 +6227,9 @@ function detectCustomerLanguage(content) {
     'weight loss',
     'what state',
     'i want',
+    'i wanna',
+    'wanna know',
+    'know more',
     'how much',
     'price',
     'cost',
