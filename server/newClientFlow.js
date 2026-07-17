@@ -1,5 +1,7 @@
 export function isExactRespondClientStatus(profile = {}) {
-  return normalizeStatus(profile?.fields?.contactStatus) === 'client'
+  return normalizeStatus(
+    profile?.fields?.contactStatus || profile?.exactContactStatus,
+  ) === 'client'
 }
 
 export function shouldUseNewClientBookingFlow(profile = {}) {

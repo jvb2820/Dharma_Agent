@@ -955,14 +955,18 @@ function refreshRespondBookingTeam(booking, profile) {
     bookingTeam,
   })
 
-  if (bookingTeam === booking.bookingTeam) {
+  const hasStaleNewClientNameStep =
+    bookingTeam === 'customer_service' && booking.pendingField === 'name'
+
+  if (bookingTeam === booking.bookingTeam && !hasStaleNewClientNameStep) {
     return booking
   }
 
   return {
     ...booking,
     bookingTeam,
-    teamChanged: true,
+    pendingField: hasStaleNewClientNameStep ? '' : booking.pendingField,
+    teamChanged: bookingTeam !== booking.bookingTeam,
   }
 }
 
@@ -1353,6 +1357,7 @@ function classifyRespondContact(contact) {
   if (/\b(client|cliente|patient|paciente|active|paid|current|recurring|old client)\b/i.test(statusText)) {
     return {
       status: 'returning_client',
+      exactContactStatus: contactStatus,
       label: 'Returning client',
       reason: 'Respond fields or tags indicate an existing client/patient.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
@@ -1364,6 +1369,7 @@ function classifyRespondContact(contact) {
   if (/\b(evaluation scheduled|scheduled|booked|appointment|cita|1st evaluation)\b/i.test(statusText)) {
     return {
       status: 'returning_lead',
+      exactContactStatus: contactStatus,
       label: 'Returning lead',
       reason: 'Respond fields or tags indicate an existing scheduled/evaluated lead.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
@@ -1375,6 +1381,7 @@ function classifyRespondContact(contact) {
   if (hubspotId) {
     return {
       status: 'existing_hubspot_contact',
+      exactContactStatus: contactStatus,
       label: 'Existing HubSpot contact',
       reason: 'Respond contact has a hubspot_id custom field.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
@@ -1386,6 +1393,7 @@ function classifyRespondContact(contact) {
   if (/\b(no response|closed|follow up|follow-up|followup)\b/i.test(statusText)) {
     return {
       status: 'returning_conversation',
+      exactContactStatus: contactStatus,
       label: 'Returning conversation',
       reason: 'Respond fields indicate prior conversation handling, but not confirmed client status.',
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
@@ -1396,6 +1404,7 @@ function classifyRespondContact(contact) {
 
   return {
     status: 'new_or_no_record',
+    exactContactStatus: contactStatus,
     label: 'New or no existing record',
     reason: 'No current Respond fields indicate a prior client, lead, HubSpot record, or handled conversation.',
     fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
@@ -2388,13 +2397,6 @@ async function handleRespondBookingAutomation({
       })
     }
 
-    if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
-      return {
-        text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
-      }
-    }
-
     const offer = await offerSoonestRespondSlot({
       booking: { ...existingBooking, bookingTeam, pendingField: '' },
       details: nextDetails,
@@ -2446,13 +2448,6 @@ async function handleRespondBookingAutomation({
         }
       }
 
-      if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
-        return {
-          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askNameBeforeSlot')}`,
-          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
-        }
-      }
-
       const offer = await offerSoonestRespondSlot({
         booking: { ...existingBooking, bookingTeam, pendingField: '' },
         details: nextDetails,
@@ -2484,13 +2479,6 @@ async function handleRespondBookingAutomation({
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
-      }
-    }
-
-    if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
-      return {
-        text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
       }
     }
 
@@ -2581,6 +2569,16 @@ async function handleRespondBookingAutomation({
       })
     }
 
+    if (!activeOption) {
+      return await offerSoonestRespondSlot({
+        booking: { ...existingBooking, bookingTeam, pendingField: '' },
+        details: nextDetails,
+        customerLanguage,
+        preferredTime: nextDetails.preferredTime,
+        closest: Boolean(nextDetails.preferredTime),
+      })
+    }
+
     if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
       if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
@@ -2602,16 +2600,6 @@ async function handleRespondBookingAutomation({
         text: bookingCopy(customerLanguage, activeOption ? 'askName' : 'askNameBeforeSlot'),
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'name' },
       }
-    }
-
-    if (!activeOption) {
-      return await offerSoonestRespondSlot({
-        booking: { ...existingBooking, bookingTeam, pendingField: '' },
-        details: nextDetails,
-        customerLanguage,
-        preferredTime: nextDetails.preferredTime,
-        closest: Boolean(nextDetails.preferredTime),
-      })
     }
 
     return await bookAcceptedRespondSlot({
@@ -2877,7 +2865,8 @@ async function handleRespondBookingAutomation({
     })
   }
 
-  // When user confirms a slot (selected one or said yes to offered one), ask for their name
+  // When the user confirms a slot, new clients provide their name; exact Client
+  // contacts skip that requirement and continue through the recurring-client flow.
   if (selectedOption || (existingBooking.offeredOption && isSlotAffirmation(latestUserText, latestSignals))) {
     const option = selectedOption || existingBooking.offeredOption
 
@@ -3043,13 +3032,6 @@ async function handleRespondBookingAutomation({
       booking: existingBooking,
       details,
     })
-  }
-
-  if (!hasBookableRespondCustomerName(details, respondContactProfile)) {
-    return {
-      text: bookingCopy(customerLanguage, 'askNameBeforeSlot'),
-      booking: { ...existingBooking, bookingTeam, details, pendingField: 'name' },
-    }
   }
 
   if (existingBooking.offeredOption && !isNegativeReply(latestUserText)) {
@@ -5551,6 +5533,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. If they ask "what is it about?", "tell me more", "how does it work", pricing, product, company, safety, side-effect, or similar questions while a slot or flow step is active, answer that question before asking them to choose or confirm. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved. When returning to scheduling, never ask what day or time works best for the customer; instead say you will check the next available time or continue collecting the next required booking detail so the application can offer real calendar slots.',
     'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist. If the customer asks whether the appointment or discovery call costs money, answer clearly that the discovery call is free and the specialist will explain treatment options, pricing, and next steps during the call.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
+    'For new clients, offer the real appointment time before asking for their full name. After they accept the offered time, collect the full name and any other missing required booking detail while preserving that accepted slot.',
     'Offer only one appointment option at a time unless the application explicitly provides numbered options. Preserve the customer latest date preference when they refine time; for example, if they said tomorrow and then ask for afternoon or 5pm, keep searching tomorrow, not today.',
     'Never claim that an appointment is booked, scheduled, confirmed, reserved, or that a link/details were sent unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
@@ -5593,7 +5576,7 @@ Mas podemos ajudá-lo com nossa linha de suplementos Dharma, desenvolvida para a
     'When discussing trust or legitimacy, say Dharma Clinic is LegitScript-certified and has more than 1500 positive Google reviews.',
     'Do not ask for the customer name before you have handled their question and appointment timing or availability context. Keep replies concise: answer the customer question first, then ask one follow-up in a separate short paragraph.',
     'Before suggesting leaving the conversation for another day, ask whether the customer has any other questions or concerns you can answer now.',
-    'Flow recovery rule: when the conversation falls back to answering a knowledge-base, complex, or general question, remember the active booking context. After the answer, use one subtle bridge back to the exact pending step: ask for state if state is pending, phone if phone is pending, name if name is pending, or re-offer the active slot if a slot is pending. Never skip ahead or ask for a new detail before the current pending step is satisfied.',
+    'Flow recovery rule: when the conversation falls back to a model answer, RAG answer, knowledge-base answer, complex question, or general question, preserve the complete active booking context. After the answer, use one subtle bridge back to the exact pending step: ask for state if state is pending, phone if phone is pending, name if name is pending after slot acceptance, or re-offer the active slot if a slot is awaiting acceptance. Never discard or replace an offered/accepted slot, skip ahead, or ask for a new detail before the current pending step is satisfied.',
     'When the customer asks what Semaglutide or Tirzepatide is, explain that we offer weight-loss injections that help reduce appetite and burn body fat. Keep it brief, avoid clinical certainty, and mention that eligibility is reviewed by the provider/specialist process.',
     'When the customer asks how long injections take to work or when effects/results appear, answer first: many people notice appetite reduction in the first few weeks, but timing varies by body, dose, and plan. Then explain that the specialist guides them through how it works, what to expect, and next steps during the free call. After that, return to the current booking step.',
     'The client/privacy rule applies to any named person, not only celebrities or known clients. If asked whether a specific client, celebrity, public figure, or named person used a treatment, use the same client-privacy answer first, then return to booking. Do not ask for phone, name, state, or any booking detail before answering the privacy question.',
