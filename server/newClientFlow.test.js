@@ -21,9 +21,16 @@ test('recurring clients do not need a confirmed full name', () => {
   assert.equal(requiresName, false)
 })
 
-test('returning leads and non-Client statuses remain in the new-client flow', () => {
+test('a classified recurring client skips the new-client name requirement', () => {
+  const profile = { status: 'returning_client' }
+
+  assert.equal(isExactRespondClientStatus(profile), true)
+  assert.equal(shouldUseNewClientBookingFlow(profile), false)
+})
+
+test('returning leads and non-client statuses remain in the new-client flow', () => {
   for (const profile of [
-    { status: 'returning_client', fields: { contactStatus: 'Lead' } },
+    { status: 'returning_lead', fields: { contactStatus: 'Lead' } },
     { fields: { contactStatus: 'Evaluation Scheduled' } },
     { fields: { contactStatus: '' } },
   ]) {

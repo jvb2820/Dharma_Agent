@@ -1469,7 +1469,14 @@ function buildRespondConversationSummary(contact = {}) {
 function getRespondCustomFieldMap(contact) {
   const entries = []
 
-  for (const source of [contact?.custom_fields, contact?.customFields, contact?.customFieldsMap]) {
+  for (const source of [
+    contact?.custom_fields,
+    contact?.customFields,
+    contact?.customFieldsMap,
+    contact?.custom_field_values,
+    contact?.customFieldValues,
+    contact?.fields,
+  ]) {
     if (Array.isArray(source)) {
       entries.push(
         ...source
