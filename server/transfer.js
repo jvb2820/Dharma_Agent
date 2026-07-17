@@ -251,6 +251,12 @@ export function detectRespondTransferTrigger(text = '') {
     return null
   }
 
+  // Asking whether the consultation or medical review involves a doctor is a
+  // normal sales/booking question, not a request for a Customer Service handoff.
+  if (isDoctorOrProviderQuestion(normalized)) {
+    return null
+  }
+
   const requestedTransfer =
     TRANSFER_REQUEST_PATTERNS.some((pattern) => pattern.test(normalized)) &&
     /\b(speak|talk|chat|connect|transfer|escalate|forward|switch|pass|put|human|person|representative|agent|manager|supervisor|customer service|customer care|support|specialist|hablar|conectar|transferir|pasar|comunicar|derivar|escalar|persona|humano|humana|representante|agente|gerente|supervisor|servicio|atencion|soporte|especialista|falar|encaminhar|pessoa|atendimento)\b/.test(
@@ -272,6 +278,14 @@ export function detectRespondTransferTrigger(text = '') {
   }
 
   return null
+}
+
+export function isDoctorOrProviderQuestion(text = '') {
+  const normalized = normalizeTriggerText(text)
+
+  return /\b(doctor|doctors|doctora|doctoras|medico|medicos|medica|medicas|provider|providers|proveedor|proveedores|provedor|provedores|doutor|doutora)\b/.test(
+    normalized,
+  )
 }
 
 export function buildRespondTransferMessage({ customerLanguage = 'English', trigger = null } = {}) {

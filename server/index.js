@@ -47,6 +47,7 @@ import {
   buildRespondTransferMessage,
   detectRespondTransferTrigger,
   getRespondAutomationDecision,
+  isDoctorOrProviderQuestion,
 } from './transfer.js'
 import {
   createDummyEmailFromProvidedPhone,
@@ -1142,6 +1143,12 @@ function isFixedTransferMessageLanguage(customerLanguage) {
 }
 
 async function resolveRespondTransferTrigger(text) {
+  // Doctor/provider questions belong in the booking flow and must be answered
+  // with the approved provider-network script, never routed to Customer Service.
+  if (isDoctorOrProviderQuestion(text)) {
+    return null
+  }
+
   const keywordTrigger = detectRespondTransferTrigger(text)
 
   if (keywordTrigger || !process.env.OPENAI_API_KEY) {
@@ -1157,6 +1164,7 @@ async function resolveRespondTransferTrigger(text) {
         'Transfer if the customer is irate, angry, threatening legal/report/chargeback action, strongly complaining, asking for a manager/human/customer service/support/specialist, or explicitly requesting transfer/escalation.',
         'Transfer if the customer asks for a refund while expressing fraud/scam/frustration language, including Spanglish such as "quiero mi refund" or Spanish accusations such as "estafadores".',
         'Classify messages in any language. Do not transfer for normal product questions, normal booking answers, or mild confusion.',
+        'A question about speaking with a doctor, physician, medical provider, or licensed provider is a normal booking question. Never transfer it to Customer Service; it must remain in the booking flow.',
       ].join('\n'),
       input: `Customer message:\n${text}`,
     })

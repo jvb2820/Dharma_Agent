@@ -11,6 +11,7 @@
     "ingest:company-info": "node scripts/ingestKnowledge.js --prefix \"Company Info\" --source-type company_info",
     "ingest:raw-conversations": "node scripts/ingestKnowledge.js --prefix \"Raw Conversation\" --source-type raw_conversation",
     "build": "vite build",
+    "test": "node --test server/*.test.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
