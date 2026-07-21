@@ -18,6 +18,7 @@ import {
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import { chooseConfirmedState, hasStrictRequestedDay } from '../src/utils/bookingRules.js'
+import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 import {
   buildPostBookingLock,
   expirePostBookingLock,
@@ -413,14 +414,23 @@ async function handleMemorySuggestionReview(match, response) {
 
 async function handleHubSpotAvailability(request, response) {
   const body = await readJsonBody(request)
-  const options = await getPrioritySellerAvailability({
-    limit: body.limit || 6,
+  let options = await getPrioritySellerAvailability({
+    limit: Number.isInteger(body.earliestHour) || body.latestStartTime ? 100 : body.limit || 6,
     preferredTime: body.preferredTime,
     preferredSpecialist: body.preferredSpecialist,
     timezone: getStateTimeZone(body.state),
   })
 
-  sendJson(response, 200, { options })
+  if (Number.isInteger(body.earliestHour) || body.latestStartTime) {
+    options = options.filter((option) => {
+      const localHour = getCustomerStateHour(option.startTime, body.state, option.timezone)
+      if (Number.isInteger(body.earliestHour) && localHour < body.earliestHour) return false
+      if (body.latestStartTime && Number(option.startTime) >= Number(body.latestStartTime)) return false
+      return true
+    })
+  }
+
+  sendJson(response, 200, { options: options.slice(0, body.limit || 6) })
 }
 
 async function handleHubSpotBookMeeting(request, response) {
@@ -865,6 +875,11 @@ async function processRespondIncomingMessage(event) {
   })
 
   if (bookingResponse) {
+    bookingResponse.text = enforceReplyLanguage({
+      text: bookingResponse.text,
+      customerLanguage,
+      latestUserText: event.text,
+    })
     const postReplyMessages = []
     let nextPostBookingLock = session.postBookingLock || null
 
@@ -960,7 +975,11 @@ async function processRespondIncomingMessage(event) {
     instructions,
     input,
   })
-  const text = preventUnconfirmedBookingReply(generatedText, customerLanguage, messages, session)
+  const text = enforceReplyLanguage({
+    text: preventUnconfirmedBookingReply(generatedText, customerLanguage, messages, session),
+    customerLanguage,
+    latestUserText: event.text,
+  })
 
   await sendRespondTextMessage({
     contactId: event.contactId,
@@ -2344,11 +2363,15 @@ async function handleRespondBookingAutomation({
     latestSignals,
   })
 
-  if (
+  const deterministicPolicyAnswer =
     isClientTreatmentPrivacyQuestion(latestUserText) ||
     isContextualClientPrivacyFollowUp(latestUserText, messages)
-  ) {
-    const privacyAnswer = getClientPrivacyAnswer(customerLanguage)
+      ? getClientPrivacyAnswer(customerLanguage)
+      : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText))
+        ? getOutOfFlowAnswer(latestUserText, customerLanguage)
+        : ''
+
+  if (deterministicPolicyAnswer) {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     let continuation = ''
 
@@ -2367,7 +2390,7 @@ async function handleRespondBookingAutomation({
     }
 
     return {
-      text: [privacyAnswer, continuation].filter(Boolean).join('\n\n'),
+      text: [deterministicPolicyAnswer, continuation].filter(Boolean).join('\n\n'),
       booking: { ...existingBooking, bookingTeam, details },
     }
   }
@@ -2868,7 +2891,13 @@ async function handleRespondBookingAutomation({
     }
   }
 
-  if (hasActiveSlotOffer && !selectedOption && shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
+  if (
+    hasActiveSlotOffer &&
+    !selectedOption &&
+    !latestSignals.preferredTime &&
+    !extractAvailabilityPreference(latestUserText).hasPreference &&
+    shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)
+  ) {
     return await buildOutOfFlowAnswerWithBookingContext({
       messages,
       latestUserText,
@@ -2936,10 +2965,14 @@ async function handleRespondBookingAutomation({
   }
 
   if (hasActiveSlotOffer && !selectedOption && latestSignals.preferredTime) {
+    const currentOption = existingBooking.offeredOption || existingBooking.options?.[0]
     const nextDetails = {
       ...details,
       ...latestSignals,
       ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
+      ...(latestSignals.direction === 'earlier' && currentOption
+        ? { latestStartTime: currentOption.startTime }
+        : {}),
     }
 
     return await offerSoonestRespondSlot({
@@ -3220,6 +3253,7 @@ async function offerSoonestRespondSlot({
   closest = false,
   offerCopyKey = '',
 }) {
+  details = applyDefaultAvailabilityWindow(details, preferredTime)
   logRespondRoutingDecision('offer-slot', {
     bookingTeam: booking.bookingTeam,
     state: details.state,
@@ -3447,14 +3481,18 @@ function shouldOfferMultipleScheduleOptions({ closest = false, details = {}, pre
 }
 
 function filterOptionsByAvailabilityPreference(options = [], details = {}) {
-  if (!hasAvailabilityTimeConstraint(details)) {
+  if (!hasAvailabilityTimeConstraint(details) && !Number.isFinite(details.latestHour) && !details.latestStartTime) {
     return options
   }
 
   return options.filter((option) => {
     const localHour = getCustomerStateHour(option.startTime, details.state, option.timezone)
 
-    return localHour != null && localHour >= details.earliestHour
+    if (localHour == null) return false
+    if (Number.isInteger(details.earliestHour) && localHour < details.earliestHour) return false
+    if (Number.isFinite(details.latestHour) && localHour >= details.latestHour) return false
+    if (details.latestStartTime && Number(option.startTime) >= Number(details.latestStartTime)) return false
+    return true
   })
 }
 
@@ -3649,9 +3687,9 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (isMedicalHistoryOrSafetyQuestion(normalized)) {
-    if (spanish) return 'No puedo confirmar en el chat si una condicion especifica permite usar el tratamiento. Para proteger tu privacidad, no compartas historial medico ni condiciones especificas aqui; en la llamada gratuita el especialista revisa condiciones medicas y contraindicaciones para confirmar si es seguro para ti.'
-    if (portuguese) return 'Nao posso confirmar pelo chat se uma condicao especifica permite usar o tratamento. Para proteger sua privacidade, nao compartilhe historico medico nem condicoes especificas aqui; na chamada gratuita o especialista revisa condicoes medicas e contraindicacoes para confirmar se e seguro para voce.'
-    return 'I cannot confirm in chat whether a specific condition is compatible with treatment. To protect your privacy, please do not share medical history or specific conditions here; during the free discovery call, the specialist reviews medical conditions and contraindications to confirm whether it is safe for you.'
+    if (spanish) return 'Gracias por compartirlo. Durante la llamada de analisis, nuestro especialista revisara todas tus condiciones medicas y posibles contraindicaciones para asegurarse de que cualquier tratamiento sea seguro y apropiado para ti.'
+    if (portuguese) return 'Obrigado por compartilhar. Durante a chamada de analise, nosso especialista revisara todas as suas condicoes medicas e possiveis contraindicacoes para garantir que qualquer tratamento seja seguro e apropriado para voce.'
+    return 'Thank you for sharing that. During the discovery call, our specialist will review all medical conditions and possible contraindications to make sure any treatment is safe and appropriate for you.'
   }
 
   if (isPopularityOrBestSellerQuestion(normalized)) {
@@ -3817,7 +3855,7 @@ function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
 function isMedicalHistoryOrSafetyQuestion(normalizedText) {
   return [
     /\b(medical history|medical condition|condition|conditions|contraindication|contraindications|chronic illness|diagnosis|thyroid|thyroid nodules|nodules|pregnant|pregnancy|breastfeeding|side effect|side effects|medication interaction|can i use|can i take|is it safe)\b/,
-    /\b(historial medico|historia medica|condicion|condiciones|contraindicacion|contraindicaciones|enfermedad cronica|diagnostico|tiroides|nodulo|nodulos|embarazada|embarazo|lactancia|efecto secundario|efectos secundarios|interaccion|puedo usar|puedo tomar|es seguro)\b/,
+    /\b(historial medico|historia medica|condicion|condiciones|contraindicacion|contraindicaciones|enfermedad cronica|diagnostico|tiroides|nodulo|nodulos|embarazada|embarazo|lactancia|efecto secundario|efectos secundarios|interaccion|puedo usar|puedo tomar|es seguro|hipertensa|hipertenso|hipertension|presion alta)\b/,
     /\b(historico medico|condicao|condicoes|contraindicacao|contraindicacoes|doenca cronica|diagnostico|tireoide|nodulo|nodulos|gravida|gravidez|amamentando|efeito colateral|efeitos colaterais|interacao|posso usar|posso tomar|e seguro)\b/,
   ].some((pattern) => pattern.test(normalizedText))
 }
@@ -4014,6 +4052,8 @@ function extractRespondBookingDetails(messages) {
       preferredTime: latestAvailabilityPreference?.preferredTime || latestPreferredTime,
       earliestHour: latestAvailabilityPreference?.earliestHour,
       dayPart: latestAvailabilityPreference?.dayPart,
+      direction: latestAvailabilityPreference?.direction,
+      allowBeforeDefaultStart: latestAvailabilityPreference?.allowBeforeDefaultStart,
       phone: extractPhoneNumber(joined),
     }).filter(([, value]) => Boolean(value)),
   )
@@ -4029,6 +4069,8 @@ function extractRespondBookingDetailsFromText(content) {
       preferredTime: availabilityPreference.preferredTime || extractPreferredTimeText(content),
       earliestHour: availabilityPreference.earliestHour,
       dayPart: availabilityPreference.dayPart,
+      direction: availabilityPreference.direction,
+      allowBeforeDefaultStart: availabilityPreference.allowBeforeDefaultStart,
       phone: extractPhoneNumber(content),
     }).filter(([, value]) => Boolean(value)),
   )
@@ -4213,14 +4255,14 @@ function bookingCopy(language, key, values = {}) {
       `Pronto, sua chamada está agendada para ${values.slot}. Os detalhes do agendamento serão enviados para você.`,
     ),
     noAvailability: tri(
-      'I do not see available slots right now. I will route this to the team so they can help find the next opening.',
-      'No veo horarios disponibles en este momento. Voy a pasarlo al equipo para que te ayuden a encontrar el proximo espacio.',
-      'Não vejo horários disponíveis no momento. Vou encaminhar para a equipe para que possam ajudá-lo a encontrar o próximo espaço disponível.',
+      'I do not see a matching time right now. I can check another time, day, or specialist without changing your current preference.',
+      'No veo un horario que coincida en este momento. Puedo revisar otra hora, otro dia u otro especialista sin cambiar tu preferencia actual.',
+      'Não vejo um horário correspondente neste momento. Posso verificar outro horário, dia ou especialista sem alterar sua preferência atual.',
     ),
     bookingFailed: tri(
-      'I could not confirm that appointment right now. I will route this to the team so they can check the calendar and help schedule it.',
-      'No pude confirmar esa cita en este momento. Voy a pasarlo al equipo para que revisen el calendario y te ayuden a agendar.',
-      'Não consegui confirmar esse agendamento agora. Vou encaminhar para a equipe para que verifiquem o calendário e ajudem a agendar.',
+      'I could not confirm that appointment right now. Your scheduling preference is still saved, and I can check another confirmed opening.',
+      'No pude confirmar esa cita en este momento. Tu preferencia de horario sigue guardada y puedo revisar otro espacio confirmado.',
+      'Não consegui confirmar esse agendamento agora. Sua preferência de horário continua salva e posso verificar outra vaga confirmada.',
     ),
     checking: tri(
       'Give me a moment and I will help with the next available time.',
@@ -4566,6 +4608,15 @@ function getContextualOutOfFlowFallbackAnswer(customerLanguage) {
   }
 
   return 'Yes, the specialist can help with that during the free call and explain which option may fit your goal best.'
+}
+
+function enforceReplyLanguage({ text, customerLanguage, latestUserText = '' }) {
+  if (normalizeLanguageName(customerLanguage) !== 'Latin American Spanish') return text
+  const detectedReplyLanguage = detectLatestMessageLanguage(text)
+  if (!detectedReplyLanguage || detectedReplyLanguage === 'Latin American Spanish') return text
+
+  return getOutOfFlowAnswer(latestUserText, customerLanguage) ||
+    getContextualOutOfFlowFallbackAnswer(customerLanguage)
 }
 
 function buildPendingStateOutOfFlowReply(answer, customerLanguage) {
@@ -5235,6 +5286,34 @@ function extractAvailabilityPreference(content) {
     return { hasPreference: false }
   }
 
+  const exactClockMatch = String(preferenceText || '').match(
+    /\b(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)\b|\b(?:at|a las|las)\s+(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)?\b/i,
+  )
+
+  if (exactClockMatch) {
+    const hour = normalizeAvailabilityHour(
+      Number(exactClockMatch[1] || exactClockMatch[4]),
+      exactClockMatch[3] || exactClockMatch[6] || '',
+    )
+    return {
+      hasPreference: true,
+      preferredTime: extractPreferredTimeText(content) || exactClockMatch[0].trim(),
+      earliestHour: hour,
+      dayPart: hour >= 12 ? 'afternoon' : 'morning',
+      direction: 'exact',
+      allowBeforeDefaultStart: hour < 9,
+    }
+  }
+
+  if (/\b(earlier|something earlier|before that|mas temprano|algo mas temprano|antes|mais cedo|algo mais cedo)\b/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'morning',
+      direction: 'earlier',
+      allowBeforeDefaultStart: true,
+    }
+  }
+
   if (/\b(day after tomorrow|pasado manana|pasado manaña|depois de amanha)\b/.test(normalized)) {
     return {
       hasPreference: true,
@@ -5273,7 +5352,7 @@ function extractAvailabilityPreference(content) {
     return {
       hasPreference: true,
       preferredTime: 'morning',
-      earliestHour: 0,
+      earliestHour: 9,
       dayPart: 'morning',
     }
   }
@@ -5390,6 +5469,10 @@ function applyAvailabilityConstraintFromPreferredTime(details = {}) {
   }
 
   return details
+}
+
+function applyDefaultAvailabilityWindow(details = {}, preferredTime = '') {
+  return applyDefaultAvailabilityRule(details, preferredTime)
 }
 
 function getCombinedTomorrowDayPartPreference(normalized) {

@@ -9,6 +9,8 @@ test('recognizes named-person medication questions regardless of capitalization'
     'Which medication did dayanara torres use?',
     'Que medicamento uso Dayanara Torres?',
     'Es el mismo tratamento que Dayanara Torres utilizó?',
+    'No, i want to know if ill use the same things as maria cristina',
+    'Will I use the same treatment as Maria Cristina?',
   ]) {
     assert.equal(hasExplicitNamedPersonMedicationQuestion(message), true)
   }

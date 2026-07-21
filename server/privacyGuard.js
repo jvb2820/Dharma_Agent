@@ -1,4 +1,8 @@
+import { hasNamedPersonTreatmentQuestion } from '../src/utils/privacyRules.js'
+
 export function hasExplicitNamedPersonMedicationQuestion(text = '') {
+  if (hasNamedPersonTreatmentQuestion(text)) return true
+
   const normalized = normalizePrivacyText(text)
   const treatment =
     '(?:medication|medicine|treatment|program|injection|semaglutide|tirzepatide|zepbound|medicamento|tratamiento|programa|inyeccion|tratamento|injecao)'

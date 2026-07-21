@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAgent } from '../hooks/useAgent'
 import { hubspotService } from '../services/hubspotService'
 import { detectLatestMessageLanguage } from '../utils/conversationLanguage'
+import { hasNamedPersonTreatmentQuestion } from '../utils/privacyRules'
+import { applyDefaultAvailabilityRule } from '../utils/availabilityRules'
 import { openaiService } from '../services/openaiService'
 import { respondService } from '../services/respondService'
 import { NON_SERVICEABLE_LOCATIONS, US_STATES, isPrescribedTreatmentDeliveryState } from '../data/states'
@@ -229,8 +231,8 @@ function bookingText(language, key, values = {}) {
       : 'Of course. If those times do not work, I can check another available option. I can also answer any questions before looking for another slot.',
     booked: spanish ? `Tu cita quedo agendada para ${values.display}.` : `You are booked for ${values.display}.`,
     noAvailability: spanish
-      ? 'No veo una disponibilidad que coincida ahora mismo. Puedo revisar otro horario, otro especialista o pasarlo al equipo para ayudarte a agendar manualmente.'
-      : 'I am not seeing a matching opening right now. I can check another slot, another specialist, or route this to the team for manual scheduling.',
+      ? 'No veo una disponibilidad que coincida ahora mismo. Puedo revisar otro horario, otro dia u otro especialista sin cambiar tu preferencia actual.'
+      : 'I am not seeing a matching opening right now. I can check another time, day, or specialist without changing your current preference.',
     availabilityIntro: spanish
       ? 'Revise el calendario de nuestros especialistas y encontre estos primeros horarios disponibles:'
       : 'I checked our specialists calendars and found these earliest available times:',
@@ -303,10 +305,6 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     isBookingIntent(content) ||
     (isSchedulingPrompt(latestAgentMessage) && Boolean(extractPreferredTime(content)))
 
-  if (!booking.active && !shouldStartBooking) {
-    return null
-  }
-
   if (isNamedPersonTreatmentQuestion(content) || isContextualPrivacyFollowUp(content, messages)) {
     const privacyAnswer = privacyText(customerLanguage)
     const continuation = booking.options?.length
@@ -319,6 +317,22 @@ async function handleBookingMessage(content, booking, memory, messages, customer
       nextBooking: booking,
       message: [privacyAnswer, continuation].filter(Boolean).join('\n\n'),
     }
+  }
+
+  if (isMedicalConditionStatement(content)) {
+    const continuation = booking.options?.length
+      ? bookingText(customerLanguage, 'availabilityChoice')
+      : booking.active && booking.currentFieldIndex >= 0
+        ? getBookingQuestion(booking.currentFieldIndex, booking.details || {}, customerLanguage)
+        : ''
+    return {
+      nextBooking: booking,
+      message: [medicalConditionText(customerLanguage), continuation].filter(Boolean).join('\n\n'),
+    }
+  }
+
+  if (!booking.active && !shouldStartBooking) {
+    return null
   }
 
   if (!booking.active) {
@@ -371,7 +385,7 @@ async function handleBookingMessage(content, booking, memory, messages, customer
 
   if (booking.options.length > 0) {
     const selectedOption = pickAvailabilityOption(content, booking.options)
-    const requestedChange = extractAvailabilityChangeRequest(content)
+    const requestedChange = extractAvailabilityChangeRequest(content, booking)
 
     if (!selectedOption) {
       if (isConversationDeferral(content)) {
@@ -525,15 +539,18 @@ async function handleBookingMessage(content, booking, memory, messages, customer
 }
 
 async function prepareAvailabilityResponse({ booking, details, intro = '', customerLanguage }) {
+  details = applyClientAvailabilityConstraints(details)
   const options = await hubspotService.getAvailability({
     preferredTime: details.preferredTime,
     preferredSpecialist: details.preferredSpecialist,
     state: details.state,
+    earliestHour: details.earliestHour,
+    latestStartTime: details.latestStartTime,
   })
 
   if (options.length === 0) {
     return {
-      nextBooking: INITIAL_BOOKING,
+      nextBooking: { ...booking, active: true, details, options: [] },
       message: bookingText(customerLanguage, 'noAvailability'),
     }
   }
@@ -815,7 +832,7 @@ function pickAvailabilityOption(content, options) {
   return options.find((option) => option.id === selectedId)
 }
 
-function extractAvailabilityChangeRequest(content) {
+function extractAvailabilityChangeRequest(content, booking = {}) {
   const preferredSpecialist = extractPreferredSpecialist(content)
   let preferredTime = extractPreferredTime(content)
   const normalized = normalizeTreatmentSearchText(content)
@@ -832,8 +849,21 @@ function extractAvailabilityChangeRequest(content) {
   }
 
   if (preferredTime) {
+    const existingDate = extractClientDatePhrase(booking.details?.preferredTime)
+    const newHasDate = Boolean(extractClientDatePhrase(preferredTime))
+    if (existingDate && !newHasDate && /\b(?:1[0-2]|0?[1-9])(?::\d{2})?\s*(?:am|pm)\b/i.test(preferredTime)) {
+      preferredTime = `${existingDate} ${preferredTime}`
+    }
     details.preferredTime = preferredTime
     changes.push(preferredTime)
+  }
+
+  if (/\b(earlier|something earlier|before that|mas temprano|algo mas temprano|antes|mais cedo|algo mais cedo)\b/.test(normalized)) {
+    details.direction = 'earlier'
+    details.allowBeforeDefaultStart = true
+    details.preferredTime = booking.details?.preferredTime || ''
+    details.latestStartTime = booking.options?.[0]?.startTime || booking.selectedOption?.startTime || ''
+    changes.push('earlier')
   }
 
   return {
@@ -990,6 +1020,12 @@ function extractState(content) {
   )
 }
 
+function extractClientDatePhrase(value = '') {
+  return String(value).match(
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|domingo|lunes|martes|miercoles|jueves|viernes|sabado)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b/i,
+  )?.[0] || ''
+}
+
 function isConversationDeferral(content) {
   return /\b(no thank you|no thanks|not now|no gracias|ahora no|hablamos luego)\b/.test(
     normalizeTreatmentSearchText(content),
@@ -997,12 +1033,7 @@ function isConversationDeferral(content) {
 }
 
 function isNamedPersonTreatmentQuestion(content) {
-  const normalized = normalizeTreatmentSearchText(content)
-  const asksTreatment = /\b(treatment|medication|medicine|used|tratamiento|tratamento|medicamento|utilizo|uso)\b/.test(normalized)
-  const possibleNames = (String(content || '').match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || [])
-    .filter((word) => !/^(Semaglutide|Tirzepatide|Zepbound|What|Which|Que|Cual|Es|El|La)$/i.test(word))
-
-  return asksTreatment && (/\b(dayanara torres)\b/.test(normalized) || possibleNames.length >= 2)
+  return hasNamedPersonTreatmentQuestion(content)
 }
 
 function isContextualPrivacyFollowUp(content, messages = []) {
@@ -1024,6 +1055,27 @@ function privacyText(language) {
   }
 
   return 'I am sorry, but our privacy policy does not allow us to share, confirm, or imply treatment information for any client, no matter who they are. I can explain our options generally.'
+}
+
+function applyClientAvailabilityConstraints(details = {}) {
+  const normalized = normalizeTreatmentSearchText(details.preferredTime)
+  const withDayPart = /\b(afternoon|tarde)\b/.test(normalized) && !Number.isInteger(details.earliestHour)
+    ? { ...details, earliestHour: 12 }
+    : details
+  return applyDefaultAvailabilityRule(withDayPart, withDayPart.preferredTime)
+}
+
+function isMedicalConditionStatement(content) {
+  return /\b(hypertension|hypertensive|high blood pressure|medical condition|hipertens[ao]|presion alta|condicion medica|hipertens[ao]|pressao alta|condicao medica)\b/.test(
+    normalizeTreatmentSearchText(content),
+  )
+}
+
+function medicalConditionText(language) {
+  if (isSpanishSession(language)) {
+    return 'Gracias por compartirlo. Durante la llamada de analisis, nuestro especialista revisara todas tus condiciones medicas y posibles contraindicaciones para asegurarse de que cualquier tratamiento sea seguro y apropiado para ti.'
+  }
+  return 'Thank you for sharing that. During the discovery call, our specialist will review all medical conditions and possible contraindications to make sure any treatment is safe and appropriate for you.'
 }
 
 function extractNonServiceableLocation(content) {

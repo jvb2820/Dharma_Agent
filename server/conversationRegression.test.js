@@ -4,9 +4,18 @@ import assert from 'node:assert/strict'
 import { chooseConfirmedState, hasStrictRequestedDay } from '../src/utils/bookingRules.js'
 import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
+import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 
 test('latest Spanish scheduling messages override an earlier English language', () => {
-  for (const message of ['No, puedo el sabado', 'No, mas tarde el sabado', 'Solo puedo el sabado']) {
+  for (const message of [
+    'No, puedo el sabado',
+    'No, mas tarde el sabado',
+    'Solo puedo el sabado',
+    'en nevada',
+    'quiero saber el precio',
+    'yo soy hipertensa',
+    'Tiene a las 12pm de california?',
+  ]) {
     assert.equal(resolveLatestMessageLanguage(message, 'English'), 'Latin American Spanish')
   }
 })
@@ -39,4 +48,21 @@ test('Saturday and explicit dates are hard availability constraints', () => {
 test('California slots are formatted in California local time', () => {
   assert.equal(getStateTimeZone('California'), 'America/Los_Angeles')
   assert.match(formatCustomerStateSlot(Date.UTC(2026, 6, 25, 19, 0), 'California'), /12:00 PM California Time/)
+})
+
+test('availability defaults to 9 AM but explicit early requests override it', () => {
+  assert.equal(applyDefaultAvailabilityRule({}, '').earliestHour, 9)
+  assert.equal(applyDefaultAvailabilityRule({}, '7:00 AM').earliestHour, 7)
+  assert.equal(applyDefaultAvailabilityRule({}, '12:00 PM').earliestHour, 12)
+})
+
+test('an earlier request removes the default 9 AM lower bound', () => {
+  const result = applyDefaultAvailabilityRule({
+    earliestHour: 9,
+    direction: 'earlier',
+    allowBeforeDefaultStart: true,
+    latestStartTime: Date.UTC(2026, 6, 23, 16, 20),
+  })
+  assert.equal(result.earliestHour, undefined)
+  assert.equal(result.latestStartTime, Date.UTC(2026, 6, 23, 16, 20))
 })

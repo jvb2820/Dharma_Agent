@@ -22,6 +22,10 @@ export function detectLatestMessageLanguage(content = '') {
     return 'Latin American Spanish'
   }
 
+  if (/\b(en nevada|quiero saber|yo soy|soy hipertens[ao]|puedo el|tiene a las|de california)\b/.test(normalized)) {
+    return 'Latin American Spanish'
+  }
+
   if (/\b(nao posso|posso|mais tarde|so posso)\b/.test(normalized)) {
     return 'Portuguese'
   }
