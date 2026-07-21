@@ -19,6 +19,14 @@ import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import { chooseConfirmedState, hasStrictRequestedDay } from '../src/utils/bookingRules.js'
 import {
+  buildPostBookingLock,
+  expirePostBookingLock,
+  getPostBookingLock,
+  isPostBookingLockActive,
+  isPostBookingLockExpired,
+  savePostBookingLock,
+} from './postBookingLockService.js'
+import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
   findHubSpotContactByEmail,
@@ -641,11 +649,43 @@ async function sendBookingConfirmationVideo({ contactId, channelId }) {
 }
 
 async function processRespondIncomingMessage(event) {
-  const session = getRespondSession(event.contactId)
+  let session = getRespondSession(event.contactId)
   let respondContactProfile = await getRespondContactProfile(event.contactId, session.respondContactProfile)
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
     phone: event.contactPhone,
   })
+  const postBookingLock = await getPostBookingLock(event.contactId, session.postBookingLock)
+
+  if (isPostBookingLockActive(postBookingLock)) {
+    respondSessions.set(event.contactId, {
+      ...session,
+      postBookingLock,
+      respondContactProfile,
+    })
+    console.log('[respond-post-booking-locked]', {
+      contactId: event.contactId,
+      lockedUntil: new Date(postBookingLock.lockedUntil).toISOString(),
+      assignee: postBookingLock.assignee,
+    })
+    return
+  }
+
+  if (isPostBookingLockExpired(postBookingLock)) {
+    await expirePostBookingLock(event.contactId).catch((error) => {
+      console.warn(error.message)
+    })
+    await unassignRespondConversationAfterReply(event.contactId)
+    respondSessions.delete(event.contactId)
+    session = getRespondSession(event.contactId)
+    respondContactProfile = mergeRespondContactProfileFallbacks(
+      await getRespondContactProfile(event.contactId, null),
+      { phone: event.contactPhone },
+    )
+    console.log('[respond-post-booking-expired-restart]', {
+      contactId: event.contactId,
+      lockedUntil: new Date(postBookingLock.lockedUntil).toISOString(),
+    })
+  }
   const automationDecision = getRespondAutomationDecision({
     contactProfile: respondContactProfile,
     session,
@@ -826,6 +866,7 @@ async function processRespondIncomingMessage(event) {
 
   if (bookingResponse) {
     const postReplyMessages = []
+    let nextPostBookingLock = session.postBookingLock || null
 
     if (bookingResponse.postReplyRespondAction?.type === 'booked') {
       await sendBookingConfirmationVideo({
@@ -845,13 +886,26 @@ async function processRespondIncomingMessage(event) {
         text: paymentInfoText,
       })
       postReplyMessages.push({ role: 'agent', content: paymentInfoText })
-      await assignRespondConversationAfterBooking({
+      const assignment = await assignRespondConversationAfterBooking({
         contactId: event.contactId,
         booked: bookingResponse.postReplyRespondAction.booked,
         option: bookingResponse.postReplyRespondAction.option,
       }).catch((error) => {
         console.warn(`Unable to assign Respond conversation after booking: ${error.message}`)
+        return null
       })
+
+      if (assignment?.assigned) {
+        nextPostBookingLock = buildPostBookingLock({
+          contactId: event.contactId,
+          assignee: assignment.assignee,
+          booked: bookingResponse.postReplyRespondAction.booked,
+          option: bookingResponse.postReplyRespondAction.option,
+        })
+        await savePostBookingLock(nextPostBookingLock).catch((error) => {
+          console.warn(error.message)
+        })
+      }
     } else {
       await sendRespondTextMessage({
         contactId: event.contactId,
@@ -871,6 +925,7 @@ async function processRespondIncomingMessage(event) {
         ...postReplyMessages,
       ].slice(-12),
       booking: bookingResponse.booking,
+      postBookingLock: nextPostBookingLock,
       respondContactProfile,
     })
     return
@@ -1239,7 +1294,7 @@ async function assignRespondConversationAfterBooking({ contactId, booked, option
     console.warn(
       `Unable to assign Respond conversation: no assignee configured for booked specialist ${booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName || 'unknown'}. Tried keys: ${assignment.keys.join(', ') || 'none'}. Configured keys: ${assignment.configuredKeys.join(', ') || 'none'}.`,
     )
-    return
+    return { assigned: false, assignee: '' }
   }
 
   await assignRespondConversation({ contactId, assignee })
@@ -1249,6 +1304,8 @@ async function assignRespondConversationAfterBooking({ contactId, booked, option
     assignee,
     bookedSpecialist: booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName,
   })
+
+  return { assigned: true, assignee }
 }
 
 function buildRespondTransferFailureMessage(customerLanguage) {
