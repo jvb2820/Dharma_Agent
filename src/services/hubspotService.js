@@ -1,11 +1,11 @@
 export const hubspotService = {
-  getAvailability: async ({ preferredTime, preferredSpecialist } = {}) => {
+  getAvailability: async ({ preferredTime, preferredSpecialist, state } = {}) => {
     const response = await fetch('/api/hubspot/availability', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ limit: 6, preferredTime, preferredSpecialist }),
+      body: JSON.stringify({ limit: 6, preferredTime, preferredSpecialist, state }),
     })
     const data = await response.json()
 

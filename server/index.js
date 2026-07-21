@@ -8,6 +8,7 @@ import {
   formatCustomerStateSlot,
   formatCustomerStateTime,
   getCustomerStateHour,
+  getStateTimeZone,
 } from './timezones.js'
 import {
   NON_SERVICEABLE_LOCATIONS,
@@ -15,6 +16,8 @@ import {
   isPrescribedTreatmentDeliveryState,
 } from '../src/data/states.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
+import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
+import { chooseConfirmedState, hasStrictRequestedDay } from '../src/utils/bookingRules.js'
 import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
@@ -406,6 +409,7 @@ async function handleHubSpotAvailability(request, response) {
     limit: body.limit || 6,
     preferredTime: body.preferredTime,
     preferredSpecialist: body.preferredSpecialist,
+    timezone: getStateTimeZone(body.state),
   })
 
   sendJson(response, 200, { options })
@@ -1031,36 +1035,38 @@ async function transferRespondConversationToCustomerService({
   transferTrigger,
   userMessage,
 }) {
-  const text = await resolveRespondTransferMessage({
-    customerLanguage,
-    latestUserText: userMessage?.content || '',
-    transferTrigger,
-  })
-
-  await sendRespondTextMessage({
-    contactId,
-    channelId,
-    text,
-  })
-
   const assignee = getRespondCustomerServiceAssignee()
+  let assigned = false
 
   if (!assignee) {
     console.warn(
       `Unable to transfer Respond conversation to Customer Service: no configured Customer Service team member has a Respond assignee in RESPOND_BOOKING_ASSIGNEES.`,
     )
   } else {
-    await assignRespondConversation({ contactId, assignee }).catch((error) => {
+    try {
+      await assignRespondConversation({ contactId, assignee })
+      assigned = true
+    } catch (error) {
       console.warn(`Unable to transfer Respond conversation to Customer Service: ${error.message}`)
-    })
+    }
   }
+
+  const text = assigned
+    ? await resolveRespondTransferMessage({
+        customerLanguage,
+        latestUserText: userMessage?.content || '',
+        transferTrigger,
+      })
+    : buildRespondTransferFailureMessage(customerLanguage)
+
+  await sendRespondTextMessage({ contactId, channelId, text })
 
   respondSessions.set(contactId, {
     ...session,
     customerLanguage,
     languageAsked: false,
     lastInteractionAt: Date.now(),
-    transferHandoffAt: Date.now(),
+    transferHandoffAt: assigned ? Date.now() : null,
     transferClosedAt: null,
     messages: [
       ...(session.messages || []),
@@ -1243,6 +1249,17 @@ async function assignRespondConversationAfterBooking({ contactId, booked, option
     assignee,
     bookedSpecialist: booked?.sellerSlug || option?.sellerSlug || booked?.sellerName || option?.sellerName,
   })
+}
+
+function buildRespondTransferFailureMessage(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+  if (language === 'Latin American Spanish') {
+    return 'No pude completar la transferencia en este momento. Nuestro equipo puede continuar ayudandote aqui cuando haya un agente disponible.'
+  }
+  if (language === 'Portuguese') {
+    return 'Nao consegui concluir a transferencia neste momento. Nossa equipe pode continuar ajudando por aqui quando um agente estiver disponivel.'
+  }
+  return 'I could not complete the transfer right now. Our team can continue helping here when an agent is available.'
 }
 
 function getRespondAssigneeForBookedSpecialist(booked = {}, option = {}) {
@@ -2247,6 +2264,14 @@ async function handleRespondBookingAutomation({
     ...latestNameDetails,
     ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
   }
+  // The active/confirmed booking state wins over stale profile and historical
+  // values. Only a state explicitly present in the latest message may change it.
+  details.state = chooseConfirmedState({
+    latestState: latestSignals.state,
+    activeState: existingBooking.details?.state,
+    profileState: getRespondContactBookingDetails(respondContactProfile).state,
+    historicalState: conversationSignals.state,
+  })
   details = applyAvailabilityConstraintFromPreferredTime(details)
   details = withDefaultRespondDesiredTreatment(details)
   details = applyNewClientBookingRequirements(details, {
@@ -2261,6 +2286,34 @@ async function handleRespondBookingAutomation({
     booking: { ...existingBooking, bookingTeam, details },
     latestSignals,
   })
+
+  if (
+    isClientTreatmentPrivacyQuestion(latestUserText) ||
+    isContextualClientPrivacyFollowUp(latestUserText, messages)
+  ) {
+    const privacyAnswer = getClientPrivacyAnswer(customerLanguage)
+    const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
+    let continuation = ''
+
+    if (activeOption) {
+      continuation = bookingCopy(customerLanguage, 'reofferSlot', {
+        slot: formatCustomerStateSlot(activeOption.startTime, details.state, activeOption.timezone),
+      })
+    } else if (existingBooking.pendingField === 'state') {
+      continuation = bookingCopy(customerLanguage, 'askState')
+    } else if (existingBooking.pendingField === 'phone') {
+      continuation = bookingCopy(customerLanguage, 'askPhone')
+    } else if (existingBooking.pendingField === 'preferredTime') {
+      continuation = bookingCopy(customerLanguage, 'askPreferredTime')
+    } else if (existingBooking.pendingField === 'name') {
+      continuation = bookingCopy(customerLanguage, 'askName')
+    }
+
+    return {
+      text: [privacyAnswer, continuation].filter(Boolean).join('\n\n'),
+      booking: { ...existingBooking, bookingTeam, details },
+    }
+  }
 
   if (existingBooking.pendingField === 'state') {
     const state = latestSignals.state
@@ -2819,7 +2872,10 @@ async function handleRespondBookingAutomation({
   }
 
   if (hasActiveSlotOffer && !selectedOption && isConversationDeferralReply(latestUserText)) {
-    return null
+    return {
+      text: bookingCopy(customerLanguage, 'bookingPaused'),
+      booking: existingBooking,
+    }
   }
 
   if (hasActiveSlotOffer && !selectedOption && latestSignals.preferredTime) {
@@ -3129,10 +3185,12 @@ async function offerSoonestRespondSlot({
   const options = await getAvailability({
     limit: availabilityLimit,
     preferredTime,
+    timezone: getStateTimeZone(details.state),
   })
+  const strictRequestedDay = hasStrictRequestedDay(preferredTime)
   const fallbackOptions =
-    closest && options.length === 0
-      ? await getAvailability({ limit: 100 })
+    closest && options.length === 0 && !strictRequestedDay
+      ? await getAvailability({ limit: 100, timezone: getStateTimeZone(details.state) })
       : []
   let availableOptions = filterOptionsByAvailabilityPreference(
     options.length ? options : fallbackOptions,
@@ -3140,16 +3198,16 @@ async function offerSoonestRespondSlot({
   )
   availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
 
-  if ((hasTimeConstraint || hasExcludedAvailability) && availableOptions.length === 0) {
+  if ((hasTimeConstraint || hasExcludedAvailability) && availableOptions.length === 0 && !strictRequestedDay) {
     availableOptions = filterOptionsByAvailabilityPreference(
-      await getAvailability({ limit: 100 }),
+      await getAvailability({ limit: 100, timezone: getStateTimeZone(details.state) }),
       details,
     )
     availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
   }
   let afterHoursFallback = false
 
-  if (isAfterHoursAvailabilityPreference(details, preferredTime) && availableOptions.length === 0) {
+  if (isAfterHoursAvailabilityPreference(details, preferredTime) && availableOptions.length === 0 && !strictRequestedDay) {
     const nextMorningPreferredTime = getNextMorningPreferredTime(preferredTime)
     const nextMorningOptions = await getAvailability({ limit: 100, preferredTime: nextMorningPreferredTime })
     const morningOptions = nextMorningOptions.filter((option) => {
@@ -3506,9 +3564,7 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (isClientTreatmentPrivacyQuestion(content, normalized)) {
-    if (spanish) return 'Lo siento, por nuestra politica de privacidad no podemos compartir, confirmar ni insinuar informacion sobre tratamientos de ningun cliente, sin importar quien sea. Con gusto podemos explicarte nuestras opciones de manera general, y un especialista puede orientarte durante la llamada gratuita segun tu meta.'
-    if (portuguese) return 'Sinto muito, pela nossa politica de privacidade nao podemos compartilhar, confirmar nem sugerir informacoes sobre tratamentos de nenhum cliente, independentemente de quem seja. Podemos explicar nossas opcoes de forma geral, e um especialista pode orientar voce durante a chamada gratuita conforme seu objetivo.'
-    return 'I am sorry, but in accordance with our privacy policy we cannot share, confirm, or imply treatment information for any client, no matter who they are. I can explain our options generally, and a specialist can guide you during the free discovery call based on your goals.'
+    return getClientPrivacyAnswer(customerLanguage)
   }
 
   if (isLocationQuestion(normalized)) {
@@ -3563,6 +3619,27 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   if (spanish) return 'Claro, te explico brevemente: la llamada gratis es para revisar tu meta, responder tus dudas y orientarte sobre las opciones disponibles.'
   if (portuguese) return 'Claro, explico brevemente: a chamada gratuita serve para revisar seu objetivo, responder suas duvidas e orientar sobre as opcoes disponiveis.'
   return 'Of course. The free call is to review your goal, answer questions, and guide you through the available options.'
+}
+
+function getClientPrivacyAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+  if (language === 'Latin American Spanish') return 'Lo siento, por nuestra politica de privacidad no podemos compartir, confirmar ni insinuar informacion sobre tratamientos de ningun cliente, sin importar quien sea. Con gusto podemos explicarte nuestras opciones de manera general, y un especialista puede orientarte durante la llamada gratuita segun tu meta.'
+  if (language === 'Portuguese') return 'Sinto muito, pela nossa politica de privacidade nao podemos compartilhar, confirmar nem sugerir informacoes sobre tratamentos de nenhum cliente, independentemente de quem seja. Podemos explicar nossas opcoes de forma geral, e um especialista pode orientar voce durante a chamada gratuita conforme seu objetivo.'
+  return 'I am sorry, but in accordance with our privacy policy we cannot share, confirm, or imply treatment information for any client, no matter who they are. I can explain our options generally, and a specialist can guide you during the free discovery call based on your goals.'
+}
+
+function isContextualClientPrivacyFollowUp(latestUserText, messages = []) {
+  const normalized = normalizeSearchText(latestUserText)
+  const asksAboutTheirTreatment = /\b(what|which|cual|que|qual)\b[\s\S]{0,40}\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b/.test(normalized) ||
+    /\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b[\s\S]{0,40}\b(she|he|ella|el|ela|ele)\b/.test(normalized)
+
+  if (!asksAboutTheirTreatment) return false
+
+  return [...messages]
+    .reverse()
+    .filter((message) => message.role === 'user' && message.content !== latestUserText)
+    .slice(0, 3)
+    .some((message) => isClientTreatmentPrivacyQuestion(message.content))
 }
 
 function getGeneralMedicationOfferingAnswer(customerLanguage) {
@@ -3963,6 +4040,11 @@ function bookingCopy(language, key, values = {}) {
   }
 
   const copy = {
+    bookingPaused: tri(
+      'Understood. We will leave the appointment pending for now. When you are ready, we can continue from the same scheduling step.',
+      'Entendido. Dejamos la cita pendiente por ahora. Cuando quieras continuar, retomamos desde el mismo paso de la agenda.',
+      'Entendido. Vamos deixar o agendamento pendente por enquanto. Quando quiser continuar, retomamos da mesma etapa.',
+    ),
     askState: tri(
       '📍Please tell us which state you live in to find out if we ship to your state?',
       '📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?',
@@ -6216,6 +6298,12 @@ function normalizeLanguageName(language) {
 }
 
 function detectCustomerLanguage(content) {
+  const deterministicLanguage = detectLatestMessageLanguage(content)
+
+  if (deterministicLanguage) {
+    return deterministicLanguage
+  }
+
   const text = String(content || '').toLowerCase()
   const normalizedText = normalizeSearchText(content)
 

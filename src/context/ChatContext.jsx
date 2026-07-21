@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAgent } from '../hooks/useAgent'
 import { hubspotService } from '../services/hubspotService'
+import { detectLatestMessageLanguage } from '../utils/conversationLanguage'
 import { openaiService } from '../services/openaiService'
 import { respondService } from '../services/respondService'
 import { NON_SERVICEABLE_LOCATIONS, US_STATES, isPrescribedTreatmentDeliveryState } from '../data/states'
@@ -97,6 +98,12 @@ function createMessage(role, content) {
 }
 
 function detectCustomerSessionLanguage(content) {
+  const deterministicLanguage = detectLatestMessageLanguage(content)
+
+  if (deterministicLanguage) {
+    return deterministicLanguage
+  }
+
   const normalized = String(content || '').toLowerCase()
 
   if (!normalized.trim()) {
@@ -300,6 +307,20 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     return null
   }
 
+  if (isNamedPersonTreatmentQuestion(content) || isContextualPrivacyFollowUp(content, messages)) {
+    const privacyAnswer = privacyText(customerLanguage)
+    const continuation = booking.options?.length
+      ? bookingText(customerLanguage, 'availabilityChoice')
+      : booking.active && booking.currentFieldIndex >= 0
+        ? getBookingQuestion(booking.currentFieldIndex, booking.details || {}, customerLanguage)
+        : ''
+
+    return {
+      nextBooking: booking,
+      message: [privacyAnswer, continuation].filter(Boolean).join('\n\n'),
+    }
+  }
+
   if (!booking.active) {
     let details = mergeBookingDetails(conversationMemory, extractBookingMemory(content))
     let hubspotContact = null
@@ -353,6 +374,14 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     const requestedChange = extractAvailabilityChangeRequest(content)
 
     if (!selectedOption) {
+      if (isConversationDeferral(content)) {
+        return {
+          nextBooking: booking,
+          message: isSpanishSession(customerLanguage)
+            ? 'Entendido. Dejamos la cita pendiente por ahora. Cuando quieras continuar, retomamos desde estos horarios.'
+            : 'Understood. We will leave the appointment pending for now. When you are ready, we can continue from these times.',
+        }
+      }
       if (requestedChange.hasChange) {
         const nextDetails = {
           ...booking.details,
@@ -499,6 +528,7 @@ async function prepareAvailabilityResponse({ booking, details, intro = '', custo
   const options = await hubspotService.getAvailability({
     preferredTime: details.preferredTime,
     preferredSpecialist: details.preferredSpecialist,
+    state: details.state,
   })
 
   if (options.length === 0) {
@@ -787,7 +817,12 @@ function pickAvailabilityOption(content, options) {
 
 function extractAvailabilityChangeRequest(content) {
   const preferredSpecialist = extractPreferredSpecialist(content)
-  const preferredTime = extractPreferredTime(content)
+  let preferredTime = extractPreferredTime(content)
+  const normalized = normalizeTreatmentSearchText(content)
+
+  if (preferredTime && /\b(later|mas tarde)\b/.test(normalized) && !/\b(morning|afternoon|evening|tarde|noche)\b/.test(normalized)) {
+    preferredTime = `${preferredTime} afternoon`
+  }
   const details = {}
   const changes = []
 
@@ -955,6 +990,42 @@ function extractState(content) {
   )
 }
 
+function isConversationDeferral(content) {
+  return /\b(no thank you|no thanks|not now|no gracias|ahora no|hablamos luego)\b/.test(
+    normalizeTreatmentSearchText(content),
+  )
+}
+
+function isNamedPersonTreatmentQuestion(content) {
+  const normalized = normalizeTreatmentSearchText(content)
+  const asksTreatment = /\b(treatment|medication|medicine|used|tratamiento|tratamento|medicamento|utilizo|uso)\b/.test(normalized)
+  const possibleNames = (String(content || '').match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || [])
+    .filter((word) => !/^(Semaglutide|Tirzepatide|Zepbound|What|Which|Que|Cual|Es|El|La)$/i.test(word))
+
+  return asksTreatment && (/\b(dayanara torres)\b/.test(normalized) || possibleNames.length >= 2)
+}
+
+function isContextualPrivacyFollowUp(content, messages = []) {
+  const normalized = normalizeTreatmentSearchText(content)
+  const asksAboutTheirTreatment = /\b(what|which|cual|que|qual)\b[\s\S]{0,40}\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b/.test(normalized)
+
+  if (!asksAboutTheirTreatment) return false
+
+  return [...messages]
+    .reverse()
+    .filter((message) => message.role === 'user')
+    .slice(0, 3)
+    .some((message) => isNamedPersonTreatmentQuestion(message.content || ''))
+}
+
+function privacyText(language) {
+  if (isSpanishSession(language)) {
+    return 'Lo siento, por nuestra politica de privacidad no podemos compartir, confirmar ni insinuar informacion sobre tratamientos de ningun cliente, sin importar quien sea. Con gusto podemos explicarte nuestras opciones de manera general.'
+  }
+
+  return 'I am sorry, but our privacy policy does not allow us to share, confirm, or imply treatment information for any client, no matter who they are. I can explain our options generally.'
+}
+
 function extractNonServiceableLocation(content) {
   const searchable = normalizeTreatmentSearchText(content)
 
@@ -1057,7 +1128,7 @@ export function ChatProvider({ children }) {
 
       const userMessage = createMessage('user', trimmedContent)
       const nextMessages = [...messages, userMessage]
-      const detectedLanguage = extractPreferredLanguage(trimmedContent) || detectCustomerSessionLanguage(trimmedContent)
+      const detectedLanguage = detectCustomerSessionLanguage(trimmedContent) || extractPreferredLanguage(trimmedContent)
       const nextSessionLanguage = detectedLanguage || sessionLanguage || 'English'
 
       setMessages(nextMessages)

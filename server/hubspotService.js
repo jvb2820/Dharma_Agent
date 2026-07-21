@@ -30,11 +30,13 @@ export async function getPrioritySellerAvailability({
   limit = 6,
   preferredTime = '',
   preferredSpecialist = '',
+  timezone = EASTERN_TIMEZONE,
 } = {}) {
   return getTeamAvailability({
     members: filterSellersByPreference(getConfiguredPrioritySellers(), preferredSpecialist),
     limit,
     preferredTime,
+    timezone,
   })
 }
 
@@ -42,16 +44,17 @@ export async function getCustomerServiceAvailability({
   limit = 6,
   preferredTime = '',
   preferredSpecialist = '',
+  timezone = EASTERN_TIMEZONE,
 } = {}) {
   return getTeamAvailability({
     members: filterSellersByPreference(getConfiguredCustomerServiceTeam(), preferredSpecialist),
     limit,
     preferredTime,
+    timezone,
   })
 }
 
-async function getTeamAvailability({ members, limit = 6, preferredTime = '' }) {
-  const timezone = EASTERN_TIMEZONE
+async function getTeamAvailability({ members, limit = 6, preferredTime = '', timezone = EASTERN_TIMEZONE }) {
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
   const weekday = parsePreferredWeekday(preferredTime)
