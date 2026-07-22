@@ -2396,7 +2396,7 @@ async function handleRespondBookingAutomation({
       continuation = bookingCopy(customerLanguage, 'reofferSlot', {
         slot: formatCustomerStateSlot(activeOption.startTime, details.state, activeOption.timezone, customerLanguage),
       })
-    } else if (existingBooking.pendingField === 'state') {
+    } else if (existingBooking.pendingField === 'state' && !details.state) {
       continuation = bookingCopy(customerLanguage, 'askState')
     } else if (existingBooking.pendingField === 'phone') {
       continuation = bookingCopy(customerLanguage, 'askPhone')
@@ -2447,7 +2447,10 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    const state = latestSignals.state
+    // A confirmed state may already be stored even if an older pendingField
+    // value still says "state". Do not make an unrelated follow-up (such as a
+    // pricing question) provide the state a second time.
+    const state = latestSignals.state || details.state
 
     if (!state) {
       if (existingBooking.details?.inferredState && isInferredStateAffirmation(latestUserText)) {
@@ -2469,7 +2472,7 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    const confirmedState = latestSignals.state
+    const confirmedState = latestSignals.state || details.state
 
     if (!confirmedState) {
       const inferredLocation = inferStateFromCity(latestUserText)
@@ -2545,12 +2548,21 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    const nextDetails = withDefaultRespondDesiredTreatment({
+    let nextDetails = withDefaultRespondDesiredTreatment({
       ...details,
       state: confirmedState,
       inferredCity: '',
       inferredState: '',
     })
+
+    // Once state qualification is complete, a pricing detour should resume
+    // scheduling with tomorrow's real calendar availability.
+    if (modelIntent.intent === 'pricing' && !nextDetails.preferredTime) {
+      nextDetails = applyAvailabilityConstraintFromPreferredTime({
+        ...nextDetails,
+        preferredTime: 'tomorrow',
+      })
+    }
 
     if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
       return {
@@ -6012,7 +6024,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic. Use the customer name from Respond for contacts that already have records. For a new customer with no existing Respond record, ask for the name once before booking, then continue the booking flow even if the customer replies with only one name.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names. If asked about FDA approval, do not say compounded Semaglutide or compounded Tirzepatide are FDA-approved. Explain that FDA-approved branded medications include Wegovy and Zepbound, and Dharma uses the same active compounds with licensed medical oversight when appropriate.',
-    'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $589 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. If a real slot is already active, briefly return to that one slot after answering; otherwise follow up with the appropriate state inquiry: in Spanish say "📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?", in Portuguese say "📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?", in English say "📍Please tell us which state you live in to find out if we ship to your state?"',
+    'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $589 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. Never ask for state if the booking context already shows a Known state. If a real slot is already active, briefly return to that slot after answering. If state is known but no slot is active, let the application append real availability for the following day. Ask for state only when the booking context has no Known state.',
     'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
     `State and product qualification rule: use company knowledge for which products are deliverable in each state. If the customer is out of state for weight-loss injections, do not offer or book a prescribed-treatment appointment and do not claim injections can ship there. If they ask a general question, answer it normally in their language using company knowledge and then gently guide them toward supplements or nutrition support. Only send the exact out-of-state supplement alternative script when the customer is trying to qualify, book, buy, or ship weight-loss injections in a non-serviceable state.
 
