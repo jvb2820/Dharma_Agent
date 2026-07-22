@@ -17,7 +17,12 @@ import {
 } from '../src/data/states.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
-import { chooseConfirmedState, hasStrictRequestedDay, rejectsOfferedCalendarDate } from '../src/utils/bookingRules.js'
+import {
+  chooseConfirmedState,
+  hasStrictRequestedDay,
+  rejectsOfferedCalendarDate,
+  resolveKansasLocationClarification,
+} from '../src/utils/bookingRules.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 import {
   buildPostBookingLock,
@@ -2397,6 +2402,40 @@ async function handleRespondBookingAutomation({
   }
 
   if (existingBooking.pendingField === 'state') {
+    const kansasLocation = resolveKansasLocationClarification(
+      latestUserText,
+      existingBooking.awaitingKansasLocation,
+    )
+
+    if (kansasLocation.needsClarification) {
+      return {
+        text: bookingCopy(customerLanguage, 'clarifyKansasLocation'),
+        booking: {
+          ...existingBooking,
+          bookingTeam,
+          details: { ...details, state: '' },
+          pendingField: 'state',
+          awaitingKansasLocation: true,
+        },
+      }
+    }
+
+    if (kansasLocation.state) {
+      latestSignals.state = kansasLocation.state
+      details.state = kansasLocation.state
+    } else if (existingBooking.awaitingKansasLocation && !latestSignals.state) {
+      return {
+        text: bookingCopy(customerLanguage, 'clarifyKansasLocation'),
+        booking: {
+          ...existingBooking,
+          bookingTeam,
+          details: { ...details, state: '' },
+          pendingField: 'state',
+          awaitingKansasLocation: true,
+        },
+      }
+    }
+
     const state = latestSignals.state
 
     if (!state) {
@@ -4159,6 +4198,11 @@ function bookingCopy(language, key, values = {}) {
       'No problem. Which state do you live in?',
       'No hay problema. En que estado vives?',
       'Sem problema. Em qual estado voce mora?',
+    ),
+    clarifyKansasLocation: tri(
+      'Just to confirm, do you mean Kansas City, Missouri, or the state of Kansas?',
+      'Solo para confirmar, te refieres a Kansas City, Missouri, o al estado de Kansas?',
+      'So para confirmar, voce se refere a Kansas City, Missouri, ou ao estado do Kansas?',
     ),
     askCityState: tri(
       `I can help with that. Which state is ${values.city} in?`,

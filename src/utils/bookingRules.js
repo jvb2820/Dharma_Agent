@@ -2,6 +2,30 @@ export function chooseConfirmedState({ latestState = '', activeState = '', profi
   return latestState || activeState || profileState || historicalState || ''
 }
 
+export function resolveKansasLocationClarification(content = '', awaitingClarification = false) {
+  const normalized = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
+
+  if (/\b(kansas city|kc)\b[\s,]*(missouri|mo)\b/.test(normalized)) {
+    return { state: 'Missouri', needsClarification: false }
+  }
+  if (/\b(kansas city|kc)\b[\s,]*(kansas|ks)\b/.test(normalized)) {
+    return { state: 'Kansas', needsClarification: false }
+  }
+  if (/\b(state of kansas|kansas state|estado de kansas|estado do kansas)\b/.test(normalized)) {
+    return { state: 'Kansas', needsClarification: false }
+  }
+  if (awaitingClarification) {
+    if (/^(missouri|mo)$/.test(normalized)) return { state: 'Missouri', needsClarification: false }
+    if (/^(kansas|ks|the state|el estado|o estado)$/.test(normalized)) {
+      return { state: 'Kansas', needsClarification: false }
+    }
+  }
+  if (/^(kansas|kansas city|kc)$/.test(normalized)) {
+    return { state: '', needsClarification: true }
+  }
+  return { state: '', needsClarification: false }
+}
+
 export function hasStrictRequestedDay(preferredTime = '') {
   const normalized = normalizeRuleText(preferredTime)
   return /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|domingo|lunes|martes|miercoles|jueves|viernes|sabado|segunda|terca|quarta|quinta|sexta)\b/.test(normalized) ||
