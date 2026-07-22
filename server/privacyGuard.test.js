@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   hasExplicitNamedPersonMedicationQuestion,
+  isExplicitThirdPartyMedicationQuestion,
   isGeneralMedicationSafetyQuestion,
 } from './privacyGuard.js'
 
@@ -33,6 +34,31 @@ test('general medication safety questions never route to client privacy', () => 
 
 test('named-person safety questions remain privacy questions', () => {
   assert.equal(isGeneralMedicationSafetyQuestion('Was the treatment safe for Maria Lopez?'), false)
+})
+
+test('third-party customer treatment questions are privacy questions', () => {
+  for (const message of [
+    'Which treatment did your customer take?',
+    'What medication is the client using?',
+    'Which injections did that patient receive?',
+    'Que tratamiento uso su cliente?',
+    'Qual medicamento sua cliente usou?',
+  ]) {
+    assert.equal(isExplicitThirdPartyMedicationQuestion(message), true)
+  }
+})
+
+test('general treatment questions are not privacy questions', () => {
+  for (const message of [
+    'Which treatments?',
+    'Which medications?',
+    'What treatments do you offer?',
+    'Is it safe to take?',
+    'May I know more about your treatments?',
+  ]) {
+    assert.equal(isExplicitThirdPartyMedicationQuestion(message), false)
+    assert.equal(hasExplicitNamedPersonMedicationQuestion(message), false)
+  }
 })
 
 test('does not treat general medication questions as named-person questions', () => {

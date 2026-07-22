@@ -75,6 +75,7 @@ import {
 } from './newClientFlow.js'
 import {
   hasExplicitNamedPersonMedicationQuestion,
+  isExplicitThirdPartyMedicationQuestion,
   isGeneralMedicationSafetyQuestion,
 } from './privacyGuard.js'
 
@@ -3835,6 +3836,10 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
   // A concrete named-person question always takes precedence over the general
   // medication/offering guard, including lowercase or misspelled names.
   if (hasExplicitNamedPersonMedicationQuestion(rawText)) {
+    return true
+  }
+
+  if (isExplicitThirdPartyMedicationQuestion(rawText)) {
     return true
   }
 

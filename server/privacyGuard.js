@@ -18,8 +18,19 @@ export function hasExplicitNamedPersonMedicationQuestion(text = '') {
   ].some((pattern) => pattern.test(normalized))
 }
 
+export function isExplicitThirdPartyMedicationQuestion(text = '') {
+  const normalized = normalizePrivacyText(text)
+  const person = '(?:customer|customers|client|clients|patient|patients|cliente|clientes|paciente|pacientes|she|he|they|ella|ellos|ellas|ele|ela)'
+  const treatment = '(?:medication|medications|medicine|treatment|treatments|program|injection|injections|semaglutide|tirzepatide|zepbound|medicamento|medicamentos|tratamiento|tratamientos|programa|inyeccion|inyecciones|tratamento|tratamentos|injecao|injecoes)'
+
+  return [
+    new RegExp(`\\b${person}\\b[\\s\\S]{0,80}\\b${treatment}\\b`),
+    new RegExp(`\\b${treatment}\\b[\\s\\S]{0,80}\\b${person}\\b`),
+  ].some((pattern) => pattern.test(normalized))
+}
+
 export function isGeneralMedicationSafetyQuestion(text = '') {
-  if (hasExplicitNamedPersonMedicationQuestion(text)) return false
+  if (hasExplicitNamedPersonMedicationQuestion(text) || isExplicitThirdPartyMedicationQuestion(text)) return false
 
   const normalized = normalizePrivacyText(text)
   const asksSafety = [
