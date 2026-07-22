@@ -38,6 +38,7 @@ test('named-person safety questions remain privacy questions', () => {
 test('does not treat general medication questions as named-person questions', () => {
   for (const message of [
     'I wanna know more about the medications first',
+    'Before that May I know more about your medications?',
     'No quiero saber de una persona, quiero saber lo que ofrecen',
     'Quiero saber cual es el medicamento',
   ]) {

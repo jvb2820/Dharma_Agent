@@ -297,7 +297,7 @@ export function isGeneralProductOrMedicationClarification(text = '') {
       normalized,
     )
   const asksGenerally =
-    /\b(what|which|want to know|tell me|offer|offers|do you offer|quiero saber|wuiero saber|cual|que ofrecen|que ofrece|qhw oferezen|no quiero saber de (una )?persona|no wuiero saber de (una )?persona|quero saber|qual|o que oferecem)\b/.test(
+    /\b(what|which|want to know|may i know|can i know|know more|more about|tell me|tell me about|your medications?|your treatments?|offer|offers|do you offer|quiero saber|wuiero saber|saber mas|mas sobre|cual|que ofrecen|que ofrece|qhw oferezen|no quiero saber de (una )?persona|no wuiero saber de (una )?persona|quero saber|saber mais|mais sobre|qual|o que oferecem)\b/.test(
       normalized,
     )
 

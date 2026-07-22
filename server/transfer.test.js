@@ -46,3 +46,10 @@ test('does not transfer general medication questions or product clarifications',
     assert.equal(detectRespondTransferTrigger(message), null)
   }
 })
+
+test('recognizes polite general questions about our medications', () => {
+  assert.equal(
+    isGeneralProductOrMedicationClarification('Before that May I know more about your medications?'),
+    true,
+  )
+})
