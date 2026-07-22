@@ -26,6 +26,20 @@ test('latest Spanish scheduling messages override an earlier English language', 
   }
 })
 
+test('the latest customer message controls English, Spanish, and Portuguese replies', () => {
+  const cases = [
+    { message: "I can't tomorrow", fallback: 'Portuguese', expected: 'English' },
+    { message: 'Mañana no puedo', fallback: 'English', expected: 'Latin American Spanish' },
+    { message: 'Amanhã não posso', fallback: 'Latin American Spanish', expected: 'Portuguese' },
+  ]
+
+  for (const { message, fallback, expected } of cases) {
+    assert.equal(detectLatestMessageLanguage(message), expected)
+    assert.equal(resolveLatestMessageLanguage(message, fallback), expected)
+    assert.equal(getNextPreferenceAfterRejectedRelativeDay(message), 'day after tomorrow')
+  }
+})
+
 test('a Spanish denial of Portuguese is classified as Spanish', () => {
   assert.equal(detectLatestMessageLanguage('No hablo portugués'), 'Latin American Spanish')
   assert.equal(detectLatestMessageLanguage('Y cual fue el tratamento que ella utilizó?'), 'Latin American Spanish')
@@ -98,9 +112,12 @@ test('California slots are formatted in California local time', () => {
 
 test('customer-facing slots localize the complete date and timezone label', () => {
   const timestamp = Date.UTC(2026, 6, 23, 16, 0)
+  const english = formatCustomerStateSlot(timestamp, 'Missouri', 'America/Chicago', 'English')
   const spanish = formatCustomerStateSlot(timestamp, 'Missouri', 'America/Chicago', 'Latin American Spanish')
   const portuguese = formatCustomerStateSlot(timestamp, 'Missouri', 'America/Chicago', 'Portuguese')
 
+  assert.match(english, /Thursday/i)
+  assert.match(english, /Missouri Time/)
   assert.match(spanish, /jueves/i)
   assert.match(spanish, /Hora de Missouri/)
   assert.doesNotMatch(spanish, /Thursday|Missouri Time/)

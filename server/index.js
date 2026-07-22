@@ -4720,9 +4720,13 @@ function getContextualOutOfFlowFallbackAnswer(customerLanguage) {
 }
 
 function enforceReplyLanguage({ text, customerLanguage, latestUserText = '' }) {
-  if (normalizeLanguageName(customerLanguage) !== 'Latin American Spanish') return text
+  const targetLanguage = normalizeLanguageName(customerLanguage)
+
+  if (!targetLanguage) return text
+
   const detectedReplyLanguage = detectLatestMessageLanguage(text)
-  if (!detectedReplyLanguage || detectedReplyLanguage === 'Latin American Spanish') return text
+
+  if (!detectedReplyLanguage || detectedReplyLanguage === targetLanguage) return text
 
   return getOutOfFlowAnswer(latestUserText, customerLanguage) ||
     getContextualOutOfFlowFallbackAnswer(customerLanguage)
