@@ -173,7 +173,10 @@ const server = http.createServer(async (request, response) => {
     const pathname = url.pathname
 
     if (request.method === 'GET' && (pathname === '/api/health' || pathname === '/health')) {
-      sendJson(response, 200, { ok: true })
+      sendJson(response, 200, {
+        ok: true,
+        version: String(process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || '').slice(0, 7),
+      })
       return
     }
 
@@ -2373,7 +2376,9 @@ async function handleRespondBookingAutomation({
   })
 
   const deterministicPolicyAnswer =
-    isGeneralMedicationSafetyQuestion(latestUserText)
+    isUnambiguouslyGeneralMedicationQuestion(latestUserText)
+      ? getGeneralMedicationOfferingAnswer(customerLanguage)
+      : isGeneralMedicationSafetyQuestion(latestUserText)
       ? getGeneralMedicationSafetyAnswer(customerLanguage)
       : isClientTreatmentPrivacyQuestion(latestUserText) ||
     isContextualClientPrivacyFollowUp(latestUserText, messages)
@@ -3288,6 +3293,17 @@ async function handleRespondBookingAutomation({
     customerLanguage,
     preferredTime: latestSignals.preferredTime || details.preferredTime,
   })
+}
+
+function isUnambiguouslyGeneralMedicationQuestion(content) {
+  const normalized = normalizeSearchText(content)
+  const explicitThirdParty = /\b(client|patient|customer|cliente|paciente|she|he|they|ella|ellos|ellas|ele|ela|celebrity|public figure|celebridad|figura publica)\b/.test(normalized)
+
+  return (
+    isGeneralProductOrMedicationClarification(content) &&
+    !explicitThirdParty &&
+    !hasExplicitNamedPersonMedicationQuestion(content)
+  )
 }
 
 async function offerSoonestRespondSlot({
