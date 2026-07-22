@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   chooseConfirmedState,
+  getNextPreferenceAfterRejectedRelativeDay,
   hasStrictRequestedDay,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
@@ -75,6 +76,19 @@ test('a rejected relative date rejects the whole offered calendar day', () => {
   assert.equal(rejectsOfferedCalendarDate("I can't make Thursday"), true)
   assert.equal(rejectsOfferedCalendarDate('Amanhã não posso'), true)
   assert.equal(rejectsOfferedCalendarDate('11:00 no me funciona'), false)
+})
+
+test('a rejected relative day advances scheduling instead of searching it again', () => {
+  for (const message of [
+    'Mañana no puedo',
+    "I can't tomorrow",
+    'Amanhã não posso',
+  ]) {
+    assert.equal(getNextPreferenceAfterRejectedRelativeDay(message), 'day after tomorrow')
+  }
+
+  assert.equal(getNextPreferenceAfterRejectedRelativeDay("I can't today"), 'tomorrow')
+  assert.equal(getNextPreferenceAfterRejectedRelativeDay('Tomorrow works for me'), '')
 })
 
 test('California slots are formatted in California local time', () => {

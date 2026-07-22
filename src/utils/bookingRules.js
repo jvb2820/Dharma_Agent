@@ -41,6 +41,23 @@ export function rejectsOfferedCalendarDate(content = '') {
   return negative && date
 }
 
+export function getNextPreferenceAfterRejectedRelativeDay(content = '') {
+  const normalized = normalizeRuleText(content)
+  const negative = /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized)
+
+  if (!negative) return ''
+
+  if (/\b(tomorrow|manana|amanha)\b/.test(normalized)) {
+    return 'day after tomorrow'
+  }
+
+  if (/\b(today|hoy|hoje)\b/.test(normalized)) {
+    return 'tomorrow'
+  }
+
+  return ''
+}
+
 function normalizeRuleText(value) {
   return String(value || '')
     .normalize('NFD')

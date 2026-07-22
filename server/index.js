@@ -19,6 +19,7 @@ import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import {
   chooseConfirmedState,
+  getNextPreferenceAfterRejectedRelativeDay,
   hasStrictRequestedDay,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
@@ -3481,6 +3482,15 @@ function getPreferredTimeAfterSlotRejection({
   latestUserText = '',
   extractedPreferredTime = '',
 } = {}) {
+  const nextRelativeDay = getNextPreferenceAfterRejectedRelativeDay(latestUserText)
+
+  // A negated date is not a requested date. Advance past it before considering
+  // the generic preferred-time extraction, which still sees words such as
+  // "tomorrow" inside "I can't tomorrow".
+  if (nextRelativeDay) {
+    return nextRelativeDay
+  }
+
   if (extractedPreferredTime) {
     return (
       resolveRespondPreferredTime({
