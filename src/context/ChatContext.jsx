@@ -3,6 +3,7 @@ import { useAgent } from '../hooks/useAgent'
 import { hubspotService } from '../services/hubspotService'
 import { detectLatestMessageLanguage } from '../utils/conversationLanguage'
 import { hasNamedPersonTreatmentQuestion } from '../utils/privacyRules'
+import { isGeneralMedicationSafetyQuestion } from '../../server/privacyGuard'
 import { applyDefaultAvailabilityRule } from '../utils/availabilityRules'
 import { resolveKansasLocationClarification } from '../utils/bookingRules'
 import { openaiService } from '../services/openaiService'
@@ -311,6 +312,19 @@ async function handleBookingMessage(content, booking, memory, messages, customer
   const shouldStartBooking =
     isBookingIntent(content) ||
     (isSchedulingPrompt(latestAgentMessage) && Boolean(extractPreferredTime(content)))
+
+  if (isGeneralMedicationSafetyQuestion(content)) {
+    const continuation = booking.options?.length
+      ? bookingText(customerLanguage, 'availabilityChoice')
+      : booking.active && booking.currentFieldIndex >= 0
+        ? getBookingQuestion(booking.currentFieldIndex, booking.details || {}, customerLanguage)
+        : ''
+
+    return {
+      nextBooking: booking,
+      message: [generalMedicationSafetyText(customerLanguage), continuation].filter(Boolean).join('\n\n'),
+    }
+  }
 
   if (isNamedPersonTreatmentQuestion(content) || isContextualPrivacyFollowUp(content, messages)) {
     const privacyAnswer = privacyText(customerLanguage)
@@ -1099,6 +1113,17 @@ function privacyText(language) {
   }
 
   return 'I am sorry, but our privacy policy does not allow us to share, confirm, or imply treatment information for any client, no matter who they are. I can explain our options generally.'
+}
+
+function generalMedicationSafetyText(language) {
+  const normalized = String(language || '').toLowerCase()
+  if (isSpanishSession(language)) {
+    return '✅ Estos medicamentos pueden ser seguros y efectivos para pacientes elegibles cuando son recetados y supervisados adecuadamente, pero no son apropiados para todas las personas y pueden tener efectos secundarios o contraindicaciones. Nuestro especialista te explicara el proceso durante la llamada y el proveedor determinara si eres elegible. 😊'
+  }
+  if (normalized.includes('portuguese')) {
+    return '✅ Esses medicamentos podem ser seguros e eficazes para pacientes elegiveis quando prescritos e acompanhados adequadamente, mas nao sao indicados para todas as pessoas e podem ter efeitos colaterais ou contraindicacoes. Nosso especialista explicara o processo durante a chamada, e o provedor determinara se voce e elegivel. 😊'
+  }
+  return '✅ These medications can be safe and effective for eligible patients when appropriately prescribed and monitored, but they are not suitable for everyone and can have side effects or contraindications. Our specialist will explain the process during the call, and the provider will determine whether you are eligible. 😊'
 }
 
 function applyClientAvailabilityConstraints(details = {}) {

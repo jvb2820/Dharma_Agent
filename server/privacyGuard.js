@@ -18,6 +18,21 @@ export function hasExplicitNamedPersonMedicationQuestion(text = '') {
   ].some((pattern) => pattern.test(normalized))
 }
 
+export function isGeneralMedicationSafetyQuestion(text = '') {
+  if (hasExplicitNamedPersonMedicationQuestion(text)) return false
+
+  const normalized = normalizePrivacyText(text)
+  const asksSafety = [
+    /\b(is|are)\b[\s\S]{0,40}\b(safe|effective)\b/,
+    /\b(is it safe|safe to take|safe for me|medication safety|treatment safety)\b/,
+    /\b(es seguro|es segura|seguro tomar|segura para tomar|tratamiento seguro|medicamento seguro)\b/,
+    /\b(e seguro|e segura|seguro tomar|segura para tomar|tratamento seguro|medicamento seguro)\b/,
+  ].some((pattern) => pattern.test(normalized))
+  const thirdParty = /\b(client|patient|cliente|paciente|she|he|they|ella|ellos|ellas|ele|ela)\b/.test(normalized)
+
+  return asksSafety && !thirdParty
+}
+
 function normalizePrivacyText(value) {
   return String(value || '')
     .normalize('NFD')

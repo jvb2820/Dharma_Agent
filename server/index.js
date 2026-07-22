@@ -73,7 +73,10 @@ import {
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
 } from './newClientFlow.js'
-import { hasExplicitNamedPersonMedicationQuestion } from './privacyGuard.js'
+import {
+  hasExplicitNamedPersonMedicationQuestion,
+  isGeneralMedicationSafetyQuestion,
+} from './privacyGuard.js'
 
 loadLocalEnv()
 
@@ -2370,7 +2373,9 @@ async function handleRespondBookingAutomation({
   })
 
   const deterministicPolicyAnswer =
-    isClientTreatmentPrivacyQuestion(latestUserText) ||
+    isGeneralMedicationSafetyQuestion(latestUserText)
+      ? getGeneralMedicationSafetyAnswer(customerLanguage)
+      : isClientTreatmentPrivacyQuestion(latestUserText) ||
     isContextualClientPrivacyFollowUp(latestUserText, messages)
       ? getClientPrivacyAnswer(customerLanguage)
       : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText))
@@ -3698,6 +3703,10 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return ''
   }
 
+  if (isGeneralMedicationSafetyQuestion(content)) {
+    return getGeneralMedicationSafetyAnswer(customerLanguage)
+  }
+
   if (isClientTreatmentPrivacyQuestion(content, normalized)) {
     return getClientPrivacyAnswer(customerLanguage)
   }
@@ -3754,6 +3763,18 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   if (spanish) return 'Claro, te explico brevemente: la llamada gratis es para revisar tu meta, responder tus dudas y orientarte sobre las opciones disponibles.'
   if (portuguese) return 'Claro, explico brevemente: a chamada gratuita serve para revisar seu objetivo, responder suas duvidas e orientar sobre as opcoes disponiveis.'
   return 'Of course. The free call is to review your goal, answer questions, and guide you through the available options.'
+}
+
+function getGeneralMedicationSafetyAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return '✅ Estos medicamentos pueden ser seguros y efectivos para pacientes elegibles cuando son recetados y supervisados adecuadamente, pero no son apropiados para todas las personas y pueden tener efectos secundarios o contraindicaciones. Nuestro especialista te explicara el proceso durante la llamada y el proveedor determinara si eres elegible. 😊'
+  }
+  if (language === 'Portuguese') {
+    return '✅ Esses medicamentos podem ser seguros e eficazes para pacientes elegiveis quando prescritos e acompanhados adequadamente, mas nao sao indicados para todas as pessoas e podem ter efeitos colaterais ou contraindicacoes. Nosso especialista explicara o processo durante a chamada, e o provedor determinara se voce e elegivel. 😊'
+  }
+  return '✅ These medications can be safe and effective for eligible patients when appropriately prescribed and monitored, but they are not suitable for everyone and can have side effects or contraindications. Our specialist will explain the process during the call, and the provider will determine whether you are eligible. 😊'
 }
 
 function getClientPrivacyAnswer(customerLanguage) {

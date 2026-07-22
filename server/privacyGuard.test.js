@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { hasExplicitNamedPersonMedicationQuestion } from './privacyGuard.js'
+import {
+  hasExplicitNamedPersonMedicationQuestion,
+  isGeneralMedicationSafetyQuestion,
+} from './privacyGuard.js'
 
 test('recognizes named-person medication questions regardless of capitalization', () => {
   for (const message of [
@@ -14,6 +17,22 @@ test('recognizes named-person medication questions regardless of capitalization'
   ]) {
     assert.equal(hasExplicitNamedPersonMedicationQuestion(message), true)
   }
+})
+
+test('general medication safety questions never route to client privacy', () => {
+  for (const message of [
+    'Is it safe to take the treatment?',
+    'Is the medication safe and effective?',
+    'Es seguro tomar el tratamiento?',
+    'É seguro tomar o medicamento?',
+  ]) {
+    assert.equal(isGeneralMedicationSafetyQuestion(message), true)
+    assert.equal(hasExplicitNamedPersonMedicationQuestion(message), false)
+  }
+})
+
+test('named-person safety questions remain privacy questions', () => {
+  assert.equal(isGeneralMedicationSafetyQuestion('Was the treatment safe for Maria Lopez?'), false)
 })
 
 test('does not treat general medication questions as named-person questions', () => {
