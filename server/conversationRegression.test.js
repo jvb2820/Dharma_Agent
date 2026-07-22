@@ -1,7 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { chooseConfirmedState, hasStrictRequestedDay, rejectsOfferedCalendarDate } from '../src/utils/bookingRules.js'
+import {
+  chooseConfirmedState,
+  hasStrictRequestedDay,
+  rejectsOfferedCalendarDate,
+  resolveKansasLocationClarification,
+} from '../src/utils/bookingRules.js'
 import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
@@ -36,6 +41,26 @@ test('the active confirmed state beats stale profile and historical states', () 
 test('only an explicit latest-message state changes the active state', () => {
   assert.equal(chooseConfirmedState({ latestState: 'Nevada', activeState: 'California' }), 'Nevada')
   assert.equal(chooseConfirmedState({ activeState: 'California', profileState: 'Massachusetts' }), 'California')
+})
+
+test('Kansas location ambiguity pauses state confirmation until resolved', () => {
+  assert.deepEqual(resolveKansasLocationClarification('Kansas'), {
+    state: '',
+    needsClarification: true,
+  })
+  assert.deepEqual(resolveKansasLocationClarification('Kansas City'), {
+    state: '',
+    needsClarification: true,
+  })
+  assert.equal(resolveKansasLocationClarification('Missouri', true).state, 'Missouri')
+  assert.equal(resolveKansasLocationClarification('Kansas', true).state, 'Kansas')
+})
+
+test('explicit Kansas locations bypass clarification safely', () => {
+  assert.equal(resolveKansasLocationClarification('Kansas City, Missouri').state, 'Missouri')
+  assert.equal(resolveKansasLocationClarification('Kansas City, Kansas').state, 'Kansas')
+  assert.equal(resolveKansasLocationClarification('state of Kansas').state, 'Kansas')
+  assert.equal(resolveKansasLocationClarification('Colorado').needsClarification, false)
 })
 
 test('Saturday and explicit dates are hard availability constraints', () => {

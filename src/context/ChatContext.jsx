@@ -4,6 +4,7 @@ import { hubspotService } from '../services/hubspotService'
 import { detectLatestMessageLanguage } from '../utils/conversationLanguage'
 import { hasNamedPersonTreatmentQuestion } from '../utils/privacyRules'
 import { applyDefaultAvailabilityRule } from '../utils/availabilityRules'
+import { resolveKansasLocationClarification } from '../utils/bookingRules'
 import { openaiService } from '../services/openaiService'
 import { respondService } from '../services/respondService'
 import { NON_SERVICEABLE_LOCATIONS, US_STATES, isPrescribedTreatmentDeliveryState } from '../data/states'
@@ -198,6 +199,7 @@ function getInitialStateQuestion(language) {
 
 function bookingText(language, key, values = {}) {
   const spanish = isSpanishSession(language)
+  const portuguese = String(language || '').toLowerCase().includes('portuguese')
   const text = {
     name: spanish
       ? 'Claro, te ayudo con eso. Que nombre pongo para la consulta?'
@@ -217,6 +219,11 @@ function bookingText(language, key, values = {}) {
     state: spanish
       ? 'Dime por favor en que estado vives para saber si hacemos envios a tu estado.'
       : 'What state do you live in so I can confirm whether we deliver there?',
+    clarifyKansasLocation: spanish
+      ? 'Solo para confirmar, te refieres a Kansas City, Missouri, o al estado de Kansas?'
+      : portuguese
+        ? 'So para confirmar, voce se refere a Kansas City, Missouri, ou ao estado do Kansas?'
+        : 'Just to confirm, do you mean Kansas City, Missouri, or the state of Kansas?',
     preferredTime: spanish
       ? 'Voy a revisar los proximos horarios disponibles para tu consulta gratuita.'
       : 'I will check the next available times for your free consultation.',
@@ -448,6 +455,34 @@ async function handleBookingMessage(content, booking, memory, messages, customer
   const field = BOOKING_FIELDS[booking.currentFieldIndex]
   const rememberedDetails = mergeBookingDetails(conversationMemory, booking.details)
   const currentMessageDetails = extractBookingMemory(content)
+  let resolvedKansasState = ''
+
+  if (field.key === 'state') {
+    const kansasLocation = resolveKansasLocationClarification(
+      content,
+      booking.awaitingKansasLocation,
+    )
+
+    if (
+      kansasLocation.needsClarification ||
+      (booking.awaitingKansasLocation && !kansasLocation.state && !currentMessageDetails.state)
+    ) {
+      return {
+        nextBooking: {
+          ...booking,
+          details: { ...rememberedDetails, state: '' },
+          awaitingKansasLocation: true,
+        },
+        message: bookingText(customerLanguage, 'clarifyKansasLocation'),
+      }
+    }
+
+    if (kansasLocation.state) {
+      resolvedKansasState = kansasLocation.state
+      currentMessageDetails.state = kansasLocation.state
+      booking = { ...booking, awaitingKansasLocation: false }
+    }
+  }
 
   if (isBookingFieldDetour(content, field.key, currentMessageDetails)) {
     return null
@@ -458,6 +493,7 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     field.key,
     content,
   )
+  if (resolvedKansasState) nextDetails.state = resolvedKansasState
   nextDetails = withDefaultDesiredTreatment(nextDetails)
 
   if (shouldUseOutOfStatePrescribedSnippet(nextDetails)) {
