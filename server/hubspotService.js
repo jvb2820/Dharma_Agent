@@ -9,6 +9,7 @@ const MIN_BOOKING_LEAD_TIME_MS = 60 * 60 * 1000
 const BOOKED_MEETING_LOOKUP_ATTEMPTS = 6
 const BOOKED_MEETING_LOOKUP_DELAY_MS = 1000
 const BOOKED_MEETING_START_TOLERANCE_MS = 5 * 60 * 1000
+const DEFAULT_POST_BOOKING_WORKFLOW_ID = '1660572815'
 
 const PRIORITY_SELLERS = [
   { slug: 'meribet-yazziet', name: 'Meribet', fieldValue: 'Meribet Sampson' },
@@ -31,12 +32,14 @@ export async function getPrioritySellerAvailability({
   preferredTime = '',
   preferredSpecialist = '',
   timezone = EASTERN_TIMEZONE,
+  language = '',
 } = {}) {
   return getTeamAvailability({
     members: filterSellersByPreference(getConfiguredPrioritySellers(), preferredSpecialist),
     limit,
     preferredTime,
     timezone,
+    language,
   })
 }
 
@@ -45,16 +48,18 @@ export async function getCustomerServiceAvailability({
   preferredTime = '',
   preferredSpecialist = '',
   timezone = EASTERN_TIMEZONE,
+  language = '',
 } = {}) {
   return getTeamAvailability({
     members: filterSellersByPreference(getConfiguredCustomerServiceTeam(), preferredSpecialist),
     limit,
     preferredTime,
     timezone,
+    language,
   })
 }
 
-async function getTeamAvailability({ members, limit = 6, preferredTime = '', timezone = EASTERN_TIMEZONE }) {
+async function getTeamAvailability({ members, limit = 6, preferredTime = '', timezone = EASTERN_TIMEZONE, language = '' }) {
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
   const weekday = parsePreferredWeekday(preferredTime)
@@ -123,6 +128,7 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
           specialistName: seller.name,
           timestamp: slot.startMillisUtc,
           timezone,
+          language,
         }),
       })
     }
@@ -395,6 +401,20 @@ export async function bookCustomerServiceMeeting({ customer, option }) {
   })
 }
 
+export async function enrollContactInPostBookingWorkflow(email) {
+  if (!email) {
+    throw new Error('A HubSpot contact email is required for workflow enrollment.')
+  }
+
+  const workflowId = process.env.HUBSPOT_POST_BOOKING_WORKFLOW_ID || DEFAULT_POST_BOOKING_WORKFLOW_ID
+  await hubspotSend(
+    `/automation/v2/workflows/${encodeURIComponent(workflowId)}/enrollments/contacts/${encodeURIComponent(email)}`,
+    { method: 'POST' },
+  )
+
+  return { ok: true, workflowId, email }
+}
+
 async function bookTeamMeeting({ customer, option, members, teamLabel }) {
   const timezone = EASTERN_TIMEZONE
   const token = requireHubSpotToken()
@@ -481,10 +501,15 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
       error: error.message,
     }
   })
+  const workflowEnrollment = await enrollContactInPostBookingWorkflow(customer.email).catch((error) => {
+    console.warn(`Unable to enroll booked contact in HubSpot confirmation workflow: ${error.message}`)
+    return { ok: false, error: error.message }
+  })
 
   return {
     ...data,
     dealSync,
+    workflowEnrollment,
     sellerName: seller.name,
     sellerFieldValue: seller.fieldValue,
     sellerSlug: seller.slug,
@@ -492,6 +517,7 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
       specialistName: seller.name,
       timestamp: option.startTime,
       timezone,
+      language: customer.preferredLanguage,
     }),
   }
 }
@@ -997,8 +1023,10 @@ function requireHubSpotToken() {
   return token
 }
 
-function formatSpecialistSlot({ specialistName, timestamp, timezone }) {
-  const formatter = new Intl.DateTimeFormat('en-US', {
+function formatSpecialistSlot({ specialistName, timestamp, timezone, language = '' }) {
+  const locale = resolveLocale(language)
+  const specialistLabel = locale === 'es' ? 'Especialista' : locale === 'pt-br' ? 'Especialista' : 'Specialist'
+  const formatter = new Intl.DateTimeFormat(locale, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -1008,7 +1036,7 @@ function formatSpecialistSlot({ specialistName, timestamp, timezone }) {
     timeZoneName: 'short',
   })
 
-  return `Specialist ${specialistName} - ${formatter.format(new Date(timestamp))}`
+  return `${specialistLabel} ${specialistName} - ${formatter.format(new Date(timestamp))}`
 }
 
 function resolveLocale(language) {

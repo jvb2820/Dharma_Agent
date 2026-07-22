@@ -59,20 +59,25 @@ export function getStateTimeZone(state, fallbackTimezone = DEFAULT_TIMEZONE) {
   return STATE_TIME_ZONES[normalizeStateName(state)] || fallbackTimezone || DEFAULT_TIMEZONE
 }
 
-export function getStateTimeLabel(state, fallbackLabel = 'Eastern Time') {
+export function getStateTimeLabel(state, fallbackLabel = 'Eastern Time', language = '') {
   const normalizedState = normalizeStateName(state)
+  const locale = getBookingLocale(language)
+  const stateLabel = STATE_TIME_ZONES[normalizedState] ? normalizedState : fallbackLabel.replace(/\s+Time$/i, '')
 
+  if (locale === 'es-US') return `Hora de ${stateLabel}`
+  if (locale === 'pt-BR') return `Horário de ${stateLabel}`
   return STATE_TIME_ZONES[normalizedState] ? `${normalizedState} Time` : fallbackLabel
 }
 
-export function formatCustomerStateSlot(timestamp, state, fallbackTimezone = DEFAULT_TIMEZONE) {
+export function formatCustomerStateSlot(timestamp, state, fallbackTimezone = DEFAULT_TIMEZONE, language = '') {
   if (!timestamp) {
     return ''
   }
 
   const timezone = getStateTimeZone(state, fallbackTimezone)
-  const label = getStateTimeLabel(state)
-  const formatted = new Intl.DateTimeFormat('en-US', {
+  const locale = getBookingLocale(language)
+  const label = getStateTimeLabel(state, 'Eastern Time', language)
+  const formatted = new Intl.DateTimeFormat(locale, {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
@@ -81,7 +86,7 @@ export function formatCustomerStateSlot(timestamp, state, fallbackTimezone = DEF
     timeZone: timezone,
   }).format(new Date(timestamp))
 
-  return `${formatted} ${label}`
+  return `${capitalizeFirst(formatted)} ${label}`
 }
 
 export function formatCustomerStateDate(timestamp, state, fallbackTimezone = DEFAULT_TIMEZONE) {
@@ -128,4 +133,16 @@ export function getCustomerStateHour(timestamp, state, fallbackTimezone = DEFAUL
 
 function normalizeStateName(state) {
   return String(state || '').trim()
+}
+
+function getBookingLocale(language) {
+  const normalized = String(language || '').toLowerCase()
+  if (normalized.includes('spanish') || normalized.startsWith('es') || normalized.includes('español')) return 'es-US'
+  if (normalized.includes('portuguese') || normalized.startsWith('pt') || normalized.includes('português')) return 'pt-BR'
+  return 'en-US'
+}
+
+function capitalizeFirst(value) {
+  const text = String(value || '')
+  return text ? `${text[0].toUpperCase()}${text.slice(1)}` : text
 }

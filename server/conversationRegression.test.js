@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { chooseConfirmedState, hasStrictRequestedDay } from '../src/utils/bookingRules.js'
+import { chooseConfirmedState, hasStrictRequestedDay, rejectsOfferedCalendarDate } from '../src/utils/bookingRules.js'
 import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
@@ -45,9 +45,28 @@ test('Saturday and explicit dates are hard availability constraints', () => {
   assert.equal(hasStrictRequestedDay('later'), false)
 })
 
+test('a rejected relative date rejects the whole offered calendar day', () => {
+  assert.equal(rejectsOfferedCalendarDate('Mañana no puedo'), true)
+  assert.equal(rejectsOfferedCalendarDate("I can't make Thursday"), true)
+  assert.equal(rejectsOfferedCalendarDate('Amanhã não posso'), true)
+  assert.equal(rejectsOfferedCalendarDate('11:00 no me funciona'), false)
+})
+
 test('California slots are formatted in California local time', () => {
   assert.equal(getStateTimeZone('California'), 'America/Los_Angeles')
   assert.match(formatCustomerStateSlot(Date.UTC(2026, 6, 25, 19, 0), 'California'), /12:00 PM California Time/)
+})
+
+test('customer-facing slots localize the complete date and timezone label', () => {
+  const timestamp = Date.UTC(2026, 6, 23, 16, 0)
+  const spanish = formatCustomerStateSlot(timestamp, 'Missouri', 'America/Chicago', 'Latin American Spanish')
+  const portuguese = formatCustomerStateSlot(timestamp, 'Missouri', 'America/Chicago', 'Portuguese')
+
+  assert.match(spanish, /jueves/i)
+  assert.match(spanish, /Hora de Missouri/)
+  assert.doesNotMatch(spanish, /Thursday|Missouri Time/)
+  assert.match(portuguese, /quinta-feira/i)
+  assert.match(portuguese, /Horário de Missouri/)
 })
 
 test('availability defaults to 9 AM but explicit early requests override it', () => {

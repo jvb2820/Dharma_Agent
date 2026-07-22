@@ -546,6 +546,7 @@ async function prepareAvailabilityResponse({ booking, details, intro = '', custo
     state: details.state,
     earliestHour: details.earliestHour,
     latestStartTime: details.latestStartTime,
+    language: customerLanguage,
   })
 
   if (options.length === 0) {
@@ -836,6 +837,13 @@ function extractAvailabilityChangeRequest(content, booking = {}) {
   const preferredSpecialist = extractPreferredSpecialist(content)
   let preferredTime = extractPreferredTime(content)
   const normalized = normalizeTreatmentSearchText(content)
+
+  if (
+    /\b(can t|cannot|cant|not available|no puedo|no podre|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized) &&
+    /\b(today|tomorrow|hoy|manana|amanha)\b/.test(normalized)
+  ) {
+    preferredTime = /\b(today|hoy|hoje)\b/.test(normalized) ? 'tomorrow' : 'day after tomorrow'
+  }
 
   if (preferredTime && /\b(later|mas tarde)\b/.test(normalized) && !/\b(morning|afternoon|evening|tarde|noche)\b/.test(normalized)) {
     preferredTime = `${preferredTime} afternoon`

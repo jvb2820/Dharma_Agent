@@ -9,6 +9,14 @@ export function hasStrictRequestedDay(preferredTime = '') {
     /\b\d{1,2}[/-]\d{1,2}\b/.test(normalized)
 }
 
+export function rejectsOfferedCalendarDate(content = '') {
+  const normalized = normalizeRuleText(content)
+  const negative = /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized)
+  const date = /\b(today|tomorrow|day after tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|hoy|manana|pasado manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoje|amanha|segunda|terca|quarta|quinta|sexta)\b/.test(normalized)
+
+  return negative && date
+}
+
 function normalizeRuleText(value) {
   return String(value || '')
     .normalize('NFD')

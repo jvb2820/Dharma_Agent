@@ -4,6 +4,7 @@ import {
   getStateTimeLabel,
   getStateTimeZone,
 } from './timezones.js'
+import { getAircallNumberForSpecialist } from './aircallService.js'
 
 const FLORIDA_TIMEZONE = 'America/New_York'
 
@@ -38,26 +39,12 @@ const BOOKING_SPECIALIST_NAMES = {
   },
 }
 
-export const AIRCALL_MEMBER_NUMBERS = {
-  MERIBET: '+1 754-354-6333',
-  LEONARDO: '+1 561-287-8998',
-  'MARIA CLAUDIA': '+1 561-609-1984',
-  ANDRES: '+1 561-464-4507',
-  ALEJANDRO: '+1 561-571-8960',
-  DIANA: '+1 561-765-4952',
-  ARLES: '+1 561-418-7283',
-  BRAYAM: '+1 561-288-5026',
-  EDMILSON: '+1 561-571-9639',
-}
-
-export function buildBookedMessage({ bookingTeam, option, booked, customer = {}, language = '' }) {
+export async function buildBookedMessage({ bookingTeam, option, booked, customer = {}, language = '' }) {
   const scheduledAt = option?.startTime || booked?.startTime
   const timezone = getStateTimeZone(customer.state, option?.timezone || FLORIDA_TIMEZONE)
   const timeLabel = getStateTimeLabel(customer.state)
   const specialistName = resolveBookedSpecialistName({ bookingTeam, option, booked })
-  const phone = formatPhoneForBookedMessage(
-    AIRCALL_MEMBER_NUMBERS[specialistName] || customer.phone,
-  )
+  const phone = formatPhoneForBookedMessage(await resolveCurrentAircallNumber({ specialistName, option, booked }))
   const languageName = normalizeBookedLanguageName(language || customer.preferredLanguage)
   const displayDate = formatBookedDate(scheduledAt, customer.state, timezone, languageName)
   const displayTime = formatCustomerStateTime(scheduledAt, customer.state, timezone)
@@ -67,7 +54,9 @@ export function buildBookedMessage({ bookingTeam, option, booked, customer = {},
     return [
       `📲 Tu llamada quedo agendada para ${displayDate} A LAS ${displayTime} con ${specialistName}🥰.`,
       '',
-      `📞 El especialista de Dharma te llamara por llamada regular al ${phone}.`,
+      phone
+        ? `📞 El especialista de Dharma te llamara por llamada regular al ${phone}.`
+        : '📞 El especialista de Dharma te llamara por llamada regular.',
       '',
       `⏰ Recuerda que es hora de ${localizedTimeLabel}.`,
       '',
@@ -79,7 +68,9 @@ export function buildBookedMessage({ bookingTeam, option, booked, customer = {},
     return [
       `📲 Sua chamada esta agendada para ${displayDate} AS ${displayTime} com ${specialistName}🥰.`,
       '',
-      `📞 O especialista da Dharma entrara em contato por chamada normal no ${phone}.`,
+      phone
+        ? `📞 O especialista da Dharma entrara em contato por chamada normal no ${phone}.`
+        : '📞 O especialista da Dharma entrara em contato por chamada normal.',
       '',
       `⏰ Lembre-se de que e horario de ${localizedTimeLabel}.`,
       '',
@@ -90,12 +81,29 @@ export function buildBookedMessage({ bookingTeam, option, booked, customer = {},
   return [
     `📲 Your call is scheduled for ${displayDate} AT ${displayTime} with ${specialistName}🥰.`,
     '',
-    `📞 Our Dharma's expert will reach out to you via regular phone call at ${phone}.`,
+    phone
+      ? `📞 Our Dharma's expert will reach out to you via regular phone call at ${phone}.`
+      : "📞 Our Dharma's expert will reach out to you via regular phone call.",
     '',
     `⏰ Remember it's ${timeLabel}.`,
     '',
     "⚠️*To secure your discount, ensure availability for your initial evaluation call. Our schedule fills quickly; rescheduling on the same day is not guaranteed if the call is missed.*",
   ].join('\n')
+}
+
+async function resolveCurrentAircallNumber({ specialistName, option, booked }) {
+  const candidates = [
+    booked?.sellerFieldValue,
+    option?.sellerFieldValue,
+    booked?.sellerName,
+    option?.sellerName,
+    specialistName,
+  ].filter(Boolean)
+
+  return getAircallNumberForSpecialist(candidates).catch((error) => {
+    console.warn(`Unable to resolve current Aircall number for ${specialistName}: ${error.message}`)
+    return ''
+  })
 }
 
 export function buildBookingPaymentInfoMessage(language = '') {

@@ -17,7 +17,7 @@ import {
 } from '../src/data/states.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
-import { chooseConfirmedState, hasStrictRequestedDay } from '../src/utils/bookingRules.js'
+import { chooseConfirmedState, hasStrictRequestedDay, rejectsOfferedCalendarDate } from '../src/utils/bookingRules.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 import {
   buildPostBookingLock,
@@ -419,6 +419,7 @@ async function handleHubSpotAvailability(request, response) {
     preferredTime: body.preferredTime,
     preferredSpecialist: body.preferredSpecialist,
     timezone: getStateTimeZone(body.state),
+    language: body.language,
   })
 
   if (Number.isInteger(body.earliestHour) || body.latestStartTime) {
@@ -2377,7 +2378,7 @@ async function handleRespondBookingAutomation({
 
     if (activeOption) {
       continuation = bookingCopy(customerLanguage, 'reofferSlot', {
-        slot: formatCustomerStateSlot(activeOption.startTime, details.state, activeOption.timezone),
+        slot: formatCustomerStateSlot(activeOption.startTime, details.state, activeOption.timezone, customerLanguage),
       })
     } else if (existingBooking.pendingField === 'state') {
       continuation = bookingCopy(customerLanguage, 'askState')
@@ -2862,7 +2863,7 @@ async function handleRespondBookingAutomation({
 
     return {
       text: bookingCopy(customerLanguage, 'reofferSlot', {
-        slot: formatCustomerStateSlot(option.startTime, nextDetails.state, option.timezone),
+        slot: formatCustomerStateSlot(option.startTime, nextDetails.state, option.timezone, customerLanguage),
       }),
       booking: {
         ...existingBooking,
@@ -2879,7 +2880,7 @@ async function handleRespondBookingAutomation({
 
     return {
       text: `${acknowledgeGreeting(customerLanguage)}\n\n${bookingCopy(customerLanguage, 'reofferSlot', {
-        slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone),
+        slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone, customerLanguage),
       })}`,
       booking: {
         ...existingBooking,
@@ -3330,10 +3331,10 @@ async function offerSoonestRespondSlot({
   return {
     text: nextOptions.length === 1 && !afterHoursFallback
       ? bookingCopy(customerLanguage, offerKey, {
-          slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone),
+          slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone, customerLanguage),
         })
       : bookingCopy(customerLanguage, afterHoursFallback ? offerKey : closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
-          slots: formatNumberedSlots(nextOptions, details.state),
+          slots: formatNumberedSlots(nextOptions, details.state, customerLanguage),
         }),
     booking: {
       details,
@@ -3513,7 +3514,7 @@ function buildBookingWithExcludedOptions(booking = {}) {
 
 function buildBookingWithRejectedAvailability({ booking = {}, latestUserText = '', details = {} } = {}) {
   const nextBooking = buildBookingWithExcludedOptions(booking)
-  const rejectedDateKey = getRejectedAvailabilityDateKey(latestUserText)
+  const rejectedDateKey = getRejectedAvailabilityDateKey(latestUserText, booking, details)
 
   if (!rejectedDateKey) {
     return nextBooking
@@ -3635,7 +3636,7 @@ async function buildOutOfFlowAnswerWithBookingContext({
 
   return {
     text: `${cleanedAnswer || answer}\n\n${bookingCopy(customerLanguage, reofferCopyKey, {
-      slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone),
+      slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone, customerLanguage),
     })}`,
     booking: {
       ...booking,
@@ -3925,7 +3926,7 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
   })
 
   return {
-    text: buildBookedMessage({
+    text: await buildBookedMessage({
       bookingTeam: booking.bookingTeam,
       option,
       booked,
@@ -4784,7 +4785,7 @@ function isStateQuestionLine(line) {
 }
 
 
-function formatNumberedSlots(options = [], state = '') {
+function formatNumberedSlots(options = [], state = '', language = '') {
   return options
     .map((option, index) => {
       const specialistName = option.sellerName ? `Specialist ${option.sellerName} - ` : ''
@@ -4793,6 +4794,7 @@ function formatNumberedSlots(options = [], state = '') {
         option.startTime,
         state,
         option.timezone,
+        language,
       )}`
     })
     .join('\n')
@@ -4919,14 +4921,23 @@ function getOptionCustomerDateKey(option, state = '') {
   return match ? `${match[1].slice(0, 3).toLowerCase()} ${Number(match[2])}` : ''
 }
 
-function getRejectedAvailabilityDateKey(content) {
+function getRejectedAvailabilityDateKey(content, booking = {}, details = {}) {
   if (!isNegativeAvailabilityReply(content) && !isNegatedAvailabilityPreference(content)) {
     return ''
   }
 
   const explicitDate = extractRequestedSlotDate(content) || extractMonthDayDateKey(content)
 
-  return explicitDate
+  if (explicitDate) return explicitDate
+
+  const rejectedRelativeOrWeekday = rejectsOfferedCalendarDate(content)
+  const activeOption = booking.offeredOption || booking.options?.[0]
+
+  // A negated relative day (for example, "mañana no puedo") rejects the
+  // entire offered calendar date, rather than only the offered time.
+  return rejectedRelativeOrWeekday && activeOption
+    ? getOptionCustomerDateKey(activeOption, details.state || booking.details?.state)
+    : ''
 }
 
 function extractMonthDayDateKey(content) {

@@ -4,6 +4,13 @@
 
 After an appointment is confirmed and the Respond conversation is successfully assigned to the booked specialist, the automated agent must not respond until the meeting has ended.
 
+## HubSpot confirmation workflow
+
+- Every successful HubSpot calendar booking enrolls the booked contact in workflow `1660572815`.
+- Override the workflow with `HUBSPOT_POST_BOOKING_WORKFLOW_ID` when deploying to another portal.
+- The contact email is derived from the confirmed phone number (for example, `13478665207@dummy.com`), while the HubSpot `phone` property contains the same real phone number used by the workflow message.
+- The HubSpot private app must have the `automation` scope. Workflow enrollment is attempted only after HubSpot returns a confirmed calendar event.
+
 ## Lock rule
 
 - The lock starts only after both HubSpot booking confirmation and Respond assignment succeed.
