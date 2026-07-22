@@ -11,6 +11,7 @@ test('recognizes named-person medication questions regardless of capitalization'
   for (const message of [
     'I wanna know which medication did Diana torres have',
     'Which medication did dayanara torres use?',
+    'How about which treatment diana torres had?',
     'Que medicamento uso Dayanara Torres?',
     'Es el mismo tratamento que Dayanara Torres utilizó?',
     'No, i want to know if ill use the same things as maria cristina',

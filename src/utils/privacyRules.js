@@ -16,7 +16,11 @@ export function hasNamedPersonTreatmentQuestion(text = '') {
     .map((word) => normalizePrivacyText(word))
     .filter((word) => !knownProducts.has(word) && !/^(no|i|what|which|que|cual|es|el|la|the|before|may|can|know|more|about|your|my|please|tell)$/.test(word))
   const comparisonNameMatch = normalized.match(/\b(?:as|like|como|que)\s+([a-zà-ÿ][a-zà-ÿ'-]{2,})\s+([a-zà-ÿ][a-zà-ÿ'-]{2,})\b/)
-  const hasLikelyName = capitalizedNames.length >= 2 || Boolean(comparisonNameMatch)
+  const lowercaseNameTreatmentMatch = [
+    /\b(?:medication|medicine|treatment|program|injection|medicamento|tratamiento|tratamento|programa|inyeccion|injecao)\b[\s\S]{0,40}\b([a-z][a-z'-]{2,})\s+([a-z][a-z'-]{2,})\s+(?:had|has|used|uses|took|takes|received|got|uso|utilizo|tomo|tenia|usou|tomou|tinha)\b/,
+    /\b([a-z][a-z'-]{2,})\s+([a-z][a-z'-]{2,})\s+(?:had|has|used|uses|took|takes|received|got|uso|utilizo|tomo|tenia|usou|tomou|tinha)\b[\s\S]{0,40}\b(?:medication|medicine|treatment|program|injection|medicamento|tratamiento|tratamento|programa|inyeccion|injecao)\b/,
+  ].some((pattern) => pattern.test(normalized))
+  const hasLikelyName = capitalizedNames.length >= 2 || Boolean(comparisonNameMatch) || lowercaseNameTreatmentMatch
 
   return hasLikelyName && (treatmentSignal || useOrComparisonSignal)
 }
