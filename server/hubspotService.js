@@ -586,7 +586,7 @@ async function findBookedMeetingForContactWithRetry({ contactId, startTime }) {
   return findBookedMeetingForContact({ contactId, startTime })
 }
 
-function buildBookingDealProperties({ customer, seller, option, meeting }) {
+export function buildBookingDealProperties({ customer, seller, option, meeting }) {
   const fullName = formatCustomerName(customer)
   const treatment = normalizeDesiredTreatment(customer.desiredTreatment)
   const properties = {
@@ -596,6 +596,7 @@ function buildBookingDealProperties({ customer, seller, option, meeting }) {
     [getDealEvaluationDateProperty()]: String(option.startTime),
     agent_lead_management: seller.fieldValue,
     desired_treatment: treatment,
+    phone: customer.phone,
   }
 
   if (meeting?.properties?.hubspot_owner_id) {
