@@ -10,6 +10,12 @@ export function shouldUseNewClientBookingFlow(profile = {}) {
   return !isExactRespondClientStatus(profile)
 }
 
+export function isUsCountryCodePhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '')
+
+  return digits.length === 11 && digits.startsWith('1')
+}
+
 export function createDummyEmailFromProvidedPhone(phone) {
   const digits = normalizePhoneDigitsForEmail(phone)
 

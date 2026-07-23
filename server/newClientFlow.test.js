@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   hasConfirmedFullName,
   isExactRespondClientStatus,
+  isUsCountryCodePhone,
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
 } from './newClientFlow.js'
@@ -44,4 +45,12 @@ test('booking phrases are never accepted as customer names', () => {
   for (const phrase of ['y para hoy', 'para mañana', 'quiero precios', 'e para hoje']) {
     assert.deepEqual(splitCustomerFullName(phrase), {})
   }
+})
+
+test('new-client phone requires the US +1 country code', () => {
+  assert.equal(isUsCountryCodePhone('+1 (347) 866-5207'), true)
+  assert.equal(isUsCountryCodePhone('13478665207'), true)
+  assert.equal(isUsCountryCodePhone('(347) 866-5207'), false)
+  assert.equal(isUsCountryCodePhone('+52 55 1234 5678'), false)
+  assert.equal(isUsCountryCodePhone(''), false)
 })

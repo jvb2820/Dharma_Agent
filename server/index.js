@@ -71,6 +71,7 @@ import {
   createDummyEmailFromProvidedPhone,
   hasConfirmedFullName,
   isExactRespondClientStatus,
+  isUsCountryCodePhone,
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
 } from './newClientFlow.js'
@@ -2400,7 +2401,10 @@ async function handleRespondBookingAutomation({
     } else if (existingBooking.pendingField === 'state' && !details.state) {
       continuation = bookingCopy(customerLanguage, 'askState')
     } else if (existingBooking.pendingField === 'phone') {
-      continuation = bookingCopy(customerLanguage, 'askPhone')
+      continuation = bookingCopy(
+        customerLanguage,
+        shouldUseNewClientBookingFlow(respondContactProfile) ? 'askUsPhone' : 'askPhone',
+      )
     } else if (existingBooking.pendingField === 'preferredTime') {
       continuation = bookingCopy(customerLanguage, 'askPreferredTime')
     } else if (existingBooking.pendingField === 'name') {
@@ -2580,7 +2584,7 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    if (!nextDetails.phone) {
+    if (!nextDetails.phone && !shouldUseNewClientBookingFlow(respondContactProfile)) {
       if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
@@ -2653,7 +2657,7 @@ async function handleRespondBookingAutomation({
         modelIntent,
       })
 
-      if (!nextDetails.phone) {
+      if (!nextDetails.phone && !shouldUseNewClientBookingFlow(respondContactProfile)) {
         return {
           text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
@@ -2687,7 +2691,7 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    if (!nextDetails.phone) {
+    if (!nextDetails.phone && !shouldUseNewClientBookingFlow(respondContactProfile)) {
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
         booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
@@ -2749,8 +2753,13 @@ async function handleRespondBookingAutomation({
       })
     }
 
-    const phone = latestSignals.phone || extractPhoneNumber(latestUserText)
+    const extractedPhone = latestSignals.phone || extractPhoneNumber(latestUserText)
+    const phone =
+      !shouldUseNewClientBookingFlow(respondContactProfile) || isUsCountryCodePhone(extractedPhone)
+        ? extractedPhone
+        : ''
     const nextDetails = phone ? { ...details, phone, phoneConfirmed: true } : details
+    const phoneCopyKey = shouldUseNewClientBookingFlow(respondContactProfile) ? 'askUsPhone' : 'askPhone'
 
     if (!nextDetails.phone) {
       if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
@@ -2764,14 +2773,14 @@ async function handleRespondBookingAutomation({
         })
 
         return {
-          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, phoneCopyKey)}`,
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
         }
       }
 
       return prependOutOfFlowAnswerIfNeeded({
         response: {
-          text: bookingCopy(customerLanguage, 'askPhone'),
+          text: bookingCopy(customerLanguage, phoneCopyKey),
           booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
         },
         latestUserText,
@@ -3132,6 +3141,31 @@ async function handleRespondBookingAutomation({
   if (selectedOption || (existingBooking.offeredOption && isSlotAffirmation(latestUserText, latestSignals))) {
     const option = selectedOption || existingBooking.offeredOption
 
+    if (!details.phone) {
+      const phoneCopyKey = shouldUseNewClientBookingFlow(respondContactProfile) ? 'askUsPhone' : 'askPhone'
+
+      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
+        const answer = await generateBookingOutOfFlowAnswer({
+          messages,
+          latestUserText,
+          customerLanguage,
+          respondContactProfile,
+          booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+          modelIntent,
+        })
+
+        return {
+          text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, phoneCopyKey)}`,
+          booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+        }
+      }
+
+      return {
+        text: bookingCopy(customerLanguage, phoneCopyKey),
+        booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+      }
+    }
+
     if (!hasBookableRespondCustomerName(details, respondContactProfile)) {
       if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
@@ -3167,7 +3201,7 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    if (!details.phone) {
+    if (!details.phone && !shouldUseNewClientBookingFlow(respondContactProfile)) {
       if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generateBookingOutOfFlowAnswer({
           messages,
@@ -3267,7 +3301,7 @@ async function handleRespondBookingAutomation({
     }
   }
 
-  if (!details.phone) {
+  if (!details.phone && !shouldUseNewClientBookingFlow(respondContactProfile)) {
     if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
       const answer = await generateBookingOutOfFlowAnswer({
         messages,
@@ -4001,6 +4035,18 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
     }
   }
 
+  if (shouldUseNewClientBookingFlow(respondContactProfile) && !isUsCountryCodePhone(details.phone)) {
+    return {
+      text: bookingCopy(customerLanguage, 'askUsPhone'),
+      booking: {
+        ...booking,
+        details: { ...details, phone: '', phoneConfirmed: false },
+        offeredOption: option,
+        pendingField: 'phone',
+      },
+    }
+  }
+
   if (shouldUseNewClientBookingFlow(respondContactProfile) && !hasConfirmedFullName(details)) {
     return {
       text: bookingCopy(customerLanguage, 'askName'),
@@ -4188,20 +4234,21 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
   const nextDetails = { ...details }
   const conversationSignals = extractRespondBookingDetails(messages)
   const recordedPhone = getRespondContactBookingDetails(respondContactProfile).phone
+  const conversationPhone = conversationSignals.phone
   const userProvidedPhone = Boolean(
-    conversationSignals.phone ||
-      recordedPhone ||
-      existingBooking.details?.phoneConfirmed ||
-      nextDetails.phoneConfirmed,
+    (conversationPhone && isUsCountryCodePhone(conversationPhone)) ||
+      (recordedPhone && isUsCountryCodePhone(recordedPhone)) ||
+      (existingBooking.details?.phoneConfirmed && isUsCountryCodePhone(existingBooking.details?.phone)) ||
+      (nextDetails.phoneConfirmed && isUsCountryCodePhone(nextDetails.phone)),
   )
   const userProvidedFullName = Boolean(nextDetails.nameConfirmed && nextDetails.firstName && nextDetails.lastName)
 
   if (!userProvidedPhone) {
     delete nextDetails.phone
-  } else if (!nextDetails.phone && recordedPhone) {
-    nextDetails.phone = recordedPhone
+  } else if (!isUsCountryCodePhone(nextDetails.phone)) {
+    nextDetails.phone = isUsCountryCodePhone(conversationPhone) ? conversationPhone : recordedPhone
     nextDetails.phoneConfirmed = true
-  } else if (nextDetails.phone) {
+  } else if (isUsCountryCodePhone(nextDetails.phone)) {
     nextDetails.phoneConfirmed = true
   }
 
@@ -4277,6 +4324,11 @@ function bookingCopy(language, key, values = {}) {
       'Perfect 😊 To book the appointment for your free discovery call, please send the best phone number to use for your appointment details. 📲',
       'Perfecto 😊 Para agendar la cita de tu llamada de analisis gratis, enviame por favor el mejor numero de telefono para los detalles de tu cita. 📲',
       'Perfeito 😊 Para agendar sua consulta da chamada gratuita de analise, por favor me envie o melhor número de telefone para os detalhes do seu agendamento. 📲',
+    ),
+    askUsPhone: tri(
+      'To finish booking your appointment, could you please share a phone number registered in the U.S. with the +1 country code? 📲',
+      'Para terminar de agendar tu cita, ¿podrías compartir un número de teléfono registrado en Estados Unidos con el código de país +1? 📲',
+      'Para concluir o agendamento, você poderia enviar um número de telefone registrado nos Estados Unidos com o código do país +1? 📲',
     ),
     askName: tri(
       'That time works. What full name should I put on the appointment? 📲',
