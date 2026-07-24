@@ -3,6 +3,7 @@ const EASTERN_TIMEZONE = 'America/New_York'
 const DEFAULT_DEAL_PIPELINE = '693198644'
 const DEFAULT_DEAL_STAGE = '1013987700'
 const DEFAULT_DEAL_EVALUATION_DATE_PROPERTY = 'evaluation_date_and_hour_2'
+const DEFAULT_CONTACT_BOOKED_TIME_PROPERTY = 'date_and_time_of_last_meeting_booked'
 const DEFAULT_DEAL_NAME_PREFIX = 'Sellers'
 const DEFAULT_DISABLED_SELLER_SLUGS = ['diana-giron']
 const MIN_BOOKING_LEAD_TIME_MS = 60 * 60 * 1000
@@ -501,14 +502,29 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
       error: error.message,
     }
   })
-  const workflowEnrollment = await enrollContactInPostBookingWorkflow(customer.email).catch((error) => {
-    console.warn(`Unable to enroll booked contact in HubSpot confirmation workflow: ${error.message}`)
+  const appointmentContactSync = await syncBookedTimeToContact({
+    contact,
+    customer,
+    startTime: option.startTime,
+  }).catch((error) => {
+    console.warn(`Unable to sync booked time before HubSpot workflow enrollment: ${error.message}`)
     return { ok: false, error: error.message }
   })
+  const workflowEnrollment = appointmentContactSync.ok
+    ? await enrollContactInPostBookingWorkflow(customer.email).catch((error) => {
+        console.warn(`Unable to enroll booked contact in HubSpot confirmation workflow: ${error.message}`)
+        return { ok: false, error: error.message }
+      })
+    : {
+        ok: false,
+        skipped: true,
+        error: 'Workflow enrollment skipped because the confirmed appointment time was not synced to the contact.',
+      }
 
   return {
     ...data,
     dealSync,
+    appointmentContactSync,
     workflowEnrollment,
     sellerName: seller.name,
     sellerFieldValue: seller.fieldValue,
@@ -520,6 +536,44 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
       language: customer.preferredLanguage,
     }),
   }
+}
+
+async function syncBookedTimeToContact({ contact, customer, startTime }) {
+  const contactRecord = contact?.id ? contact : await findHubSpotContactByEmail(customer.email)
+
+  if (!contactRecord?.id) {
+    throw new Error('HubSpot contact was not found before confirmation workflow enrollment.')
+  }
+
+  const propertyName =
+    process.env.HUBSPOT_CONTACT_BOOKED_TIME_PROPERTY || DEFAULT_CONTACT_BOOKED_TIME_PROPERTY
+  const displayTime = formatHubSpotWorkflowAppointmentTime(startTime)
+
+  await updateContactProperties(contactRecord.id, {
+    [propertyName]: displayTime,
+  })
+
+  return {
+    ok: true,
+    contactId: contactRecord.id,
+    propertyName,
+    displayTime,
+  }
+}
+
+export function formatHubSpotWorkflowAppointmentTime(timestamp) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: EASTERN_TIMEZONE,
+  }).formatToParts(Number(timestamp))
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+
+  return `${values.month} ${values.day}, ${values.year} ${values.hour}:${values.minute} ${values.dayPeriod}`
 }
 
 function buildBookingFormFields({ customer, seller, supportedFormFieldNames = [] }) {

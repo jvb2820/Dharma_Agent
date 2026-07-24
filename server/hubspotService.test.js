@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { buildBookingDealProperties } from './hubspotService.js'
+import {
+  buildBookingDealProperties,
+  formatHubSpotWorkflowAppointmentTime,
+} from './hubspotService.js'
 
 const bookingInput = {
   seller: {
@@ -47,4 +50,11 @@ test('booking deals omit an unavailable customer phone number', () => {
   })
 
   assert.equal('phone' in properties, false)
+})
+
+test('confirmation workflow time is written explicitly in Florida time', () => {
+  assert.equal(
+    formatHubSpotWorkflowAppointmentTime(Date.UTC(2026, 6, 27, 15, 20)),
+    'July 27, 2026 11:20 AM',
+  )
 })
