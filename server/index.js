@@ -1942,6 +1942,7 @@ async function classifyRespondBookingIntent({
         'Schema: {"intent":"booking_detail|complex_question|pricing|medical_safety|provider_question|objection|support_issue|location_question|handoff|other","risk_level":"low|medium|high","needs_rag":true|false,"should_answer_question":true|false,"answered_booking_field":"state|phone|name|preferredTime|slot|none"}',
         'Use answered_booking_field only when the latest customer message clearly provides that exact booking detail. Do not infer state from a city unless the customer states the state.',
         'Set should_answer_question true when the customer asks a question, raises an objection, asks for safety/provider/pricing/product details, or needs a contextual answer before the booking flow continues.',
+        'A rejection of an offered appointment such as "No puedo esa hora", "That time does not work", or "Nao posso nesse horario" is a booking detail, not a question or general objection: set intent to booking_detail, should_answer_question false, needs_rag false, and answered_booking_field preferredTime.',
         'Set needs_rag true for pricing, products, provider/doctor, FDA, shipping, legitimacy, safety, medical, support, refund, or compliance topics.',
         'When uncertain, choose other, medium risk, and should_answer_question false.',
       ].join('\n'),
@@ -2968,6 +2969,7 @@ async function handleRespondBookingAutomation({
   if (
     hasActiveSlotOffer &&
     !selectedOption &&
+    !isSlotRejection(latestUserText) &&
     !latestSignals.preferredTime &&
     !extractAvailabilityPreference(latestUserText).hasPreference &&
     shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)
