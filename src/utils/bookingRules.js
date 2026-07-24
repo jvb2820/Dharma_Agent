@@ -28,7 +28,7 @@ export function resolveKansasLocationClarification(content = '', awaitingClarifi
 
 export function hasStrictRequestedDay(preferredTime = '') {
   const normalized = normalizeRuleText(preferredTime)
-  return /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|domingo|lunes|martes|miercoles|jueves|viernes|sabado|segunda|terca|quarta|quinta|sexta)\b/.test(normalized) ||
+  return /\b(sundays?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|domingos?|lunes|martes|miercoles|jueves|viernes|sabados?|segundas?|tercas?|quartas?|quintas?|sextas?)\b/.test(normalized) ||
     /\b(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}\b/.test(normalized) ||
     /\b\d{1,2}[/-]\d{1,2}\b/.test(normalized)
 }
@@ -56,6 +56,24 @@ export function getNextPreferenceAfterRejectedRelativeDay(content = '') {
   }
 
   return ''
+}
+
+export function getMinimumStartAfterSlotRejection(
+  content = '',
+  offeredStartTime,
+  delayMs = 3 * 60 * 60 * 1000,
+) {
+  const startTime = Number(offeredStartTime)
+
+  if (!Number.isFinite(startTime) || rejectsOfferedCalendarDate(content)) {
+    return undefined
+  }
+
+  const normalized = normalizeRuleText(content)
+  const rejectsSlot =
+    /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized)
+
+  return rejectsSlot ? startTime + delayMs : undefined
 }
 
 function normalizeRuleText(value) {

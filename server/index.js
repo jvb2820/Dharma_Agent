@@ -19,6 +19,7 @@ import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import {
   chooseConfirmedState,
+  getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
   hasStrictRequestedDay,
   rejectsOfferedCalendarDate,
@@ -2994,6 +2995,7 @@ async function handleRespondBookingAutomation({
   }
 
   if (hasActiveSlotOffer && !selectedOption && isSlotRejection(latestUserText)) {
+    const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     const nextBooking = buildBookingWithRejectedAvailability({
       booking: { ...existingBooking, bookingTeam },
       latestUserText,
@@ -3019,10 +3021,14 @@ async function handleRespondBookingAutomation({
     const nextDetails = preferredTime
       ? applyAvailabilityConstraintFromPreferredTime({ ...details, preferredTime })
       : details
+    const minimumStartTime = getMinimumStartAfterSlotRejection(
+      latestUserText,
+      activeOption?.startTime,
+    )
 
     return await offerSoonestRespondSlot({
       booking: nextBooking,
-      details: nextDetails,
+      details: minimumStartTime ? { ...nextDetails, minimumStartTime } : nextDetails,
       customerLanguage,
       preferredTime,
       closest: Boolean(preferredTime),
@@ -3599,7 +3605,7 @@ function shouldOfferMultipleScheduleOptions({ closest = false, details = {}, pre
 }
 
 function filterOptionsByAvailabilityPreference(options = [], details = {}) {
-  if (!hasAvailabilityTimeConstraint(details) && !Number.isFinite(details.latestHour) && !details.latestStartTime) {
+  if (!hasAvailabilityTimeConstraint(details) && !Number.isFinite(details.latestHour) && !details.latestStartTime && !details.minimumStartTime) {
     return options
   }
 
@@ -3610,6 +3616,7 @@ function filterOptionsByAvailabilityPreference(options = [], details = {}) {
     if (Number.isInteger(details.earliestHour) && localHour < details.earliestHour) return false
     if (Number.isFinite(details.latestHour) && localHour >= details.latestHour) return false
     if (details.latestStartTime && Number(option.startTime) >= Number(details.latestStartTime)) return false
+    if (details.minimumStartTime && Number(option.startTime) < Number(details.minimumStartTime)) return false
     return true
   })
 }
@@ -6081,6 +6088,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'For new clients, offer the real appointment time before asking for their full name. After they accept the offered time, collect the full name and any other missing required booking detail while preserving that accepted slot.',
     'Offer only one appointment option at a time unless the application explicitly provides numbered options. Preserve the customer latest date preference when they refine time; for example, if they said tomorrow and then ask for afternoon or 5pm, keep searching tomorrow, not today.',
+    'HIGH-PRIORITY AVAILABILITY RULE: Treat every customer availability statement as a binding constraint for the rest of the current chat. If they reject only the offered time, offer a real calendar slot at least three hours later; if they reject today or a named day/date, offer the next available calendar day after it; and if they specify morning, afternoon, evening, or a weekday such as Saturdays only, remember and apply that restriction to every later offer until the customer changes it. Never repeat the rejected time or offer a slot that conflicts with the stored restriction.',
     'Never claim that an appointment is booked, scheduled, confirmed, reserved, or that a link/details were sent unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
     'Never ask for the customer full address or shipping address during lead qualification or discovery-call booking. State is enough for delivery qualification.',
@@ -6502,6 +6510,12 @@ function extractPreferredTimeText(content) {
 
   if (ordinalDayMatch) {
     return ordinalDayMatch[0]
+  }
+
+  const pluralWeekendMatch = preferenceText.match(/\b(saturdays?|sabados?|sábados?)\b/iu)
+
+  if (pluralWeekendMatch) {
+    return pluralWeekendMatch[0]
   }
 
   const weekdayDayPartMatch = preferenceText.match(

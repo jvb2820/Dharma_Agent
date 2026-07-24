@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   chooseConfirmedState,
+  getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
   hasStrictRequestedDay,
   rejectsOfferedCalendarDate,
@@ -103,6 +104,21 @@ test('a rejected relative day advances scheduling instead of searching it again'
 
   assert.equal(getNextPreferenceAfterRejectedRelativeDay("I can't today"), 'tomorrow')
   assert.equal(getNextPreferenceAfterRejectedRelativeDay('Tomorrow works for me'), '')
+})
+
+test('a rejected time moves the next offer at least three hours later', () => {
+  const offeredStart = Date.UTC(2026, 6, 24, 16, 20)
+
+  assert.equal(
+    getMinimumStartAfterSlotRejection('No puedo esa hora', offeredStart),
+    Date.UTC(2026, 6, 24, 19, 20),
+  )
+  assert.equal(getMinimumStartAfterSlotRejection('No puedo hoy', offeredStart), undefined)
+})
+
+test('plural weekday preferences are strict calendar constraints', () => {
+  assert.equal(hasStrictRequestedDay('solo puedo los sábados'), true)
+  assert.equal(hasStrictRequestedDay('Saturdays only'), true)
 })
 
 test('California slots are formatted in California local time', () => {
