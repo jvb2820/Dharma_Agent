@@ -2755,7 +2755,8 @@ async function handleRespondBookingAutomation({
         preferredTime: latestPreferredTime,
       })
 
-      return await offerSoonestRespondSlot({
+      return await offerReplacementRespondSlot({
+        currentBooking: { ...existingBooking, bookingTeam, details },
         booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam, pendingField: '' }),
         details: nextDetails,
         customerLanguage,
@@ -3467,6 +3468,51 @@ async function offerSoonestRespondSlot({
       pendingField: '',
       excludedOptions: booking.excludedOptions || [],
       excludedDateKeys: booking.excludedDateKeys || [],
+    },
+  }
+}
+
+async function offerReplacementRespondSlot({
+  currentBooking,
+  booking,
+  details,
+  customerLanguage,
+  preferredTime,
+  closest = true,
+}) {
+  const replacement = await offerSoonestRespondSlot({
+    booking,
+    details,
+    customerLanguage,
+    preferredTime,
+    closest,
+  })
+
+  if (replacement.booking?.offeredOption || replacement.booking?.options?.length) {
+    return replacement
+  }
+
+  const currentOption =
+    currentBooking?.offeredOption ||
+    currentBooking?.options?.[0]
+
+  if (!currentOption) {
+    return replacement
+  }
+
+  return {
+    text: bookingCopy(customerLanguage, 'noReplacementKeepSlot', {
+      slot: formatCustomerStateSlot(
+        currentOption.startTime,
+        currentBooking.details?.state,
+        currentOption.timezone,
+        customerLanguage,
+      ),
+    }),
+    booking: {
+      ...currentBooking,
+      offeredOption: currentOption,
+      options: [],
     },
   }
 }
@@ -4309,6 +4355,7 @@ function bookingCopy(language, key, values = {}) {
     'offerClosestSlot',
     'offerSoonestForDay',
     'offerSoonestForDayPart',
+    'noReplacementKeepSlot',
   ])
 
   if (boldSlotKeys.has(key) && values.slot) {
@@ -4393,6 +4440,11 @@ function bookingCopy(language, key, values = {}) {
       `For the free discovery call, I can still use ${values.slot}. Does that work for you?`,
       `Para la llamada gratuita de analisis, todavia puedo usar ${values.slot}. Te funciona?`,
       `Para a chamada gratuita de analise, ainda posso usar ${values.slot}. Funciona para voce?`,
+    ),
+    noReplacementKeepSlot: tri(
+      `I do not see another opening that matches that request, so I kept your current time: ${values.slot}. Would you like to keep it or try a different day or time?`,
+      `No veo otro horario que coincida con esa solicitud, asi que mantuve tu horario actual: ${values.slot}. Quieres conservarlo o probar otro dia u hora?`,
+      `Nao vejo outro horario que corresponda a esse pedido, entao mantive seu horario atual: ${values.slot}. Voce quer mante-lo ou tentar outro dia ou horario?`,
     ),
     slotBridgeWithoutTime: tri(
       'When you are ready, tell me if that time works or if you prefer another available option.',
