@@ -99,6 +99,36 @@ export function hasCallFormatQuestion(content = '') {
   return mentionsCall && asksFormat
 }
 
+export function shouldAcceptStateAbbreviationToken({
+  rawToken = '',
+  abbreviation = '',
+  content = '',
+} = {}) {
+  const normalizedToken = String(rawToken).toLowerCase()
+  const normalizedContent = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
+  const upperToken = String(rawToken).toUpperCase()
+  const ambiguousWords = new Set(['HI', 'IN', 'LA', 'ME', 'OR'])
+
+  if (rawToken === upperToken) {
+    return true
+  }
+
+  if (ambiguousWords.has(String(abbreviation).toUpperCase())) {
+    return false
+  }
+
+  const isStandaloneAbbreviation = normalizedContent === normalizedToken
+  const hasStateContext = new RegExp(
+    String.raw`\b(?:state|estado|in|en|from|de)\s+${escapeRuleRegExp(normalizedToken)}\b`,
+  ).test(normalizedContent)
+
+  return isStandaloneAbbreviation || hasStateContext
+}
+
+function escapeRuleRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function normalizeRuleText(value) {
   return String(value || '')
     .normalize('NFD')

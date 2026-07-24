@@ -8,6 +8,7 @@ import {
   hasStrictRequestedDay,
   hasCallFormatQuestion,
   isEarlierSchedulingPreference,
+  shouldAcceptStateAbbreviationToken,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
@@ -135,6 +136,24 @@ test('call-format questions are not availability changes', () => {
   assert.equal(hasCallFormatQuestion('Is it a regular phone call or a video call?'), true)
   assert.equal(hasCallFormatQuestion('A consulta é por chamada normal ou videochamada?'), true)
   assert.equal(hasCallFormatQuestion('Después de las 6'), false)
+})
+
+test('Spanish "La" never overwrites the state with Louisiana', () => {
+  assert.equal(shouldAcceptStateAbbreviationToken({
+    rawToken: 'La',
+    abbreviation: 'LA',
+    content: 'La llamada es gratis',
+  }), false)
+  assert.equal(shouldAcceptStateAbbreviationToken({
+    rawToken: 'la',
+    abbreviation: 'LA',
+    content: 'a la misma hora',
+  }), false)
+  assert.equal(shouldAcceptStateAbbreviationToken({
+    rawToken: 'LA',
+    abbreviation: 'LA',
+    content: 'LA',
+  }), true)
 })
 
 test('California slots are formatted in California local time', () => {

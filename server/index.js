@@ -24,6 +24,7 @@ import {
   hasCallFormatQuestion,
   hasStrictRequestedDay,
   isEarlierSchedulingPreference,
+  shouldAcceptStateAbbreviationToken,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
@@ -6512,7 +6513,6 @@ function extractStateNameFromAbbreviation(content) {
     ['WI', 'Wisconsin'],
     ['WY', 'Wyoming'],
   ])
-  const commonWordAbbreviations = new Set(['HI', 'IN', 'ME', 'OR'])
   const tokenMatches = String(content || '').matchAll(/(^|[^A-Za-z])([A-Za-z]{2})(?=$|[^A-Za-z])/g)
 
   for (const match of tokenMatches) {
@@ -6524,22 +6524,7 @@ function extractStateNameFromAbbreviation(content) {
       continue
     }
 
-    // Lowercase two-letter words are frequently ordinary language (notably
-    // Spanish/Portuguese "de", which previously became Delaware). Accept a
-    // lowercase abbreviation only when the whole message is that abbreviation.
-    if (rawToken === rawToken.toLowerCase()) {
-      const normalizedContent = normalizeSearchText(content)
-      const isStandaloneAbbreviation = normalizedContent === rawToken
-      const hasStateContext = new RegExp(
-        String.raw`\b(?:state|estado|in|en|from|de)\s+${escapeRegExp(rawToken)}\b`,
-      ).test(normalizedContent)
-
-      if (!isStandaloneAbbreviation && !hasStateContext) {
-        continue
-      }
-    }
-
-    if (commonWordAbbreviations.has(abbreviation) && rawToken === rawToken.toLowerCase()) {
+    if (!shouldAcceptStateAbbreviationToken({ rawToken, abbreviation, content })) {
       continue
     }
 
