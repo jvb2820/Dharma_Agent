@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   buildBookingDealProperties,
   formatHubSpotWorkflowAppointmentTime,
+  formatUsPhoneForHubSpot,
 } from './hubspotService.js'
 
 const bookingInput = {
@@ -57,4 +58,30 @@ test('confirmation workflow time is written explicitly in Florida time', () => {
     formatHubSpotWorkflowAppointmentTime(Date.UTC(2026, 6, 27, 15, 20)),
     'July 27, 2026 11:20 AM',
   )
+})
+
+test('HubSpot phone values are normalized to the US display format', () => {
+  for (const input of [
+    '19547981563',
+    '9547981563',
+    '+1 954-798-1563',
+    '(954) 798 1563',
+  ]) {
+    assert.equal(formatUsPhoneForHubSpot(input), '+1 (954) 798-1563')
+  }
+})
+
+test('deal phone is normalized even when the customer provides raw digits', () => {
+  const properties = buildBookingDealProperties({
+    ...bookingInput,
+    customer: {
+      firstName: 'Test',
+      lastName: 'Customer',
+      email: '19547981563@dummy.com',
+      phone: '19547981563',
+      desiredTreatment: 'Compounded Semaglutide',
+    },
+  })
+
+  assert.equal(properties.phone, '+1 (954) 798-1563')
 })

@@ -52,7 +52,7 @@ export async function buildBookedMessage({ bookingTeam, option, booked, customer
 
   if (languageName === 'Latin American Spanish') {
     return [
-      `📲 Tu llamada quedo agendada para ${displayDate} A LAS ${displayTime} con ${specialistName}🥰.`,
+      `📲 Tu llamada quedo agendada para *${displayDate} A LAS ${displayTime}* con ${specialistName}🥰.`,
       '',
       phone
         ? `📞 El especialista de Dharma te llamara por llamada regular al ${phone}.`
@@ -66,7 +66,7 @@ export async function buildBookedMessage({ bookingTeam, option, booked, customer
 
   if (languageName === 'Portuguese') {
     return [
-      `📲 Sua chamada esta agendada para ${displayDate} AS ${displayTime} com ${specialistName}🥰.`,
+      `📲 Sua chamada esta agendada para *${displayDate} AS ${displayTime}* com ${specialistName}🥰.`,
       '',
       phone
         ? `📞 O especialista da Dharma entrara em contato por chamada normal no ${phone}.`
@@ -79,7 +79,7 @@ export async function buildBookedMessage({ bookingTeam, option, booked, customer
   }
 
   return [
-    `📲 Your call is scheduled for ${displayDate} AT ${displayTime} with ${specialistName}🥰.`,
+    `📲 Your call is scheduled for *${displayDate} AT ${displayTime}* with ${specialistName}🥰.`,
     '',
     phone
       ? `📞 Our Dharma's expert will reach out to you via regular phone call at ${phone}.`

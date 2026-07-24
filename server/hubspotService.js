@@ -650,7 +650,7 @@ export function buildBookingDealProperties({ customer, seller, option, meeting }
     [getDealEvaluationDateProperty()]: String(option.startTime),
     agent_lead_management: seller.fieldValue,
     desired_treatment: treatment,
-    phone: customer.phone,
+    phone: formatUsPhoneForHubSpot(customer.phone),
   }
 
   if (meeting?.properties?.hubspot_owner_id) {
@@ -786,13 +786,30 @@ function buildBookingContactProperties(customer) {
     firstname: customer.firstName || '',
     lastname: customer.lastName || '',
     email: customer.email || '',
-    phone: customer.phone || '',
+    phone: formatUsPhoneForHubSpot(customer.phone),
     desired_treatment: normalizeDesiredTreatment(customer.desiredTreatment),
   }
 
   return Object.fromEntries(
     Object.entries(properties).filter(([, value]) => Boolean(value)),
   )
+}
+
+export function formatUsPhoneForHubSpot(phone = '') {
+  const rawPhone = String(phone || '').trim()
+  const digits = rawPhone.replace(/\D/g, '')
+  const nationalNumber =
+    digits.length === 11 && digits.startsWith('1')
+      ? digits.slice(1)
+      : digits.length === 10
+        ? digits
+        : ''
+
+  if (!nationalNumber) {
+    return rawPhone
+  }
+
+  return `+1 (${nationalNumber.slice(0, 3)}) ${nationalNumber.slice(3, 6)}-${nationalNumber.slice(6)}`
 }
 
 async function updateContactProperties(contactId, properties) {
