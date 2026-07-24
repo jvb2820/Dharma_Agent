@@ -91,6 +91,14 @@ export function isEarlierSchedulingPreference(content = '') {
   return /\b(earlier|something earlier|before that|mas temprano|algo mas temprano|antes|mais cedo|algo mais cedo)\b/.test(normalized)
 }
 
+export function hasCallFormatQuestion(content = '') {
+  const normalized = normalizeRuleText(content)
+  const mentionsCall = /\b(call|phone call|video call|videocall|appointment|llamada|videollamada|cita|chamada|videochamada|consulta)\b/.test(normalized)
+  const asksFormat = /\b(regular|normal|phone|video|videollamada|telefono|telefonica|por chamada|videochamada|como sera|como es|que tipo)\b/.test(normalized)
+
+  return mentionsCall && asksFormat
+}
+
 function normalizeRuleText(value) {
   return String(value || '')
     .normalize('NFD')

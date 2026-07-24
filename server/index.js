@@ -21,6 +21,7 @@ import {
   chooseConfirmedState,
   getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
+  hasCallFormatQuestion,
   hasStrictRequestedDay,
   isEarlierSchedulingPreference,
   rejectsOfferedCalendarDate,
@@ -2739,8 +2740,15 @@ async function handleRespondBookingAutomation({
 
   if (existingBooking.pendingField === 'phone') {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
+    const latestMessageChangesAvailability =
+      Boolean(latestSignals.preferredTime) ||
+      extractAvailabilityPreference(latestUserText).hasPreference
 
-    if ((existingBooking.offeredOption || existingBooking.options?.length) && latestPreferredTime) {
+    if (
+      (existingBooking.offeredOption || existingBooking.options?.length) &&
+      latestMessageChangesAvailability &&
+      latestPreferredTime
+    ) {
       const nextDetails = applyAvailabilityConstraintFromPreferredTime({
         ...details,
         ...latestSignals,
@@ -3780,7 +3788,17 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   const spanish = language === 'Latin American Spanish'
   const portuguese = language === 'Portuguese'
 
-  if (!normalized || !isOutOfFlowInfoQuestion(content)) {
+  if (!normalized) {
+    return ''
+  }
+
+  if (hasCallFormatQuestion(content)) {
+    if (spanish) return 'La llamada de analisis se realiza por llamada telefonica normal; el especialista te llamara al numero que nos compartas.'
+    if (portuguese) return 'A chamada de analise e feita por chamada telefonica normal; o especialista ligara para o numero que voce compartilhar.'
+    return 'The discovery call is a regular phone call; the specialist will call the number you provide.'
+  }
+
+  if (!isOutOfFlowInfoQuestion(content)) {
     return ''
   }
 
@@ -4500,7 +4518,10 @@ async function generatePendingStateOutOfFlowAnswer({
   booking,
   modelIntent,
 }) {
-  if (isClientTreatmentPrivacyQuestion(latestUserText)) {
+  if (
+    isClientTreatmentPrivacyQuestion(latestUserText) ||
+    hasCallFormatQuestion(latestUserText)
+  ) {
     return getOutOfFlowAnswer(latestUserText, customerLanguage)
   }
 

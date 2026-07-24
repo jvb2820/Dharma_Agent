@@ -6,6 +6,7 @@ import {
   getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
   hasStrictRequestedDay,
+  hasCallFormatQuestion,
   isEarlierSchedulingPreference,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
@@ -127,6 +128,13 @@ test('"antes" in a question does not request an earlier appointment', () => {
   assert.equal(isEarlierSchedulingPreference('Antes de confirmar, ¿me puedes explicar el precio?'), false)
   assert.equal(isEarlierSchedulingPreference('¿Tienes algo más temprano?'), true)
   assert.equal(isEarlierSchedulingPreference('Quiero una hora antes'), true)
+})
+
+test('call-format questions are not availability changes', () => {
+  assert.equal(hasCallFormatQuestion('La cita es por llamada normal o videollamada?'), true)
+  assert.equal(hasCallFormatQuestion('Is it a regular phone call or a video call?'), true)
+  assert.equal(hasCallFormatQuestion('A consulta é por chamada normal ou videochamada?'), true)
+  assert.equal(hasCallFormatQuestion('Después de las 6'), false)
 })
 
 test('California slots are formatted in California local time', () => {
