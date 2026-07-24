@@ -22,6 +22,7 @@ import {
   getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
   hasStrictRequestedDay,
+  isEarlierSchedulingPreference,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
@@ -2922,11 +2923,9 @@ async function handleRespondBookingAutomation({
     )
   }
 
-  const selectedOption = pickRespondAvailabilityOption(
-    latestUserText,
-    existingBooking.options,
-    details.state,
-  )
+  const selectedOption =
+    pickRespondAvailabilityOption(latestUserText, existingBooking.options, details.state) ||
+    pickRespondAvailabilityOption(latestUserText, existingBooking.excludedOptions, details.state)
   const hasActiveSlotOffer = Boolean(existingBooking.offeredOption || existingBooking.options?.length)
 
   // A state clarification changes only how the same instant is displayed. It
@@ -5509,7 +5508,7 @@ function extractAvailabilityPreference(content) {
     }
   }
 
-  if (/\b(earlier|something earlier|before that|mas temprano|algo mas temprano|antes|mais cedo|algo mais cedo)\b/.test(normalized)) {
+  if (isEarlierSchedulingPreference(preferenceText)) {
     return {
       hasPreference: true,
       preferredTime: 'morning',

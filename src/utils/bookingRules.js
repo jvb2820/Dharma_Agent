@@ -76,6 +76,21 @@ export function getMinimumStartAfterSlotRejection(
   return rejectsSlot ? startTime + delayMs : undefined
 }
 
+export function isEarlierSchedulingPreference(content = '') {
+  const normalized = normalizeRuleText(content)
+  const usesBeforeAsConversationOrder = [
+    /\b(?:but|pero|mas)\s+(?:first|before|antes)\b[\s,]*(?:can|could|would|me puedes|me podrias|puedes|podrias|pode|poderia)\b/,
+    /\bantes\s+(?:me\s+)?(?:puedes|podrias|puede|pode|poderia)\s+(?:decir|dizer|tell|explain|explicar|confirmar)\b/,
+    /\bantes de (?:confirmar|agendar|reservar|continuar|seguir)\b/,
+  ].some((pattern) => pattern.test(normalized))
+
+  if (usesBeforeAsConversationOrder) {
+    return false
+  }
+
+  return /\b(earlier|something earlier|before that|mas temprano|algo mas temprano|antes|mais cedo|algo mais cedo)\b/.test(normalized)
+}
+
 function normalizeRuleText(value) {
   return String(value || '')
     .normalize('NFD')

@@ -6,6 +6,7 @@ import {
   getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
   hasStrictRequestedDay,
+  isEarlierSchedulingPreference,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
@@ -119,6 +120,13 @@ test('a rejected time moves the next offer at least three hours later', () => {
 test('plural weekday preferences are strict calendar constraints', () => {
   assert.equal(hasStrictRequestedDay('solo puedo los sábados'), true)
   assert.equal(hasStrictRequestedDay('Saturdays only'), true)
+})
+
+test('"antes" in a question does not request an earlier appointment', () => {
+  assert.equal(isEarlierSchedulingPreference('Sí, pero antes me puedes decir si es gratis?'), false)
+  assert.equal(isEarlierSchedulingPreference('Antes de confirmar, ¿me puedes explicar el precio?'), false)
+  assert.equal(isEarlierSchedulingPreference('¿Tienes algo más temprano?'), true)
+  assert.equal(isEarlierSchedulingPreference('Quiero una hora antes'), true)
 })
 
 test('California slots are formatted in California local time', () => {
