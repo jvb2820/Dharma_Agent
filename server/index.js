@@ -4285,6 +4285,19 @@ function buildRespondBookingCustomer(details, customerLanguage) {
 }
 
 function bookingCopy(language, key, values = {}) {
+  const boldSlotKeys = new Set([
+    'offerSlot',
+    'offerAlternativeSlot',
+    'reofferSlot',
+    'offerClosestSlot',
+    'offerSoonestForDay',
+    'offerSoonestForDayPart',
+  ])
+
+  if (boldSlotKeys.has(key) && values.slot) {
+    values = { ...values, slot: formatWhatsAppBold(values.slot) }
+  }
+
   const langNorm = normalizeLanguageName(language)
   const spanish = langNorm === 'Latin American Spanish'
   const portuguese = langNorm === 'Portuguese'
@@ -4962,15 +4975,22 @@ function formatNumberedSlots(options = [], state = '', language = '') {
   return options
     .map((option, index) => {
       const specialistName = option.sellerName ? `Specialist ${option.sellerName} - ` : ''
-
-      return `${index + 1}. ${specialistName}${formatCustomerStateSlot(
+      const slot = formatWhatsAppBold(formatCustomerStateSlot(
         option.startTime,
         state,
         option.timezone,
         language,
-      )}`
+      ))
+
+      return `${index + 1}. ${specialistName}${slot}`
     })
     .join('\n')
+}
+
+function formatWhatsAppBold(value = '') {
+  const text = String(value || '').trim()
+
+  return text && !/^\*[^*]+\*$/.test(text) ? `*${text}*` : text
 }
 
 function pickRespondAvailabilityOption(content, options = [], state = '') {
