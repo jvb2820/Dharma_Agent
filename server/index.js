@@ -2755,13 +2755,18 @@ async function handleRespondBookingAutomation({
         ...latestSignals,
         preferredTime: latestPreferredTime,
       })
+      const contextualDetails = applyContextualLaterCutoff({
+        details: nextDetails,
+        latestUserText,
+        currentOption: activeOption,
+      })
 
       return await offerReplacementRespondSlot({
         currentBooking: { ...existingBooking, bookingTeam, details },
         booking: buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam, pendingField: '' }),
-        details: nextDetails,
+        details: contextualDetails,
         customerLanguage,
-        preferredTime: nextDetails.preferredTime,
+        preferredTime: contextualDetails.preferredTime,
         closest: true,
       })
     }
@@ -3056,14 +3061,18 @@ async function handleRespondBookingAutomation({
 
   if (hasActiveSlotOffer && !selectedOption && latestSignals.preferredTime) {
     const currentOption = existingBooking.offeredOption || existingBooking.options?.[0]
-    const nextDetails = {
+    const nextDetails = applyContextualLaterCutoff({
+      details: {
       ...details,
       ...latestSignals,
       ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
       ...(latestSignals.direction === 'earlier' && currentOption
         ? { latestStartTime: currentOption.startTime }
         : {}),
-    }
+      },
+      latestUserText,
+      currentOption,
+    })
 
     return await offerSoonestRespondSlot({
       booking: buildBookingWithRejectedAvailability({
@@ -3661,20 +3670,61 @@ function shouldOfferMultipleScheduleOptions({ closest = false, details = {}, pre
 }
 
 function filterOptionsByAvailabilityPreference(options = [], details = {}) {
-  if (!hasAvailabilityTimeConstraint(details) && !Number.isFinite(details.latestHour) && !details.latestStartTime && !details.minimumStartTime) {
-    return options
-  }
-
   return options.filter((option) => {
     const localHour = getCustomerStateHour(option.startTime, details.state, option.timezone)
 
     if (localHour == null) return false
+    if (localHour >= 19) return false
     if (Number.isInteger(details.earliestHour) && localHour < details.earliestHour) return false
     if (Number.isFinite(details.latestHour) && localHour >= details.latestHour) return false
     if (details.latestStartTime && Number(option.startTime) >= Number(details.latestStartTime)) return false
     if (details.minimumStartTime && Number(option.startTime) < Number(details.minimumStartTime)) return false
     return true
   })
+}
+
+function applyContextualLaterCutoff({
+  details = {},
+  latestUserText = '',
+  currentOption,
+} = {}) {
+  const normalized = normalizeSearchText(latestUserText)
+  const isGenericLaterRequest = /^(?:later|later please|mas tarde|más tarde|mais tarde)[?.!]*$/.test(normalized)
+
+  if (!isGenericLaterRequest || !currentOption?.startTime) {
+    return details
+  }
+
+  const threeHoursLater = Number(currentOption.startTime) + 3 * 60 * 60 * 1000
+  const laterHour = getCustomerStateHour(
+    threeHoursLater,
+    details.state,
+    currentOption.timezone,
+  )
+
+  if (laterHour == null || laterHour < 19) {
+    return {
+      ...details,
+      minimumStartTime: threeHoursLater,
+      direction: 'later',
+    }
+  }
+
+  const nextDate = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: getStateTimeZone(details.state, currentOption.timezone),
+  }).format(Number(currentOption.startTime) + 24 * 60 * 60 * 1000)
+
+  return {
+    ...details,
+    preferredTime: `${nextDate} morning`,
+    earliestHour: 9,
+    dayPart: 'morning',
+    direction: 'later',
+    minimumStartTime: undefined,
+    latestStartTime: undefined,
+  }
 }
 
 function buildBookingWithExcludedOptions(booking = {}) {
