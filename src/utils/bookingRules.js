@@ -125,6 +125,97 @@ export function shouldAcceptStateAbbreviationToken({
   return isStandaloneAbbreviation || hasStateContext
 }
 
+export function findStateNameWithMinorTypo(content = '', states = []) {
+  const normalized = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
+
+  if (!normalized) {
+    return ''
+  }
+
+  const locationMatch = normalized.match(
+    /\b(?:i live in|i lived in|i am from|i m from|my state is|vivo en|soy de|mi estado es|moro em|sou de|meu estado e)\s+(.+)$/,
+  )
+  const locationText =
+    locationMatch?.[1]?.trim() ||
+    (normalized.split(' ').length <= 3 ? normalized : '')
+
+  if (!locationText) {
+    return ''
+  }
+
+  const locationTokens = locationText.split(/\s+/)
+
+  const matches = []
+
+  for (const state of states) {
+    const normalizedState = normalizeRuleText(state).replace(/[^a-z0-9]+/g, ' ').trim()
+
+    // Short state names create too many accidental matches. Require exact
+    // handling for those through the normal state and abbreviation parsers.
+    if (normalizedState.replace(/\s/g, '').length < 5) {
+      continue
+    }
+
+    const stateWordCount = normalizedState.split(' ').length
+    const candidates = []
+
+    for (let index = 0; index <= locationTokens.length - stateWordCount; index += 1) {
+      candidates.push(locationTokens.slice(index, index + stateWordCount).join(' '))
+    }
+
+    if (candidates.some((candidate) => getDamerauLevenshteinDistance(candidate, normalizedState) <= 1)) {
+      matches.push(state)
+    }
+  }
+
+  return matches.length === 1 ? matches[0] : ''
+}
+
+export function looksLikeExplicitStateDeclaration(content = '') {
+  const normalized = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
+
+  return /\b(?:i live in|i lived in|i am from|i m from|my state is|vivo en|soy de|mi estado es|moro em|sou de|meu estado e)\s+\S/.test(
+    normalized,
+  )
+}
+
+function getDamerauLevenshteinDistance(left, right) {
+  if (left === right) return 0
+  if (Math.abs(left.length - right.length) > 1) return 2
+
+  const rows = left.length + 1
+  const columns = right.length + 1
+  const matrix = Array.from({ length: rows }, () => Array(columns).fill(0))
+
+  for (let row = 0; row < rows; row += 1) matrix[row][0] = row
+  for (let column = 0; column < columns; column += 1) matrix[0][column] = column
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let column = 1; column < columns; column += 1) {
+      const substitutionCost = left[row - 1] === right[column - 1] ? 0 : 1
+      matrix[row][column] = Math.min(
+        matrix[row - 1][column] + 1,
+        matrix[row][column - 1] + 1,
+        matrix[row - 1][column - 1] + substitutionCost,
+      )
+
+      if (
+        row > 1 &&
+        column > 1 &&
+        left[row - 1] === right[column - 2] &&
+        left[row - 2] === right[column - 1]
+      ) {
+        matrix[row][column] = Math.min(
+          matrix[row][column],
+          matrix[row - 2][column - 2] + 1,
+        )
+      }
+    }
+  }
+
+  return matrix[left.length][right.length]
+}
+
 function escapeRuleRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

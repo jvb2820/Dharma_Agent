@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 
 import {
   chooseConfirmedState,
+  findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
   hasStrictRequestedDay,
   hasCallFormatQuestion,
   isEarlierSchedulingPreference,
+  looksLikeExplicitStateDeclaration,
   shouldAcceptStateAbbreviationToken,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
@@ -154,6 +156,24 @@ test('Spanish "La" never overwrites the state with Louisiana', () => {
     abbreviation: 'LA',
     content: 'LA',
   }), true)
+})
+
+test('one-letter state typos are recovered only in explicit location replies', () => {
+  const states = ['Connecticut', 'Florida', 'California', 'South Carolina']
+
+  assert.equal(findStateNameWithMinorTypo('I live in florid', states), 'Florida')
+  assert.equal(findStateNameWithMinorTypo('Vivo en Florid', states), 'Florida')
+  assert.equal(findStateNameWithMinorTypo('Californa', states), 'California')
+  assert.equal(findStateNameWithMinorTypo('I live in folrida', states), 'Florida')
+  assert.equal(findStateNameWithMinorTypo('Vivo en connectciut', states), 'Connecticut')
+  assert.equal(findStateNameWithMinorTypo('Tell me about florid treatment prices', states), '')
+})
+
+test('only explicit location wording can trigger unresolved-state clarification', () => {
+  assert.equal(looksLikeExplicitStateDeclaration('I live in Florid'), true)
+  assert.equal(looksLikeExplicitStateDeclaration('Vivo en Folrida'), true)
+  assert.equal(looksLikeExplicitStateDeclaration('I am in pain'), false)
+  assert.equal(looksLikeExplicitStateDeclaration('Can you answer my question?'), false)
 })
 
 test('California slots are formatted in California local time', () => {

@@ -19,11 +19,13 @@ import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import {
   chooseConfirmedState,
+  findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
   hasCallFormatQuestion,
   hasStrictRequestedDay,
   isEarlierSchedulingPreference,
+  looksLikeExplicitStateDeclaration,
   shouldAcceptStateAbbreviationToken,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
@@ -2343,6 +2345,9 @@ async function handleRespondBookingAutomation({
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
   const conversationSignals = extractRespondBookingDetails(messages)
   const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
+  const hasUnresolvedExplicitState =
+    looksLikeExplicitStateDeclaration(latestUserText) &&
+    !latestSignals.state
   const latestNameDetails =
     existingBooking.pendingField === 'name'
       ? splitCustomerFullName(latestUserText)
@@ -2382,6 +2387,21 @@ async function handleRespondBookingAutomation({
     booking: { ...existingBooking, bookingTeam, details },
     latestSignals,
   })
+
+  if (hasUnresolvedExplicitState) {
+    return {
+      text: bookingCopy(customerLanguage, 'askStateDifferent'),
+      booking: {
+        ...existingBooking,
+        bookingTeam,
+        details: {
+          ...details,
+          state: existingBooking.details?.state || '',
+        },
+        pendingField: 'state',
+      },
+    }
+  }
 
   const deterministicPolicyAnswer =
     isUnambiguouslyGeneralMedicationQuestion(latestUserText)
@@ -6465,6 +6485,7 @@ function extractStateName(content) {
 
       return new RegExp(`\\b${escapeRegExp(normalizedState)}\\b`).test(normalized)
     }) ||
+    findStateNameWithMinorTypo(content, US_STATES) ||
     extractNonServiceableLocationName(content) ||
     ''
   )
