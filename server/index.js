@@ -630,7 +630,7 @@ function getDefaultInitialImageUrl() {
   const baseUrl =
     process.env.WEB_SERVICE_URL ||
     process.env.VITE_WEB_SERVICE_URL ||
-    'https://dharma-agent.onrender.com'
+    'https://dharma-agent-yd5l.onrender.com'
 
   return `${baseUrl.replace(/\/+$/, '')}/Images/before%20and%20after.png`
 }
@@ -659,7 +659,7 @@ function getDefaultBookingConfirmationVideoUrl() {
   const baseUrl =
     process.env.WEB_SERVICE_URL ||
     process.env.VITE_WEB_SERVICE_URL ||
-    'https://dharma-agent.onrender.com'
+    'https://dharma-agent-yd5l.onrender.com'
 
   return `${baseUrl.replace(/\/+$/, '')}/Images/Spanish.mp4`
 }
