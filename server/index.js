@@ -40,6 +40,15 @@ import {
   savePostBookingLock,
 } from './postBookingLockService.js'
 import {
+  buildHumanTakeoverLock,
+  closeHumanTakeoverLock,
+  expireHumanTakeoverLock,
+  getHumanTakeoverLock,
+  isHumanTakeoverLockActive,
+  isHumanTakeoverLockExpired,
+  saveHumanTakeoverLock,
+} from './humanTakeoverLockService.js'
+import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
   findHubSpotContactByEmail,
@@ -70,6 +79,9 @@ import {
   buildRespondTransferMessage,
   detectRespondTransferTrigger,
   getRespondAutomationDecision,
+  getConversationAssignee,
+  isConversationAssigned,
+  isConversationClosed,
   isDoctorOrProviderQuestion,
   isGeneralProductOrMedicationClarification,
 } from './transfer.js'
@@ -160,6 +172,7 @@ const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
     '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
 }
 const respondSessions = new Map()
+const pendingPostBookingAssignments = new Map()
 
 const MIME_TYPES = {
   '.css': 'text/css',
@@ -530,7 +543,7 @@ async function handleRespondWebhook(request, response) {
   }
 
   if (event.contactId && !event.text) {
-    handleRespondConversationStateEvent(event)
+    await handleRespondConversationStateEvent(event)
   }
 
   if (!event.contactId || !event.text || !event.isIncoming) {
@@ -635,22 +648,86 @@ function getDefaultInitialImageUrl() {
   return `${baseUrl.replace(/\/+$/, '')}/Images/before%20and%20after.png`
 }
 
-function handleRespondConversationStateEvent(event) {
+async function handleRespondConversationStateEvent(event) {
   const session = getRespondSession(event.contactId)
 
-  if (!session.transferHandoffAt && !session.handoffAt) {
+  if (event.isConversationUnassignedEvent) {
+    await expireHumanTakeoverLock(event.contactId, 'cancelled').catch((error) => {
+      console.warn(error.message)
+    })
+    console.log('[respond-human-takeover-unassigned]', { contactId: event.contactId })
     return
   }
 
-  if (event.isConversationClosedEvent) {
-    respondSessions.set(event.contactId, {
-      ...session,
-      transferClosedAt: Date.now(),
-      lastInteractionAt: Date.now(),
+  const pendingBookingAssignment = pendingPostBookingAssignments.get(event.contactId)
+  if (pendingBookingAssignment && pendingBookingAssignment > Date.now()) {
+    console.log('[respond-human-takeover-skipped-booking-assignment]', {
+      contactId: event.contactId,
     })
-    console.log('[respond-transfer-closed]', {
+    return
+  }
+
+  const postBookingLock = await getPostBookingLock(event.contactId, session.postBookingLock)
+  if (postBookingLock) return
+
+  let humanLock = await getHumanTakeoverLock(event.contactId, session.humanTakeoverLock)
+
+  if (event.isConversationAssignmentEvent && !event.isConversationClosedEvent) {
+    let assignee = event.assignee
+
+    if (!assignee) {
+      const profile = await getRespondContactProfile(event.contactId, session.respondContactProfile)
+      assignee = getConversationAssignee(profile)
+    }
+
+    if (assignee) {
+      humanLock = buildHumanTakeoverLock({
+        contactId: event.contactId,
+        assignee,
+        assignedAt: event.timestamp || Date.now(),
+      })
+      await saveHumanTakeoverLock(humanLock).catch((error) => console.warn(error.message))
+      respondSessions.set(event.contactId, {
+        ...session,
+        humanTakeoverLock: humanLock,
+        lastInteractionAt: Date.now(),
+      })
+      console.log('[respond-human-takeover-assigned]', {
+        contactId: event.contactId,
+        assignee,
+      })
+    }
+  }
+
+  if (event.isConversationClosedEvent) {
+    if (!humanLock) {
+      const profile = await getRespondContactProfile(event.contactId, session.respondContactProfile)
+      const assignee = event.assignee || getConversationAssignee(profile)
+      humanLock = buildHumanTakeoverLock({
+        contactId: event.contactId,
+        assignee,
+        assignedAt: event.timestamp || Date.now(),
+      })
+    }
+
+    const closedLock = closeHumanTakeoverLock(humanLock, event.timestamp || Date.now())
+    if (closedLock) {
+      await saveHumanTakeoverLock(closedLock).catch((error) => console.warn(error.message))
+    }
+
+    const nextSession = {
+      ...session,
+      ...(session.transferHandoffAt || session.handoffAt ? { transferClosedAt: Date.now() } : {}),
+      ...(closedLock ? { humanTakeoverLock: closedLock } : {}),
+      lastInteractionAt: Date.now(),
+    }
+    respondSessions.set(event.contactId, nextSession)
+    console.log('[respond-conversation-closed]', {
       contactId: event.contactId,
       eventName: event.eventName,
+      humanTakeoverLockedUntil: closedLock
+        ? new Date(closedLock.lockedUntil).toISOString()
+        : '',
     })
   }
 }
@@ -717,6 +794,91 @@ async function processRespondIncomingMessage(event) {
       lockedUntil: new Date(postBookingLock.lockedUntil).toISOString(),
     })
   }
+
+  let humanTakeoverLock = await getHumanTakeoverLock(
+    event.contactId,
+    session.humanTakeoverLock,
+  )
+
+  if (
+    humanTakeoverLock?.phase === 'assigned' &&
+    !isConversationAssigned(respondContactProfile)
+  ) {
+    await expireHumanTakeoverLock(event.contactId, 'cancelled').catch((error) => {
+      console.warn(error.message)
+    })
+    humanTakeoverLock = null
+    console.log('[respond-human-takeover-manually-released]', {
+      contactId: event.contactId,
+    })
+  }
+
+  if (
+    humanTakeoverLock?.phase === 'assigned' &&
+    isConversationClosed(respondContactProfile)
+  ) {
+    humanTakeoverLock = closeHumanTakeoverLock(humanTakeoverLock)
+    await saveHumanTakeoverLock(humanTakeoverLock).catch((error) => {
+      console.warn(error.message)
+    })
+  }
+
+  if (isHumanTakeoverLockActive(humanTakeoverLock)) {
+    respondSessions.set(event.contactId, {
+      ...session,
+      humanTakeoverLock,
+      respondContactProfile,
+      lastInteractionAt: Date.now(),
+    })
+    console.log('[respond-human-takeover-locked]', {
+      contactId: event.contactId,
+      assignee: humanTakeoverLock.assignee,
+      phase: humanTakeoverLock.phase,
+      lockedUntil: humanTakeoverLock.lockedUntil
+        ? new Date(humanTakeoverLock.lockedUntil).toISOString()
+        : '',
+    })
+    return
+  }
+
+  if (isHumanTakeoverLockExpired(humanTakeoverLock)) {
+    await expireHumanTakeoverLock(event.contactId).catch((error) => {
+      console.warn(error.message)
+    })
+    await unassignRespondConversationAfterReply(event.contactId)
+    respondSessions.delete(event.contactId)
+    session = getRespondSession(event.contactId)
+    respondContactProfile = mergeRespondContactProfileFallbacks(
+      await getRespondContactProfile(event.contactId, null),
+      { phone: event.contactPhone },
+    )
+    console.log('[respond-human-takeover-expired-restart]', {
+      contactId: event.contactId,
+      lockedUntil: new Date(humanTakeoverLock.lockedUntil).toISOString(),
+    })
+  }
+
+  if (isConversationAssigned(respondContactProfile)) {
+    humanTakeoverLock = buildHumanTakeoverLock({
+      contactId: event.contactId,
+      assignee: getConversationAssignee(respondContactProfile),
+    })
+    await saveHumanTakeoverLock(humanTakeoverLock).catch((error) => {
+      console.warn(error.message)
+    })
+    respondSessions.set(event.contactId, {
+      ...session,
+      humanTakeoverLock,
+      respondContactProfile,
+      lastInteractionAt: Date.now(),
+    })
+    console.log('[respond-human-takeover-detected]', {
+      contactId: event.contactId,
+      assignee: humanTakeoverLock?.assignee || '',
+    })
+    return
+  }
+
   const automationDecision = getRespondAutomationDecision({
     contactProfile: respondContactProfile,
     session,
@@ -808,6 +970,8 @@ async function processRespondIncomingMessage(event) {
       ...extractRespondBookingDetailsFromText(event.text),
     }
 
+    if (await shouldPauseRespondReplyForHumanTakeover(event.contactId, session)) return
+
     await sendInitialRespondSequence({
       contactId: event.contactId,
       channelId: event.channelId,
@@ -842,6 +1006,8 @@ async function processRespondIncomingMessage(event) {
   }
 
   if (session.languageAsked && preferredLanguage) {
+    if (await shouldPauseRespondReplyForHumanTakeover(event.contactId, session)) return
+
     await sendInitialRespondSequence({
       contactId: event.contactId,
       channelId: event.channelId,
@@ -903,6 +1069,8 @@ async function processRespondIncomingMessage(event) {
     })
     const postReplyMessages = []
     let nextPostBookingLock = session.postBookingLock || null
+
+    if (await shouldPauseRespondReplyForHumanTakeover(event.contactId, session)) return
 
     if (bookingResponse.postReplyRespondAction?.type === 'booked') {
       await sendBookingConfirmationVideo({
@@ -1002,6 +1170,8 @@ async function processRespondIncomingMessage(event) {
     latestUserText: event.text,
   })
 
+  if (await shouldPauseRespondReplyForHumanTakeover(event.contactId, session)) return
+
   await sendRespondTextMessage({
     contactId: event.contactId,
     channelId: event.channelId,
@@ -1075,6 +1245,38 @@ async function unassignRespondConversationAfterReply(contactId) {
   await unassignRespondConversation(contactId).catch((error) => {
     console.warn(`Unable to unassign Respond conversation: ${error.message}`)
   })
+}
+
+async function shouldPauseRespondReplyForHumanTakeover(contactId, session = {}) {
+  const lock = await getHumanTakeoverLock(contactId, session.humanTakeoverLock)
+  if (isHumanTakeoverLockActive(lock)) {
+    console.log('[respond-human-takeover-pre-send-paused]', {
+      contactId,
+      assignee: lock.assignee,
+      phase: lock.phase,
+    })
+    return true
+  }
+
+  const profile = await getRespondContactProfile(contactId, session.respondContactProfile)
+  if (!isConversationAssigned(profile)) return false
+
+  const detectedLock = buildHumanTakeoverLock({
+    contactId,
+    assignee: getConversationAssignee(profile),
+  })
+  await saveHumanTakeoverLock(detectedLock).catch((error) => console.warn(error.message))
+  respondSessions.set(contactId, {
+    ...session,
+    humanTakeoverLock: detectedLock,
+    respondContactProfile: profile,
+    lastInteractionAt: Date.now(),
+  })
+  console.log('[respond-human-takeover-pre-send-detected]', {
+    contactId,
+    assignee: detectedLock?.assignee || '',
+  })
+  return true
 }
 
 async function getRespondTransferResumeProfile({ contactId, session = {}, initialDecision = {} } = {}) {
@@ -1337,7 +1539,18 @@ async function assignRespondConversationAfterBooking({ contactId, booked, option
     return { assigned: false, assignee: '' }
   }
 
-  await assignRespondConversation({ contactId, assignee })
+  pendingPostBookingAssignments.set(contactId, Date.now() + 60 * 1000)
+  setTimeout(() => {
+    if (Number(pendingPostBookingAssignments.get(contactId)) <= Date.now()) {
+      pendingPostBookingAssignments.delete(contactId)
+    }
+  }, 60 * 1000)
+  try {
+    await assignRespondConversation({ contactId, assignee })
+  } catch (error) {
+    pendingPostBookingAssignments.delete(contactId)
+    throw error
+  }
 
   console.log('[respond-booking-assigned]', {
     contactId,
@@ -6084,10 +6297,22 @@ async function updateRespondContactState(contactId, state) {
 function normalizeRespondWebhookEvent(body) {
   const message = body.message || body.data?.message || body.messages?.[0] || body.data?.messages?.[0] || {}
   const contact = body.contact || body.data?.contact || message.contact || {}
+  const conversation =
+    body.conversation ||
+    body.data?.conversation ||
+    contact.conversation ||
+    message.conversation ||
+    {}
   const text = extractRespondWebhookText(message)
   const traffic = message.traffic || body.traffic || body.data?.traffic || ''
   const direction = message.direction || body.direction || body.data?.direction || ''
   const eventName = body.event || body.eventName || body.type || body.data?.event || ''
+  const assignee = extractRespondWebhookAssignee({
+    body,
+    contact,
+    conversation,
+    message,
+  })
   const isOutgoing =
     traffic === 'outgoing' ||
     direction === 'outgoing' ||
@@ -6110,16 +6335,81 @@ function normalizeRespondWebhookEvent(body) {
       body.channelId ||
       body.data?.channelId ||
       body.channel?.id ||
+      contact.channelId ||
+      contact.channel?.id ||
+      conversation.channelId ||
+      conversation.channel?.id ||
       '',
     contactPhone: extractRespondContactPhone(contact, getRespondCustomFieldMap(contact)),
     isIncoming: !isOutgoing,
     eventName,
+    assignee,
+    timestamp: normalizeRespondWebhookTimestamp(
+      body.timestamp ||
+        body.createdAt ||
+        body.data?.timestamp ||
+        body.data?.createdAt ||
+        conversation.updatedAt ||
+        conversation.updated_at,
+    ),
+    isConversationAssignmentEvent:
+      /conversation[\s._-]*(?:assign|assignee)|assignee[\s._-]*(?:assign|change|update)/i.test(
+        eventName,
+      ),
+    isConversationUnassignedEvent:
+      /conversation[\s._-]*unassign|assignee[\s._-]*(?:remove|clear|unassign)/i.test(
+        eventName,
+      ),
     isConversationClosedEvent: /conversation[\s._-]*clos|conversation[\s._-]*resolve|clos(ed|e)|resolv(ed|e)/i.test(
       eventName,
     ),
     skipReason: isOutgoing ? 'Ignoring outbound Respond message.' : '',
     text,
   }
+}
+
+function extractRespondWebhookAssignee({ body = {}, contact = {}, conversation = {}, message = {} } = {}) {
+  const candidates = [
+    conversation.assignee,
+    conversation.assignedTo,
+    conversation.assigned_to,
+    conversation.assigneeEmail,
+    conversation.assignee_email,
+    body.assignee,
+    body.data?.assignee,
+    contact.assignee,
+    message.assignee,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' || typeof candidate === 'number') {
+      const value = String(candidate).trim()
+      if (value) return value
+    }
+
+    if (candidate && typeof candidate === 'object') {
+      const value = String(
+        candidate.email ||
+          candidate.id ||
+          candidate.userId ||
+          candidate.user_id ||
+          candidate.name ||
+          '',
+      ).trim()
+      if (value) return value
+    }
+  }
+
+  return ''
+}
+
+function normalizeRespondWebhookTimestamp(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value
+  }
+
+  const parsed = Date.parse(String(value || ''))
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function extractRespondWebhookText(message) {
