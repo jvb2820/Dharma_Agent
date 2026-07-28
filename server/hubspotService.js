@@ -517,7 +517,7 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
   const appointmentContactSync = await syncBookedTimeToContact({
     contact,
     customer,
-    startTime: option.startTime,
+    startTime: dealSync.meetingStartTime || option.startTime,
   }).catch((error) => {
     console.warn(`Unable to sync booked time before HubSpot workflow enrollment: ${error.message}`)
     return { ok: false, error: error.message }
@@ -611,6 +611,16 @@ async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
     contactId: contactRecord.id,
     startTime: option.startTime,
   })
+  const confirmedMeetingStartTime = new Date(
+    meeting?.properties?.hs_meeting_start_time || 0,
+  ).getTime()
+
+  if (!meeting?.id || !confirmedMeetingStartTime) {
+    throw new Error(
+      'The confirmed HubSpot meeting could not be found, so deal synchronization was skipped to avoid mismatched meeting dates.',
+    )
+  }
+
   const properties = buildBookingDealProperties({
     customer,
     seller,
@@ -621,14 +631,13 @@ async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
 
   await associateHubSpotObjects('deals', deal.id, 'contacts', contactRecord.id)
 
-  if (meeting?.id) {
-    await associateHubSpotObjects('deals', deal.id, 'meetings', meeting.id)
-  }
+  await associateHubSpotObjects('deals', deal.id, 'meetings', meeting.id)
 
   return {
     ok: true,
     dealId: deal.id,
-    meetingId: meeting?.id || null,
+    meetingId: meeting.id,
+    meetingStartTime: confirmedMeetingStartTime,
     reused: false,
   }
 }
@@ -655,11 +664,14 @@ async function findBookedMeetingForContactWithRetry({ contactId, startTime }) {
 export function buildBookingDealProperties({ customer, seller, option, meeting }) {
   const fullName = formatCustomerName(customer)
   const treatment = normalizeDesiredTreatment(customer.desiredTreatment)
+  const confirmedMeetingStartTime = new Date(
+    meeting?.properties?.hs_meeting_start_time || 0,
+  ).getTime()
   const properties = {
     dealname: `${getDealNamePrefix()} - ${fullName}`,
     pipeline: getDealPipeline(),
     dealstage: getDealStage(),
-    [getDealEvaluationDateProperty()]: String(option.startTime),
+    [getDealEvaluationDateProperty()]: String(confirmedMeetingStartTime || option.startTime),
     agent_lead_management: seller.fieldValue,
     desired_treatment: treatment,
     phone: formatUsPhoneForHubSpot(customer.phone),

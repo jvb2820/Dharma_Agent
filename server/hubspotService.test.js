@@ -18,10 +18,30 @@ const bookingInput = {
   meeting: {
     id: 'test-meeting',
     properties: {
+      hs_meeting_start_time: '2026-05-28T10:40:00.000Z',
       hubspot_owner_id: 'test-owner',
     },
   },
 }
+
+test('deal evaluation date uses the confirmed HubSpot meeting timestamp', () => {
+  const properties = buildBookingDealProperties({
+    ...bookingInput,
+    customer: {
+      firstName: 'Test',
+      lastName: 'Customer',
+      email: 'test@example.com',
+      phone: '+1 (347) 866-5207',
+      desiredTreatment: 'Compounded Semaglutide',
+    },
+  })
+
+  assert.equal(
+    properties.evaluation_date_and_hour_2,
+    String(Date.parse(bookingInput.meeting.properties.hs_meeting_start_time)),
+  )
+  assert.notEqual(properties.evaluation_date_and_hour_2, String(bookingInput.option.startTime))
+})
 
 test('booking deals include the customer phone number', () => {
   const properties = buildBookingDealProperties({
