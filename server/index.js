@@ -6757,6 +6757,10 @@ function extractPriorQuestions(agentMessages) {
 function extractStateName(content) {
   const normalized = normalizeSearchText(content)
   const translatedState = getCanonicalStateAlias(content)
+  const fullStateName = US_STATES.find((state) => {
+    const normalizedState = normalizeSearchText(state)
+    return new RegExp(`\\b${escapeRegExp(normalizedState)}\\b`).test(normalized)
+  })
   const aliases = new Map([
     ['dc', 'District of Columbia'],
     ['d c', 'District of Columbia'],
@@ -6764,11 +6768,17 @@ function extractStateName(content) {
     ['washington dc', 'District of Columbia'],
     ['washington d c', 'District of Columbia'],
   ])
-  const abbreviationState = extractStateNameFromAbbreviation(content)
-
   if (translatedState) {
     return translatedState
   }
+
+  // Complete state names are stronger evidence than two-letter tokens. This
+  // prevents Spanish connector words such as "de" from overriding "Texas".
+  if (fullStateName) {
+    return fullStateName
+  }
+
+  const abbreviationState = extractStateNameFromAbbreviation(content)
 
   if (abbreviationState) {
     return abbreviationState
@@ -6781,11 +6791,6 @@ function extractStateName(content) {
   }
 
   return (
-    US_STATES.find((state) => {
-      const normalizedState = normalizeSearchText(state)
-
-      return new RegExp(`\\b${escapeRegExp(normalizedState)}\\b`).test(normalized)
-    }) ||
     findStateNameWithMinorTypo(content, US_STATES) ||
     extractNonServiceableLocationName(content) ||
     ''

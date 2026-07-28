@@ -185,6 +185,25 @@ test('Spanish "La" never overwrites the state with Louisiana', () => {
   }), true)
 })
 
+test('Spanish "de" is not treated as Delaware while uppercase DE remains valid', () => {
+  assert.equal(
+    shouldAcceptStateAbbreviationToken({
+      rawToken: 'de',
+      abbreviation: 'DE',
+      content: 'Vivo en el estado de Texas en Austin',
+    }),
+    false,
+  )
+  assert.equal(
+    shouldAcceptStateAbbreviationToken({
+      rawToken: 'DE',
+      abbreviation: 'DE',
+      content: 'I live in DE',
+    }),
+    true,
+  )
+})
+
 test('one-letter state typos are recovered only in explicit location replies', () => {
   const states = ['Connecticut', 'Florida', 'California', 'South Carolina']
 

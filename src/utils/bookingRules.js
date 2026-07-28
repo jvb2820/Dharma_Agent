@@ -107,7 +107,7 @@ export function shouldAcceptStateAbbreviationToken({
   const normalizedToken = String(rawToken).toLowerCase()
   const normalizedContent = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
   const upperToken = String(rawToken).toUpperCase()
-  const ambiguousWords = new Set(['HI', 'IN', 'LA', 'ME', 'OR'])
+  const ambiguousWords = new Set(['DE', 'HI', 'IN', 'LA', 'ME', 'OR'])
 
   if (rawToken === upperToken) {
     return true
