@@ -28,6 +28,7 @@ import {
   isExactCasualAffirmative,
   looksLikeExplicitStateDeclaration,
   shouldAcceptStateAbbreviationToken,
+  shouldTreatOkAsAffirmative,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
@@ -2569,6 +2570,17 @@ async function handleRespondBookingAutomation({
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
   const conversationSignals = extractRespondBookingDetails(messages)
   const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
+  const okMeansAffirmative = shouldTreatOkAsAffirmative({
+    content: latestUserText,
+    activeState: existingBooking.details?.state,
+    inferredState: existingBooking.details?.inferredState,
+    hasActiveSlot: Boolean(existingBooking.offeredOption || existingBooking.options?.length),
+  })
+
+  if (okMeansAffirmative) {
+    delete latestSignals.state
+  }
+
   const hasUnresolvedExplicitState =
     looksLikeExplicitStateDeclaration(latestUserText) &&
     !latestSignals.state

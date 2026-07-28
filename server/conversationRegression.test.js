@@ -12,6 +12,7 @@ import {
   isExactCasualAffirmative,
   looksLikeExplicitStateDeclaration,
   shouldAcceptStateAbbreviationToken,
+  shouldTreatOkAsAffirmative,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
@@ -209,6 +210,40 @@ test('exact Spanish casual reply "sip" confirms an inferred state', () => {
   assert.equal(isExactCasualAffirmative('Sip'), true)
   assert.equal(isExactCasualAffirmative('sip!'), true)
   assert.equal(isExactCasualAffirmative('SIP protocol'), false)
+})
+
+test('exact "ok" accepts an active slot without changing the confirmed state to Oklahoma', () => {
+  for (const content of ['ok', 'Ok', 'OK', 'ok!']) {
+    assert.equal(
+      shouldTreatOkAsAffirmative({
+        content,
+        activeState: 'Maryland',
+        hasActiveSlot: true,
+      }),
+      true,
+    )
+  }
+
+  assert.equal(
+    chooseConfirmedState({
+      latestState: '',
+      activeState: 'Maryland',
+      historicalState: 'Oklahoma',
+    }),
+    'Maryland',
+  )
+})
+
+test('"ok" remains available as Oklahoma when no state or slot context exists', () => {
+  assert.equal(shouldTreatOkAsAffirmative({ content: 'OK' }), false)
+  assert.equal(
+    shouldTreatOkAsAffirmative({
+      content: 'Actually, Oklahoma',
+      activeState: 'Maryland',
+      hasActiveSlot: true,
+    }),
+    false,
+  )
 })
 
 test('one-letter state typos are recovered only in explicit location replies', () => {

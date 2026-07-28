@@ -105,6 +105,17 @@ export function isExactCasualAffirmative(content = '') {
   return normalized === 'sip'
 }
 
+export function shouldTreatOkAsAffirmative({
+  content = '',
+  activeState = '',
+  inferredState = '',
+  hasActiveSlot = false,
+} = {}) {
+  const normalized = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
+
+  return normalized === 'ok' && Boolean(activeState || inferredState || hasActiveSlot)
+}
+
 export function shouldAcceptStateAbbreviationToken({
   rawToken = '',
   abbreviation = '',
