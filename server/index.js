@@ -106,7 +106,7 @@ const BOOKING_CONFIRMATION_VIDEO_URL =
   process.env.RESPOND_INITIAL_VIDEO_URL ||
   getDefaultBookingConfirmationVideoUrl()
 const INITIAL_GREETING_BY_LANGUAGE = {
-  English: `Hi, my name is Maria from Dharma Clinic.
+  English: `Hello.
 
 👋 It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic* 📸.
 
@@ -121,7 +121,7 @@ We also offer longer treatments depending on your goal.
 📲 First, we do a *free* discovery call by video.
 
 💥 *SPECIAL OFFER TODAY* 💥`,
-  'Latin American Spanish': `Hola, mi nombre es Maria, de la clinica Dharma.
+  'Latin American Spanish': `Hola.
 
 👋 Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic* 📸.
 
@@ -135,8 +135,8 @@ Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 
 📲 Primero realizamos una llamada de analisis *gratuita* por videollamada.
 
-💥 *OFERTA ESPECIAL HOY* 💥`,
-  Portuguese: `Olá, meu nome é Maria, da clínica Dharma.
+💥 OFERTA ESPECIAL DE VERANO 💥`,
+  Portuguese: `Olá.
 
 👋 É um prazer ter você aqui. Você também pode dar uma olhada no nosso Instagram *@dharma.clinic* 📸.
 
@@ -472,9 +472,9 @@ async function handleHubSpotContactLookup(request, response) {
     exists: Boolean(contact),
     contact: contact
       ? {
-          id: contact.id,
-          properties: contact.properties,
-        }
+        id: contact.id,
+        properties: contact.properties,
+      }
       : null,
   })
 }
@@ -1148,10 +1148,10 @@ async function transferRespondConversationToCustomerService({
 
   const text = assigned
     ? await resolveRespondTransferMessage({
-        customerLanguage,
-        latestUserText: userMessage?.content || '',
-        transferTrigger,
-      })
+      customerLanguage,
+      latestUserText: userMessage?.content || '',
+      transferTrigger,
+    })
     : buildRespondTransferFailureMessage(customerLanguage)
 
   await sendRespondTextMessage({ contactId, channelId, text })
@@ -1803,8 +1803,8 @@ function formatRespondContactProfileForPrompt(profile) {
   const firstName = getCustomerFirstName(profile?.bookingDetails, profile)
   const fields = profile.fields
     ? Object.entries(profile.fields)
-        .map(([key, value]) => `${key}=${value}`)
-        .join('; ')
+      .map(([key, value]) => `${key}=${value}`)
+      .join('; ')
     : ''
 
   return [
@@ -1833,10 +1833,10 @@ function formatBookingContextForPrompt(booking = {}) {
     details.phone ? 'Customer phone is already known from Respond/contact context.' : '',
     offeredOption
       ? `Already offered slot: ${formatCustomerStateSlot(
-          offeredOption.startTime,
-          details.state,
-          offeredOption.timezone,
-        )}.`
+        offeredOption.startTime,
+        details.state,
+        offeredOption.timezone,
+      )}.`
       : '',
     options.length
       ? `Already offered numbered slots:\n${formatNumberedSlots(options, details.state)}`
@@ -2020,9 +2020,9 @@ function inferRespondBookingIntent({ latestUserText = '', messages = [], latestS
   const normalized = normalizeSearchText(latestUserText)
   const answeredField =
     latestSignals.state ? 'state' :
-    latestSignals.phone ? 'phone' :
-    latestSignals.preferredTime ? 'preferredTime' :
-    'none'
+      latestSignals.phone ? 'phone' :
+        latestSignals.preferredTime ? 'preferredTime' :
+          'none'
 
   if (answeredField !== 'none') {
     return {
@@ -2407,13 +2407,13 @@ async function handleRespondBookingAutomation({
     isUnambiguouslyGeneralMedicationQuestion(latestUserText)
       ? getGeneralMedicationOfferingAnswer(customerLanguage)
       : isGeneralMedicationSafetyQuestion(latestUserText)
-      ? getGeneralMedicationSafetyAnswer(customerLanguage)
-      : isClientTreatmentPrivacyQuestion(latestUserText) ||
-    isContextualClientPrivacyFollowUp(latestUserText, messages)
-      ? getClientPrivacyAnswer(customerLanguage)
-      : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText))
-        ? getOutOfFlowAnswer(latestUserText, customerLanguage)
-        : ''
+        ? getGeneralMedicationSafetyAnswer(customerLanguage)
+        : isClientTreatmentPrivacyQuestion(latestUserText) ||
+          isContextualClientPrivacyFollowUp(latestUserText, messages)
+          ? getClientPrivacyAnswer(customerLanguage)
+          : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText))
+            ? getOutOfFlowAnswer(latestUserText, customerLanguage)
+            : ''
 
   if (deterministicPolicyAnswer) {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
@@ -2628,8 +2628,8 @@ async function handleRespondBookingAutomation({
 
       return prependOutOfFlowAnswerIfNeeded({
         response: {
-        text: bookingCopy(customerLanguage, 'askPhone'),
-        booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+          text: bookingCopy(customerLanguage, 'askPhone'),
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
         },
         latestUserText,
         customerLanguage,
@@ -3083,12 +3083,12 @@ async function handleRespondBookingAutomation({
     const currentOption = existingBooking.offeredOption || existingBooking.options?.[0]
     const nextDetails = applyContextualLaterCutoff({
       details: {
-      ...details,
-      ...latestSignals,
-      ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
-      ...(latestSignals.direction === 'earlier' && currentOption
-        ? { latestStartTime: currentOption.startTime }
-        : {}),
+        ...details,
+        ...latestSignals,
+        ...(latestPreferredTime ? { preferredTime: latestPreferredTime } : {}),
+        ...(latestSignals.direction === 'earlier' && currentOption
+          ? { latestStartTime: currentOption.startTime }
+          : {}),
       },
       latestUserText,
       currentOption,
@@ -3485,11 +3485,11 @@ async function offerSoonestRespondSlot({
   return {
     text: nextOptions.length === 1 && !afterHoursFallback
       ? bookingCopy(customerLanguage, offerKey, {
-          slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone, customerLanguage),
-        })
+        slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone, customerLanguage),
+      })
       : bookingCopy(customerLanguage, afterHoursFallback ? offerKey : closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
-          slots: formatNumberedSlots(nextOptions, details.state, customerLanguage),
-        }),
+        slots: formatNumberedSlots(nextOptions, details.state, customerLanguage),
+      }),
     booking: {
       details,
       bookingTeam: booking.bookingTeam || 'sales',
@@ -3579,9 +3579,9 @@ function getNextMorningPreferredTime(preferredTime = '') {
 function hasBookingAvailabilityExclusions(booking = {}) {
   return Boolean(
     booking.offeredOption ||
-      booking.options?.length ||
-      booking.excludedOptions?.length ||
-      booking.excludedDateKeys?.length,
+    booking.options?.length ||
+    booking.excludedOptions?.length ||
+    booking.excludedDateKeys?.length,
   )
 }
 
@@ -3857,13 +3857,13 @@ async function buildOutOfFlowAnswerWithBookingContext({
   const answer = isClientTreatmentPrivacyQuestion(latestUserText)
     ? getOutOfFlowAnswer(latestUserText, customerLanguage)
     : await generateBookingOutOfFlowAnswer({
-        messages,
-        latestUserText,
-        customerLanguage,
-        respondContactProfile,
-        booking: { ...booking, details },
-        modelIntent,
-      })
+      messages,
+      latestUserText,
+      customerLanguage,
+      respondContactProfile,
+      booking: { ...booking, details },
+      modelIntent,
+    })
 
   if (!answer) {
     return null
@@ -4250,15 +4250,15 @@ function buildRespondBookingFailure(booking, details, customerLanguage, error) {
 function shouldUseOutOfStatePrescribedTemplate(details) {
   return Boolean(
     details.state &&
-      !isPrescribedTreatmentDeliveryState(details.state) &&
-      !isAlternativeTreatment(details.desiredTreatment),
+    !isPrescribedTreatmentDeliveryState(details.state) &&
+    !isAlternativeTreatment(details.desiredTreatment),
   )
 }
 
 function shouldUseRepeatOutOfStateTemplate(booking, details) {
   return Boolean(
     booking?.outOfStateNotified &&
-      normalizeSearchText(booking.details?.state) === normalizeSearchText(details.state),
+    normalizeSearchText(booking.details?.state) === normalizeSearchText(details.state),
   )
 }
 
@@ -4380,9 +4380,9 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
   const conversationPhone = conversationSignals.phone
   const userProvidedPhone = Boolean(
     (conversationPhone && isUsCountryCodePhone(conversationPhone)) ||
-      (recordedPhone && isUsCountryCodePhone(recordedPhone)) ||
-      (existingBooking.details?.phoneConfirmed && isUsCountryCodePhone(existingBooking.details?.phone)) ||
-      (nextDetails.phoneConfirmed && isUsCountryCodePhone(nextDetails.phone)),
+    (recordedPhone && isUsCountryCodePhone(recordedPhone)) ||
+    (existingBooking.details?.phoneConfirmed && isUsCountryCodePhone(existingBooking.details?.phone)) ||
+    (nextDetails.phoneConfirmed && isUsCountryCodePhone(nextDetails.phone)),
   )
   const userProvidedFullName = Boolean(nextDetails.nameConfirmed && nextDetails.firstName && nextDetails.lastName)
 
@@ -6037,8 +6037,8 @@ function shouldRestartRespondConversation(session) {
   )
 }
 
-async function sendInitialRespondSequence({ contactId, channelId, customerLanguage, firstName = '' }) {
-  const greeting = getInitialGreeting(customerLanguage, firstName)
+async function sendInitialRespondSequence({ contactId, channelId, customerLanguage }) {
+  const greeting = getInitialGreeting(customerLanguage)
   const stateQuestion = getInitialStateQuestion(customerLanguage)
 
   if (INITIAL_IMAGE_URL) {
@@ -6055,26 +6055,11 @@ async function sendInitialRespondSequence({ contactId, channelId, customerLangua
   await sendRespondTextMessage({ contactId, channelId, text: stateQuestion })
 }
 
-function getInitialGreeting(customerLanguage, firstName = '') {
-  const greeting =
+function getInitialGreeting(customerLanguage) {
+  return (
     INITIAL_GREETING_BY_LANGUAGE[normalizeLanguageName(customerLanguage)] ||
     INITIAL_GREETING_BY_LANGUAGE.English
-
-  if (!firstName) {
-    return greeting
-  }
-
-  const langNorm = normalizeLanguageName(customerLanguage)
-
-  if (langNorm === 'Latin American Spanish') {
-    return greeting.replace(/^Hola,/, `Hola ${firstName},`)
-  }
-
-  if (langNorm === 'Portuguese') {
-    return greeting.replace(/^Olá,|^OlÃ¡,/, `Olá ${firstName},`)
-  }
-
-  return greeting.replace(/^Hi,/, `Hi ${firstName},`)
+  )
 }
 
 function getInitialStateQuestion(customerLanguage) {
@@ -6112,12 +6097,12 @@ function normalizeRespondWebhookEvent(body) {
     contactId:
       String(
         contact.id ||
-          contact.contactId ||
-          body.contactId ||
-          body.respondContactId ||
-          body.data?.contactId ||
-          message.contactId ||
-          '',
+        contact.contactId ||
+        body.contactId ||
+        body.respondContactId ||
+        body.data?.contactId ||
+        message.contactId ||
+        '',
       ).trim(),
     channelId:
       message.channelId ||
@@ -6200,12 +6185,12 @@ function hasBookingContext({ messages = [], session = {} }) {
 
   return Boolean(
     booking.pendingField ||
-      booking.offeredOption ||
-      booking.options?.length ||
-      details.state ||
-      details.desiredTreatment ||
-      details.phone ||
-      messages.some((item) => item.role === 'user' && isBookingRequest(item.content || '')),
+    booking.offeredOption ||
+    booking.options?.length ||
+    details.state ||
+    details.desiredTreatment ||
+    details.phone ||
+    messages.some((item) => item.role === 'user' && isBookingRequest(item.content || '')),
   )
 }
 
@@ -6690,7 +6675,7 @@ function extractPreferredTimeText(content) {
 function extractPhoneNumber(content) {
   return (
     String(content || '').match(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)?\d{3}[\s.-]?\d{4,}/)
-      ?.[0] || ''
+    ?.[0] || ''
   )
 }
 

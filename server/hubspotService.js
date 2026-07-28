@@ -64,7 +64,7 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
   const weekday = parsePreferredWeekday(preferredTime)
-  const monthOffset = getMonthOffsetForPreference(preference, timezone)
+  const monthOffsets = getAvailabilityMonthOffsets(preference, weekday, timezone)
 
   for (const [sellerIndex, seller] of members.entries()) {
     const meetingInfo = await fetchMeetingInfo({ slug: seller.slug, timezone }).catch((error) => {
@@ -83,16 +83,18 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
       continue
     }
 
-    const availability = await fetchAvailability({ slug: seller.slug, timezone, monthOffset }).catch((error) => {
-      console.warn(`Unable to fetch HubSpot availability for ${seller.name}: ${error.message}`)
-      return null
-    })
-
-    if (!availability) {
-      continue
-    }
-
-    const slots = availability.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || []
+    const availabilityPages = await Promise.all(
+      monthOffsets.map((monthOffset) =>
+        fetchAvailability({ slug: seller.slug, timezone, monthOffset }).catch((error) => {
+          console.warn(`Unable to fetch HubSpot availability for ${seller.name}: ${error.message}`)
+          return null
+        }),
+      ),
+    )
+    const slots = availabilityPages.flatMap(
+      (availability) =>
+        availability?.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || [],
+    )
 
     const futureSlots = slots.filter((slot) => slot.startMillisUtc >= Date.now() + MIN_BOOKING_LEAD_TIME_MS)
     const candidateSlots = futureSlots.filter((slot) => {
@@ -186,6 +188,16 @@ function getMonthOffsetForPreference(preference, timezone) {
   }
 
   return Math.max(0, (targetYear - current.year) * 12 + (targetMonth - current.month))
+}
+
+export function getAvailabilityMonthOffsets(preference, weekday, timezone) {
+  const monthOffset = getMonthOffsetForPreference(preference, timezone)
+
+  // HubSpot availability pages are month-scoped. A weekday request such as
+  // "next Saturday" can cross the month boundary.
+  return weekday !== null && !preference.dateKey
+    ? [monthOffset, monthOffset + 1]
+    : [monthOffset]
 }
 
 function parsePreferredTime(value, timezone) {
