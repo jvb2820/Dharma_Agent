@@ -9,6 +9,7 @@ import {
   hasStrictRequestedDay,
   hasCallFormatQuestion,
   isEarlierSchedulingPreference,
+  isExactCasualAffirmative,
   looksLikeExplicitStateDeclaration,
   shouldAcceptStateAbbreviationToken,
   rejectsOfferedCalendarDate,
@@ -202,6 +203,12 @@ test('Spanish "de" is not treated as Delaware while uppercase DE remains valid',
     }),
     true,
   )
+})
+
+test('exact Spanish casual reply "sip" confirms an inferred state', () => {
+  assert.equal(isExactCasualAffirmative('Sip'), true)
+  assert.equal(isExactCasualAffirmative('sip!'), true)
+  assert.equal(isExactCasualAffirmative('SIP protocol'), false)
 })
 
 test('one-letter state typos are recovered only in explicit location replies', () => {

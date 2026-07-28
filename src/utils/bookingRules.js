@@ -99,6 +99,12 @@ export function hasCallFormatQuestion(content = '') {
   return mentionsCall && asksFormat
 }
 
+export function isExactCasualAffirmative(content = '') {
+  const normalized = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
+
+  return normalized === 'sip'
+}
+
 export function shouldAcceptStateAbbreviationToken({
   rawToken = '',
   abbreviation = '',

@@ -5,6 +5,7 @@ import {
   hasConfirmedFullName,
   isExactRespondClientStatus,
   isUsCountryCodePhone,
+  normalizeUsPhoneNumber,
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
 } from './newClientFlow.js'
@@ -47,10 +48,18 @@ test('booking phrases are never accepted as customer names', () => {
   }
 })
 
-test('new-client phone requires the US +1 country code', () => {
+test('new-client phone accepts US numbers with an optional country code', () => {
   assert.equal(isUsCountryCodePhone('+1 (347) 866-5207'), true)
   assert.equal(isUsCountryCodePhone('13478665207'), true)
-  assert.equal(isUsCountryCodePhone('(347) 866-5207'), false)
+  assert.equal(isUsCountryCodePhone('(347) 866-5207'), true)
+  assert.equal(isUsCountryCodePhone('801 574 9966'), true)
   assert.equal(isUsCountryCodePhone('+52 55 1234 5678'), false)
   assert.equal(isUsCountryCodePhone(''), false)
+})
+
+test('US phone numbers are normalized with a leading 1 for booking and dummy email', () => {
+  assert.equal(normalizeUsPhoneNumber('801 574 9966'), '18015749966')
+  assert.equal(normalizeUsPhoneNumber('1 801 574 9966'), '18015749966')
+  assert.equal(normalizeUsPhoneNumber('+1 (801) 574-9966'), '18015749966')
+  assert.equal(normalizeUsPhoneNumber('+52 55 1234 5678'), '')
 })

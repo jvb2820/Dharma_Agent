@@ -25,6 +25,7 @@ import {
   hasCallFormatQuestion,
   hasStrictRequestedDay,
   isEarlierSchedulingPreference,
+  isExactCasualAffirmative,
   looksLikeExplicitStateDeclaration,
   shouldAcceptStateAbbreviationToken,
   rejectsOfferedCalendarDate,
@@ -90,6 +91,7 @@ import {
   hasConfirmedFullName,
   isExactRespondClientStatus,
   isUsCountryCodePhone,
+  normalizeUsPhoneNumber,
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
 } from './newClientFlow.js'
@@ -3016,7 +3018,7 @@ async function handleRespondBookingAutomation({
     const extractedPhone = latestSignals.phone || extractPhoneNumber(latestUserText)
     const phone =
       !shouldUseNewClientBookingFlow(respondContactProfile) || isUsCountryCodePhone(extractedPhone)
-        ? extractedPhone
+        ? normalizeUsPhoneNumber(extractedPhone) || extractedPhone
         : ''
     const nextDetails = phone ? { ...details, phone, phoneConfirmed: true } : details
     const phoneCopyKey = shouldUseNewClientBookingFlow(respondContactProfile) ? 'askUsPhone' : 'askPhone'
@@ -4621,9 +4623,12 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
   if (!userProvidedPhone) {
     delete nextDetails.phone
   } else if (!isUsCountryCodePhone(nextDetails.phone)) {
-    nextDetails.phone = isUsCountryCodePhone(conversationPhone) ? conversationPhone : recordedPhone
+    nextDetails.phone = normalizeUsPhoneNumber(
+      isUsCountryCodePhone(conversationPhone) ? conversationPhone : recordedPhone,
+    )
     nextDetails.phoneConfirmed = true
   } else if (isUsCountryCodePhone(nextDetails.phone)) {
+    nextDetails.phone = normalizeUsPhoneNumber(nextDetails.phone)
     nextDetails.phoneConfirmed = true
   }
 
@@ -4715,9 +4720,9 @@ function bookingCopy(language, key, values = {}) {
       'Perfeito 😊 Para agendar sua consulta da chamada gratuita de analise, por favor me envie o melhor número de telefone para os detalhes do seu agendamento. 📲',
     ),
     askUsPhone: tri(
-      'To finish booking your appointment, could you please share a phone number registered in the U.S. with the +1 country code? 📲',
-      'Para terminar de agendar tu cita, ¿podrías compartir un número de teléfono registrado en Estados Unidos con el código de país +1? 📲',
-      'Para concluir o agendamento, você poderia enviar um número de telefone registrado nos Estados Unidos com o código do país +1? 📲',
+      'To finish booking your appointment, could you please share your U.S. phone number? 📲',
+      'Para terminar de agendar tu cita, ¿podrías compartir tu número de teléfono de Estados Unidos? 📲',
+      'Para concluir o agendamento, você poderia enviar seu número de telefone dos Estados Unidos? 📲',
     ),
     askName: tri(
       'That time works. What full name should I put on the appointment? 📲',
@@ -5565,8 +5570,11 @@ function isAffirmative(content) {
     return false
   }
 
-  return /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|book it|si|claro|dale|esta bien|correcto|confirmo|agendalo|reserva)\b/i.test(
-    normalized,
+  return (
+    isExactCasualAffirmative(content) ||
+    /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|book it|si|claro|dale|esta bien|correcto|confirmo|agendalo|reserva)\b/i.test(
+      normalized,
+    )
   )
 }
 

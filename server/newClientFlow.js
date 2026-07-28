@@ -13,16 +13,10 @@ export function shouldUseNewClientBookingFlow(profile = {}) {
 export function isUsCountryCodePhone(phone) {
   const digits = String(phone || '').replace(/\D/g, '')
 
-  return digits.length === 11 && digits.startsWith('1')
+  return digits.length === 10 || (digits.length === 11 && digits.startsWith('1'))
 }
 
-export function createDummyEmailFromProvidedPhone(phone) {
-  const digits = normalizePhoneDigitsForEmail(phone)
-
-  return digits ? `${digits}@dummy.com` : ''
-}
-
-export function normalizePhoneDigitsForEmail(phone) {
+export function normalizeUsPhoneNumber(phone) {
   const digits = String(phone || '').replace(/\D/g, '')
 
   if (digits.length === 10) {
@@ -33,7 +27,17 @@ export function normalizePhoneDigitsForEmail(phone) {
     return digits
   }
 
-  return digits
+  return ''
+}
+
+export function createDummyEmailFromProvidedPhone(phone) {
+  const digits = normalizePhoneDigitsForEmail(phone)
+
+  return digits ? `${digits}@dummy.com` : ''
+}
+
+export function normalizePhoneDigitsForEmail(phone) {
+  return normalizeUsPhoneNumber(phone)
 }
 
 export function extractCustomerFullName(content = '') {
