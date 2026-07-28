@@ -17,6 +17,23 @@ import {
 import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
+import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
+
+test('Spanish state names resolve to canonical US state names', () => {
+  const cases = [
+    ['Nueva York', 'New York'],
+    ['nueva jersey', 'New Jersey'],
+    ['Nuevo México', 'New Mexico'],
+    ['Carolina del Norte', 'North Carolina'],
+    ['Pensilvania', 'Pennsylvania'],
+    ['en massachuse', 'Massachusetts'],
+    ['Massachusets', 'Massachusetts'],
+  ]
+
+  for (const [input, expected] of cases) {
+    assert.equal(getCanonicalStateAlias(input), expected)
+  }
+})
 
 test('option replies 1, 2, and 3 are Spanish only', () => {
   for (const message of ['1', '2', '3', ' 1 ', 'option 1', 'Option 2', 'option 3']) {

@@ -6,6 +6,29 @@ import {
   isExplicitThirdPartyMedicationQuestion,
   isGeneralMedicationSafetyQuestion,
 } from './privacyGuard.js'
+import {
+  hasNamedPersonTreatmentQuestion,
+  isTreatmentAcquisitionQuestion,
+} from '../src/utils/privacyRules.js'
+
+test('Spanish treatment acquisition questions never trigger client privacy', () => {
+  for (const message of [
+    'Como las consigo',
+    '¿Cómo puedo obtenerlas?',
+    'Donde las compro',
+  ]) {
+    assert.equal(isTreatmentAcquisitionQuestion(message), true)
+    assert.equal(hasNamedPersonTreatmentQuestion(message), false)
+    assert.equal(hasExplicitNamedPersonMedicationQuestion(message), false)
+  }
+})
+
+test('an explicit comparison with another person remains a privacy question', () => {
+  assert.equal(
+    hasNamedPersonTreatmentQuestion('Quiero el mismo tratamiento que ella'),
+    true,
+  )
+})
 
 test('recognizes named-person medication questions regardless of capitalization', () => {
   for (const message of [

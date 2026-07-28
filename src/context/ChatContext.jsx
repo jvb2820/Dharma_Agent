@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAgent } from '../hooks/useAgent'
 import { hubspotService } from '../services/hubspotService'
 import { detectLatestMessageLanguage } from '../utils/conversationLanguage'
-import { hasNamedPersonTreatmentQuestion } from '../utils/privacyRules'
+import { hasNamedPersonTreatmentQuestion, isTreatmentAcquisitionQuestion } from '../utils/privacyRules'
 import { isGeneralMedicationSafetyQuestion } from '../../server/privacyGuard'
 import { applyDefaultAvailabilityRule } from '../utils/availabilityRules'
 import { resolveKansasLocationClarification } from '../utils/bookingRules'
+import { getCanonicalStateAlias } from '../utils/stateAliases'
 import { openaiService } from '../services/openaiService'
 import { respondService } from '../services/respondService'
 import { NON_SERVICEABLE_LOCATIONS, US_STATES, isPrescribedTreatmentDeliveryState } from '../data/states'
@@ -323,6 +324,19 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     return {
       nextBooking: booking,
       message: [generalMedicationSafetyText(customerLanguage), continuation].filter(Boolean).join('\n\n'),
+    }
+  }
+
+  if (isTreatmentAcquisitionQuestion(content)) {
+    const continuation = booking.options?.length
+      ? bookingText(customerLanguage, 'availabilityChoice')
+      : booking.active && booking.currentFieldIndex >= 0
+        ? getBookingQuestion(booking.currentFieldIndex, booking.details || {}, customerLanguage)
+        : ''
+
+    return {
+      nextBooking: booking,
+      message: [treatmentAcquisitionText(customerLanguage), continuation].filter(Boolean).join('\n\n'),
     }
   }
 
@@ -1072,6 +1086,7 @@ function extractState(content) {
   const normalized = content.toLowerCase()
 
   return (
+    getCanonicalStateAlias(content) ||
     US_STATES.find((state) => normalized.includes(state.toLowerCase())) ||
     extractNonServiceableLocation(content) ||
     ''
@@ -1113,6 +1128,14 @@ function privacyText(language) {
   }
 
   return 'I am sorry, but our privacy policy does not allow us to share, confirm, or imply treatment information for any client, no matter who they are. I can explain our options generally.'
+}
+
+function treatmentAcquisitionText(language) {
+  if (isSpanishSession(language)) {
+    return 'Para conocer como obtener el tratamiento, primero ofrecemos una llamada de analisis gratuita. Durante la llamada, nuestro especialista te explica todos los planes de tratamiento disponibles, los precios, el proceso y los siguientes pasos segun tu objetivo.'
+  }
+
+  return 'To learn how to get the treatment, we first offer a free discovery call. During the call, our specialist explains all available treatment plans, pricing, the process, and the next steps based on your goal.'
 }
 
 function generalMedicationSafetyText(language) {

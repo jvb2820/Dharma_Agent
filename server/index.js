@@ -98,6 +98,8 @@ import {
   isExplicitThirdPartyMedicationQuestion,
   isGeneralMedicationSafetyQuestion,
 } from './privacyGuard.js'
+import { isTreatmentAcquisitionQuestion } from '../src/utils/privacyRules.js'
+import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 
 loadLocalEnv()
 
@@ -1045,6 +1047,13 @@ async function processRespondIncomingMessage(event) {
   const messages = [...session.messages, userMessage].slice(-12)
   const customerLanguage = preferredLanguage || 'English'
   const state = extractStateName(event.text)
+  console.log('[respond-message-classification]', {
+    contactId: event.contactId,
+    language: customerLanguage,
+    state,
+    acquisitionIntent: isTreatmentAcquisitionQuestion(event.text),
+    privacyIntent: isClientTreatmentPrivacyQuestion(event.text),
+  })
   const activeBooking = refreshRespondBookingTeam(
     getActiveRespondBookingForMessage(session.booking, state),
     respondContactProfile,
@@ -4118,6 +4127,12 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   const spanish = language === 'Latin American Spanish'
   const portuguese = language === 'Portuguese'
 
+  if (isTreatmentAcquisitionQuestion(content)) {
+    if (spanish) return 'Para conocer como obtener el tratamiento, primero ofrecemos una llamada de analisis gratuita. Durante la llamada, nuestro especialista te explica todos los planes de tratamiento disponibles, los precios, el proceso y los siguientes pasos segun tu objetivo.'
+    if (portuguese) return 'Para saber como obter o tratamento, primeiro oferecemos uma chamada de analise gratuita. Durante a chamada, nosso especialista explica todos os planos de tratamento disponiveis, os precos, o processo e os proximos passos de acordo com seu objetivo.'
+    return 'To learn how to get the treatment, we first offer a free discovery call. During the call, our specialist explains all available treatment plans, pricing, the process, and the next steps based on your goal.'
+  }
+
   if (!normalized) {
     return ''
   }
@@ -4244,6 +4259,10 @@ function getGeneralMedicationOfferingAnswer(customerLanguage) {
 function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormalizedText = '') {
   const rawText = String(contentOrNormalizedText || '')
   const normalizedText = maybeNormalizedText || normalizeSearchText(rawText)
+
+  if (isTreatmentAcquisitionQuestion(rawText)) {
+    return false
+  }
 
   // A concrete named-person question always takes precedence over the general
   // medication/offering guard, including lowercase or misspelled names.
@@ -5649,6 +5668,7 @@ function isOutOfFlowInfoQuestion(content) {
   }
 
   if (
+    isTreatmentAcquisitionQuestion(content) ||
     isClientTreatmentPrivacyQuestion(normalized) ||
     isMedicalHistoryOrSafetyQuestion(normalized) ||
     isProductOrMedicationQuestion(normalized) ||
@@ -6736,6 +6756,7 @@ function extractPriorQuestions(agentMessages) {
 
 function extractStateName(content) {
   const normalized = normalizeSearchText(content)
+  const translatedState = getCanonicalStateAlias(content)
   const aliases = new Map([
     ['dc', 'District of Columbia'],
     ['d c', 'District of Columbia'],
@@ -6744,6 +6765,10 @@ function extractStateName(content) {
     ['washington d c', 'District of Columbia'],
   ])
   const abbreviationState = extractStateNameFromAbbreviation(content)
+
+  if (translatedState) {
+    return translatedState
+  }
 
   if (abbreviationState) {
     return abbreviationState
