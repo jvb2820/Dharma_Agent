@@ -106,7 +106,7 @@ const BOOKING_CONFIRMATION_VIDEO_URL =
   process.env.RESPOND_INITIAL_VIDEO_URL ||
   getDefaultBookingConfirmationVideoUrl()
 const INITIAL_GREETING_BY_LANGUAGE = {
-  English: `Hello.
+  English: `Hi, my name is Maria from Dharma Clinic.
 
 👋 It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic* 📸.
 
@@ -121,7 +121,7 @@ We also offer longer treatments depending on your goal.
 📲 First, we do a *free* discovery call by video.
 
 💥 *SPECIAL OFFER TODAY* 💥`,
-  'Latin American Spanish': `Hola.
+  'Latin American Spanish': `Hola, mi nombre es Maria, de Dharma Clinic.
 
 👋 Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic* 📸.
 
@@ -135,8 +135,8 @@ Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 
 📲 Primero realizamos una llamada de analisis *gratuita* por videollamada.
 
-💥 OFERTA ESPECIAL DE VERANO 💥`,
-  Portuguese: `Olá.
+💥 *OFERTA ESPECIAL DE VERANO* 💥`,
+  Portuguese: `Olá, meu nome é Maria, da Dharma Clinic.
 
 👋 É um prazer ter você aqui. Você também pode dar uma olhada no nosso Instagram *@dharma.clinic* 📸.
 

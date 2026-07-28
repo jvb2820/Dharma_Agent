@@ -55,7 +55,7 @@ const INITIAL_BOOKING = {
 const LANGUAGE_QUESTION =
   '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
 const INITIAL_GREETING_BY_LANGUAGE = {
-  English: `Hello.
+  English: `Hi, my name is Maria from Dharma Clinic.
 
 👋 It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic* 📸.
 
@@ -70,7 +70,7 @@ We also offer longer treatments depending on your goal.
 📲 First, we do a *free* discovery call by video.
 
 💥 *SPECIAL OFFER TODAY* 💥`,
-  'Latin American Spanish': `Hola.
+  'Latin American Spanish': `Hola, mi nombre es Maria, de Dharma Clinic.
 
 👋 Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic* 📸.
 
