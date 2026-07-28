@@ -18,6 +18,16 @@ import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../sr
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 
+test('option replies 1, 2, and 3 are Spanish only', () => {
+  for (const message of ['1', '2', '3', ' 1 ', 'option 1', 'Option 2', 'option 3']) {
+    assert.equal(detectLatestMessageLanguage(message), 'Latin American Spanish')
+  }
+
+  for (const message of ['4', '12', 'option 4', '1pm', '1 pm', '1 p.m.', '1.', '#1']) {
+    assert.equal(detectLatestMessageLanguage(message), '')
+  }
+})
+
 test('latest Spanish scheduling messages override an earlier English language', () => {
   for (const message of [
     'No, puedo el sabado',

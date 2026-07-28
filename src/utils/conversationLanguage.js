@@ -7,8 +7,15 @@ export function normalizeConversationLanguage(language = '') {
 }
 
 export function detectLatestMessageLanguage(content = '') {
+  const raw = String(content || '').trim()
   const normalized = normalizeLanguageText(content)
   if (!normalized) return ''
+
+  // A standalone 1, 2, or 3, or an explicit "option 1/2/3" reply, is Spanish.
+  // Other numbers and time expressions remain language-neutral.
+  if (/^(?:[123]|option\s+[123])$/i.test(raw)) {
+    return 'Latin American Spanish'
+  }
 
   if (/\b(no hablo|no entiendo)\s+(portugues|ingles)\b/.test(normalized)) {
     return 'Latin American Spanish'
