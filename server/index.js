@@ -953,6 +953,20 @@ async function processRespondIncomingMessage(event) {
     session.customerLanguage ||
     respondContactProfile?.bookingDetails?.preferredLanguage ||
     ''
+
+  if (
+    detectedLanguage &&
+    detectedLanguage !== respondContactProfile?.bookingDetails?.preferredLanguage
+  ) {
+    await updateRespondContactLanguage(event.contactId, detectedLanguage)
+    respondContactProfile = {
+      ...respondContactProfile,
+      bookingDetails: {
+        ...(respondContactProfile?.bookingDetails || {}),
+        preferredLanguage: detectedLanguage,
+      },
+    }
+  }
   const transferTrigger = await resolveRespondTransferTrigger(event.text)
 
   if (transferTrigger) {
@@ -6334,6 +6348,23 @@ async function updateRespondContactState(contactId, state) {
   })
 }
 
+async function updateRespondContactLanguage(contactId, language) {
+  const languageCode = {
+    English: 'en',
+    'Latin American Spanish': 'es',
+    Portuguese: 'pt',
+  }[normalizeLanguageName(language)]
+
+  if (!languageCode) return
+
+  await updateRespondContact({
+    contactId,
+    language: languageCode,
+  }).catch((error) => {
+    console.warn(`Unable to update Respond contact language: ${error.message}`)
+  })
+}
+
 function normalizeRespondWebhookEvent(body) {
   const message = body.message || body.data?.message || body.messages?.[0] || body.data?.messages?.[0] || {}
   const contact = body.contact || body.data?.contact || message.contact || {}
@@ -6817,7 +6848,7 @@ function extractStateName(content) {
   )
 }
 
-function inferStateFromCity(content) {
+export function inferStateFromCity(content) {
   const normalized = normalizeSearchText(content)
   const cityStates = Object.entries(CITY_STATE_OPTIONS).sort(
     ([leftCity], [rightCity]) => rightCity.length - leftCity.length,
@@ -7102,7 +7133,7 @@ function normalizeLanguageName(language) {
   return ''
 }
 
-function detectCustomerLanguage(content) {
+export function detectCustomerLanguage(content) {
   const deterministicLanguage = detectLatestMessageLanguage(content)
 
   if (deterministicLanguage) {
@@ -7125,7 +7156,7 @@ function detectCustomerLanguage(content) {
   }
 
   if (
-    /\b(precios?|cuanto|cuantos|cuesta|cuestan|costos?|pagos?|cuotas?|financiamiento|espanol|ingles|telefono|numero|llamada|cita|agendar|informacion|medicamento|inyeccion|tratamiento|pregunta|duda|direccion|clinica|manana|aceptan?|seguro medico|hablar|hablo|voy)\b/.test(
+    /\b(precios?|cuanto|cuantos|cuesta|cuestan|costos?|pagos?|cuotas?|financiamiento|espanol|ingles|telefono|numero|llamada|cita|agendar|informacion|medicamento|inyeccion|tratamiento|pregunta|duda|direccion|clinica|manana|aceptan?|seguro medico|hablar|hablo|voy|necesito|tienen|bajar de peso|tirzepatida)\b/.test(
       normalizedText,
     )
   ) {
@@ -7246,19 +7277,29 @@ function detectCustomerLanguage(content) {
     'make it',
   ]
 
-  if (spanishSignals.some((signal) => text.includes(signal))) {
+  if (spanishSignals.some((signal) => containsLanguageSignal(text, signal))) {
     return 'Latin American Spanish'
   }
 
-  if (portugueseSignals.some((signal) => text.includes(signal))) {
+  if (portugueseSignals.some((signal) => containsLanguageSignal(text, signal))) {
     return 'Portuguese'
   }
 
-  if (englishSignals.some((signal) => text.includes(signal))) {
+  if (englishSignals.some((signal) => containsLanguageSignal(text, signal))) {
     return 'English'
   }
 
   return ''
+}
+
+function containsLanguageSignal(content, signal) {
+  const normalizedContent = normalizeSearchText(content)
+  const normalizedSignal = normalizeSearchText(signal)
+
+  return Boolean(
+    normalizedSignal &&
+    new RegExp(`(?:^|\\s)${escapeRegExp(normalizedSignal)}(?:$|\\s)`).test(normalizedContent),
+  )
 }
 
 async function buildRagContext({ agent, messages = [], message, modelIntent }) {

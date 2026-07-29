@@ -20,6 +20,7 @@ import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../sr
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
+import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 
 test('Spanish state names resolve to canonical US state names', () => {
   const cases = [
@@ -59,6 +60,23 @@ test('latest Spanish scheduling messages override an earlier English language', 
   ]) {
     assert.equal(resolveLatestMessageLanguage(message, 'English'), 'Latin American Spanish')
   }
+})
+
+test('Spanish treatment requests select Spanish for the opening templates', () => {
+  for (const message of [
+    'Necesito la tirzepatida',
+    'Tienen tirzepatida',
+    'Bajar de peso',
+    'Bajar de peso de forma segura',
+  ]) {
+    assert.equal(detectLatestMessageLanguage(message), 'Latin American Spanish')
+  }
+})
+
+test('state and city names do not accidentally switch an established language', () => {
+  assert.equal(detectLatestMessageLanguage('Washington'), '')
+  assert.equal(detectLatestMessageLanguage('Vivo en Washington'), 'Latin American Spanish')
+  assert.deepEqual(CITY_STATE_OPTIONS.minneapolis, ['Minnesota'])
 })
 
 test('the latest customer message controls English, Spanish, and Portuguese replies', () => {

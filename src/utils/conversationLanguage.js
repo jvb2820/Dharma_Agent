@@ -33,6 +33,10 @@ export function detectLatestMessageLanguage(content = '') {
     return 'Latin American Spanish'
   }
 
+  if (/\b(necesito|tienen|bajar de peso|tirzepatida|vivo en)\b/.test(normalized)) {
+    return 'Latin American Spanish'
+  }
+
   if (/\b(nao posso|posso|mais tarde|so posso)\b/.test(normalized)) {
     return 'Portuguese'
   }
