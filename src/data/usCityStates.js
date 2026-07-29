@@ -22,6 +22,7 @@ export const CITY_STATE_OPTIONS = {
   columbus: ['Ohio', 'Georgia'],
   concord: ['New Hampshire'],
   dallas: ['Texas'],
+  danbury: ['Connecticut'],
   denver: ['Colorado'],
   des_moines: ['Iowa'],
   detroit: ['Michigan'],
@@ -85,4 +86,3 @@ export const CITY_STATE_OPTIONS = {
   washington_d_c: ['District of Columbia'],
   wilmington: ['Delaware', 'North Carolina'],
 }
-

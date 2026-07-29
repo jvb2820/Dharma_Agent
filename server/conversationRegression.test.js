@@ -77,6 +77,7 @@ test('state and city names do not accidentally switch an established language', 
   assert.equal(detectLatestMessageLanguage('Washington'), '')
   assert.equal(detectLatestMessageLanguage('Vivo en Washington'), 'Latin American Spanish')
   assert.deepEqual(CITY_STATE_OPTIONS.minneapolis, ['Minnesota'])
+  assert.deepEqual(CITY_STATE_OPTIONS.danbury, ['Connecticut'])
 })
 
 test('the latest customer message controls English, Spanish, and Portuguese replies', () => {
