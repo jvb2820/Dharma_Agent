@@ -12,6 +12,12 @@ export function isOralProductQuestion(content = '') {
   )
 }
 
+export function isGhkProductQuestion(content = '') {
+  const normalized = normalizeLeadIntentText(content)
+
+  return /\bghk(?: cu)?\b/.test(normalized)
+}
+
 function normalizeLeadIntentText(content) {
   return String(content || '')
     .normalize('NFD')

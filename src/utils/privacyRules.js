@@ -11,7 +11,7 @@ export function hasNamedPersonTreatmentQuestion(text = '') {
 
   if (generalMedicationQuestion && !explicitPersonReference) return false
 
-  const knownProducts = new Set(['semaglutide', 'tirzepatide', 'zepbound', 'wegovy'])
+  const knownProducts = new Set(['semaglutide', 'tirzepatide', 'zepbound', 'wegovy', 'ghk'])
   const capitalizedNames = (raw.match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || [])
     .map((word) => normalizePrivacyText(word))
     .filter((word) => !knownProducts.has(word) && !/^(no|i|what|which|que|cual|es|el|la|the|before|may|can|know|more|about|your|my|please|tell)$/.test(word))

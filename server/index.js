@@ -17,7 +17,11 @@ import {
 } from '../src/data/states.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
-import { isOralProductQuestion, isReboundEffectQuestion } from '../src/utils/leadIntentRules.js'
+import {
+  isGhkProductQuestion,
+  isOralProductQuestion,
+  isReboundEffectQuestion,
+} from '../src/utils/leadIntentRules.js'
 import {
   chooseConfirmedState,
   findStateNameWithMinorTypo,
@@ -2430,7 +2434,7 @@ async function planRagSearch({
         'Return strict JSON only. No markdown, no prose.',
         'Schema: {"query":"short search query","source_types":["company_info|raw_conversation|approved_example|sales_script|product_info|compliance"],"match_count":1-8}',
         'Rewrite the query to retrieve the most relevant company knowledge for the latest customer message. Include important context from the recent conversation when pronouns like that, it, this, or about that are used.',
-        'Choose only source types from the schema. Use compliance for FDA, safety, privacy, refunds, medical, provider, and shipping policy questions. Use product_info for products, pricing, Semaglutide, Tirzepatide, Zepbound, supplements, and side effects. Use sales_script or approved_example for objections and sales workflow. Use company_info for legitimacy, location, appointments, and general company facts.',
+        'Choose only source types from the schema. Use compliance for FDA, safety, privacy, refunds, medical, provider, and shipping policy questions. Use product_info for products, pricing, Semaglutide, Tirzepatide, Zepbound, GHK-Cu, supplements, and side effects. Use sales_script or approved_example for objections and sales workflow. Use company_info for legitimacy, location, appointments, and general company facts.',
         'Do not include phone numbers, emails, names, addresses, diagnoses, medication lists, or private details in the query.',
       ].join('\n'),
       input: buildRagPlanInput({
@@ -2655,7 +2659,9 @@ async function handleRespondBookingAutomation({
   }
 
   const deterministicPolicyAnswer =
-    isOralProductQuestion(latestUserText)
+    isGhkProductQuestion(latestUserText)
+      ? getGhkProductAnswer(customerLanguage)
+      : isOralProductQuestion(latestUserText)
       ? getOralProductAnswer(customerLanguage)
       : isUnambiguouslyGeneralMedicationQuestion(latestUserText)
       ? getGeneralMedicationOfferingAnswer(customerLanguage)
@@ -4174,6 +4180,10 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return getOralProductAnswer(customerLanguage)
   }
 
+  if (isGhkProductQuestion(content)) {
+    return getGhkProductAnswer(customerLanguage)
+  }
+
   if (hasCallFormatQuestion(content)) {
     if (spanish) return 'La llamada de analisis se realiza por llamada telefonica normal; el especialista te llamara al numero que nos compartas.'
     if (portuguese) return 'A chamada de analise e feita por chamada telefonica normal; o especialista ligara para o numero que voce compartilhar.'
@@ -4291,6 +4301,20 @@ function getGeneralMedicationOfferingAnswer(customerLanguage) {
   }
 
   return 'We offer weight-loss injections such as Semaglutide or Tirzepatide, which can help reduce appetite and support body-fat loss when a provider determines they are appropriate for you. First, we do a free call to explain the options and next steps.'
+}
+
+function getGhkProductAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Sí, trabajamos con GHK-Cu. Durante la llamada de análisis gratuita, nuestra especialista puede explicarte las opciones disponibles, cómo funcionan y si se ajustan a tus objetivos.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Sim, trabalhamos com GHK-Cu. Durante a chamada de análise gratuita, nossa especialista pode explicar as opções disponíveis, como funcionam e se são adequadas aos seus objetivos.'
+  }
+
+  return 'Yes, we work with GHK-Cu. During the free discovery call, our specialist can explain the available options, how they work, and whether they fit your goals.'
 }
 
 function getOralProductAnswer(customerLanguage) {
@@ -6633,6 +6657,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic. Use the customer name from Respond for contacts that already have records. For a new customer with no existing Respond record, ask for the name once before booking, then continue the booking flow even if the customer replies with only one name.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names. If asked about FDA approval, do not say compounded Semaglutide or compounded Tirzepatide are FDA-approved. Explain that FDA-approved branded medications include Wegovy and Zepbound, and Dharma uses the same active compounds with licensed medical oversight when appropriate.',
+    'Dharma works with GHK-Cu. If a customer asks whether we carry or work with GHK-Cu, answer yes, then explain that during the free discovery call our specialist can explain the available options, how they work, and whether they fit the customer goals. Do not invent a format, price, benefit, dosage, shipping rule, or eligibility claim.',
     'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $589 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. Never ask for state if the booking context already shows a Known state. If a real slot is already active, briefly return to that slot after answering. If state is known but no slot is active, let the application append real availability for the following day. Ask for state only when the booking context has no Known state.',
     'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
     `State and product qualification rule: use company knowledge for which products are deliverable in each state. If the customer is out of state for weight-loss injections, do not offer or book a prescribed-treatment appointment and do not claim injections can ship there. If they ask a general question, answer it normally in their language using company knowledge and then gently guide them toward supplements or nutrition support. Only send the exact out-of-state supplement alternative script when the customer is trying to qualify, book, buy, or ship weight-loss injections in a non-serviceable state.

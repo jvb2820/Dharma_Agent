@@ -21,7 +21,11 @@ import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
-import { isOralProductQuestion, isReboundEffectQuestion } from '../src/utils/leadIntentRules.js'
+import {
+  isGhkProductQuestion,
+  isOralProductQuestion,
+  isReboundEffectQuestion,
+} from '../src/utils/leadIntentRules.js'
 
 test('Spanish state names resolve to canonical US state names', () => {
   const cases = [
@@ -127,6 +131,17 @@ test('pill questions are recognized while a booking field is pending', () => {
     'Vocês têm comprimidos?',
   ]) {
     assert.equal(isOralProductQuestion(message), true)
+  }
+})
+
+test('GHK-Cu questions are recognized while a booking field is pending', () => {
+  for (const message of [
+    'Por casualidad trabajan con GHK-CU?',
+    '¿Trabajan con GHK Cu?',
+    'Do you work with GHK-Cu?',
+    'Vocês trabalham com GHK?',
+  ]) {
+    assert.equal(isGhkProductQuestion(message), true)
   }
 })
 
