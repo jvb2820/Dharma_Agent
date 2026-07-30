@@ -17,6 +17,7 @@ import {
 } from '../src/data/states.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
+import { isReboundEffectQuestion } from '../src/utils/leadIntentRules.js'
 import {
   chooseConfirmedState,
   findStateNameWithMinorTypo,
@@ -2661,7 +2662,8 @@ async function handleRespondBookingAutomation({
         : isClientTreatmentPrivacyQuestion(latestUserText) ||
           isContextualClientPrivacyFollowUp(latestUserText, messages)
           ? getClientPrivacyAnswer(customerLanguage)
-          : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText))
+          : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText)) &&
+              !isReboundEffectQuestion(latestUserText)
             ? getOutOfFlowAnswer(latestUserText, customerLanguage)
             : ''
 
@@ -2752,7 +2754,7 @@ async function handleRespondBookingAutomation({
       }
     }
 
-    const confirmedState = latestSignals.state || details.state
+    let confirmedState = latestSignals.state || details.state
 
     if (!confirmedState) {
       const inferredLocation = inferStateFromCity(latestUserText)
@@ -2774,22 +2776,11 @@ async function handleRespondBookingAutomation({
           }
         }
 
-        return {
-          text: bookingCopy(customerLanguage, 'confirmInferredState', inferredLocation),
-          booking: {
-            ...existingBooking,
-            bookingTeam,
-            details: {
-              ...details,
-              inferredCity: inferredLocation.city,
-              inferredState: inferredLocation.state,
-            },
-            pendingField: 'state',
-          },
-        }
+        confirmedState = inferredLocation.state
+        latestSignals.state = inferredLocation.state
       }
 
-      if (shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
+      if (!confirmedState && shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)) {
         const answer = await generatePendingStateOutOfFlowAnswer({
           messages,
           latestUserText,
@@ -2815,16 +2806,18 @@ async function handleRespondBookingAutomation({
         }
       }
 
-      const text = getPendingStateRecoveryText(latestUserText, customerLanguage)
+      if (!confirmedState) {
+        const text = getPendingStateRecoveryText(latestUserText, customerLanguage)
 
-      return {
-        text,
-        booking: {
-          ...existingBooking,
-          bookingTeam,
-          details: { ...details, state: '' },
-          pendingField: 'state',
-        },
+        return {
+          text,
+          booking: {
+            ...existingBooking,
+            bookingTeam,
+            details: { ...details, state: '' },
+            pendingField: 'state',
+          },
+        }
       }
     }
 
@@ -4165,6 +4158,16 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return ''
   }
 
+  if (isReboundEffectQuestion(content)) {
+    if (spanish) {
+      return 'ℹ️ El medicamento por sí solo no tiene efecto rebote, pero también dependerá de ti mantener hábitos saludables para mantener los resultados a largo plazo. Es importante mantener una dieta equilibrada y practicar actividad física regularmente para maximizar los beneficios del tratamiento.\n\n📲 Para más información, nuestra especialista puede explicarlo todo en la llamada gratuita.'
+    }
+    if (portuguese) {
+      return 'ℹ️ O medicamento por si só não tem efeito rebote, mas manter os resultados a longo prazo também depende de hábitos saudáveis. É importante manter uma alimentação equilibrada e praticar atividade física regularmente para maximizar os benefícios do tratamento.\n\n📲 Para mais informações, nossa especialista pode explicar tudo na chamada gratuita.'
+    }
+    return 'ℹ️ The medication itself does not cause a rebound effect, but maintaining long-term results also depends on keeping healthy habits. A balanced diet and regular physical activity are important to maximize the benefits of treatment.\n\n📲 For more information, our specialist can explain everything during the free call.'
+  }
+
   if (hasCallFormatQuestion(content)) {
     if (spanish) return 'La llamada de analisis se realiza por llamada telefonica normal; el especialista te llamara al numero que nos compartas.'
     if (portuguese) return 'A chamada de analise e feita por chamada telefonica normal; o especialista ligara para o numero que voce compartilhar.'
@@ -4184,9 +4187,9 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (isLocationQuestion(normalized)) {
-    if (spanish) return 'Somos una clinica de telemedicina ubicada en EE. UU. y las consultas son online.'
-    if (portuguese) return 'Somos uma clinica de telemedicina localizada nos EUA, e as consultas sao online.'
-    return 'We are a telemedicine clinic based in the U.S., and consultations are online.'
+    if (spanish) return 'Estamos ubicados en Boca Raton, Florida. Las consultas son online y, si eres elegible y el tratamiento está disponible en tu estado, enviamos el medicamento directamente a tu dirección.'
+    if (portuguese) return 'Estamos localizados em Boca Raton, Flórida. As consultas são online e, se você for elegível e o tratamento estiver disponível no seu estado, enviamos o medicamento diretamente para o seu endereço.'
+    return 'We are located in Boca Raton, Florida. Consultations are online and, if you are eligible and treatment is available in your state, we ship the medication directly to your address.'
   }
 
   if (/\b(cita|appointment|consulta|llamada|chamada)\b/.test(normalized) && /\b(precios?|cu[aá]nto|cuanto|costs?|prices?|cuesta|cuestan|custa|custam|precos?)\b/.test(normalized)) {
@@ -4398,7 +4401,7 @@ function isMedicalHistoryOrSafetyQuestion(normalizedText) {
     /\b(medical history|medical condition|condition|conditions|contraindication|contraindications|chronic illness|diagnosis|thyroid|thyroid nodules|nodules|pregnant|pregnancy|breastfeeding|side effect|side effects|medication interaction|can i use|can i take|is it safe)\b/,
     /\b(historial medico|historia medica|condicion|condiciones|contraindicacion|contraindicaciones|enfermedad cronica|diagnostico|tiroides|nodulo|nodulos|embarazada|embarazo|lactancia|efecto secundario|efectos secundarios|interaccion|puedo usar|puedo tomar|es seguro|hipertensa|hipertenso|hipertension|presion alta)\b/,
     /\b(historico medico|condicao|condicoes|contraindicacao|contraindicacoes|doenca cronica|diagnostico|tireoide|nodulo|nodulos|gravida|gravidez|amamentando|efeito colateral|efeitos colaterais|interacao|posso usar|posso tomar|e seguro)\b/,
-  ].some((pattern) => pattern.test(normalizedText))
+  ].some((pattern) => pattern.test(normalizedText)) || isReboundEffectQuestion(normalizedText)
 }
 
 function isPopularityOrBestSellerQuestion(normalizedText) {

@@ -46,6 +46,7 @@ export const CITY_STATE_OPTIONS = {
   los_angeles: ['California'],
   louisville: ['Kentucky'],
   madison: ['Wisconsin'],
+  manhattan: ['New York'],
   manchester: ['New Hampshire'],
   memphis: ['Tennessee'],
   miami: ['Florida'],

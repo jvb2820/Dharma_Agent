@@ -21,6 +21,7 @@ import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
+import { isReboundEffectQuestion } from '../src/utils/leadIntentRules.js'
 
 test('Spanish state names resolve to canonical US state names', () => {
   const cases = [
@@ -31,6 +32,8 @@ test('Spanish state names resolve to canonical US state names', () => {
     ['Pensilvania', 'Pennsylvania'],
     ['en massachuse', 'Massachusetts'],
     ['Massachusets', 'Massachusetts'],
+    ['Masachussetts', 'Massachusetts'],
+    ['Massachussetts', 'Massachusetts'],
   ]
 
   for (const [input, expected] of cases) {
@@ -44,6 +47,16 @@ test('option replies 1, 2, and 3 are Spanish only', () => {
   }
 
   for (const message of ['4', '12', 'option 4', '1pm', '1 pm', '1 p.m.', '1.', '#1']) {
+    assert.equal(detectLatestMessageLanguage(message), '')
+  }
+})
+
+test('Spanish plural option replies select the Spanish opening', () => {
+  for (const message of ['Los 3', 'las 3', 'los tres', 'Las dos']) {
+    assert.equal(detectLatestMessageLanguage(message), 'Latin American Spanish')
+  }
+
+  for (const message of ['3 PM', 'Route 3', 'the 3 options']) {
     assert.equal(detectLatestMessageLanguage(message), '')
   }
 })
@@ -78,6 +91,32 @@ test('state and city names do not accidentally switch an established language', 
   assert.equal(detectLatestMessageLanguage('Vivo en Washington'), 'Latin American Spanish')
   assert.deepEqual(CITY_STATE_OPTIONS.minneapolis, ['Minnesota'])
   assert.deepEqual(CITY_STATE_OPTIONS.danbury, ['Connecticut'])
+  assert.deepEqual(CITY_STATE_OPTIONS.manhattan, ['New York'])
+})
+
+test('unique cities resolve without requiring a state reconfirmation', () => {
+  assert.deepEqual(CITY_STATE_OPTIONS.manhattan, ['New York'])
+  assert.deepEqual(CITY_STATE_OPTIONS.houston, ['Texas'])
+  assert.deepEqual(CITY_STATE_OPTIONS.portland, ['Oregon', 'Maine'])
+})
+
+test('city plus lowercase state abbreviation is accepted as explicit location', () => {
+  assert.equal(shouldAcceptStateAbbreviationToken({
+    rawToken: 'tx',
+    abbreviation: 'TX',
+    content: 'Houston tx',
+  }), true)
+  assert.equal(shouldAcceptStateAbbreviationToken({
+    rawToken: 'ma',
+    abbreviation: 'MA',
+    content: 'Boston ma',
+  }), true)
+})
+
+test('rebound-effect questions are recognized deterministically', () => {
+  for (const message of ['¿Tiene efecto rebote?', 'efecto rebote', 'rebound effect', 'efeito rebote']) {
+    assert.equal(isReboundEffectQuestion(message), true)
+  }
 })
 
 test('the latest customer message controls English, Spanish, and Portuguese replies', () => {

@@ -10,6 +10,8 @@ const STATE_ALIASES = new Map([
   ['massachuse', 'Massachusetts'],
   ['massachuset', 'Massachusetts'],
   ['massachusets', 'Massachusetts'],
+  ['masachussetts', 'Massachusetts'],
+  ['massachussetts', 'Massachusetts'],
 ])
 
 export function getCanonicalStateAlias(value = '') {

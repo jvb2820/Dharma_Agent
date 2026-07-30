@@ -138,8 +138,11 @@ export function shouldAcceptStateAbbreviationToken({
   const hasStateContext = new RegExp(
     String.raw`\b(?:state|estado|in|en|from|de)\s+${escapeRuleRegExp(normalizedToken)}\b`,
   ).test(normalizedContent)
+  const hasCityBeforeAbbreviation = new RegExp(
+    String.raw`\b[a-z][a-z .'-]*\s+${escapeRuleRegExp(normalizedToken)}$`,
+  ).test(normalizedContent)
 
-  return isStandaloneAbbreviation || hasStateContext
+  return isStandaloneAbbreviation || hasStateContext || hasCityBeforeAbbreviation
 }
 
 export function findStateNameWithMinorTypo(content = '', states = []) {

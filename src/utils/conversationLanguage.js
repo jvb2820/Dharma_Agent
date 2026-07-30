@@ -17,6 +17,10 @@ export function detectLatestMessageLanguage(content = '') {
     return 'Latin American Spanish'
   }
 
+  if (/^(?:los|las)\s+(?:[123]|uno|dos|tres)$/i.test(normalized)) {
+    return 'Latin American Spanish'
+  }
+
   if (/\b(no hablo|no entiendo)\s+(portugues|ingles)\b/.test(normalized)) {
     return 'Latin American Spanish'
   }
