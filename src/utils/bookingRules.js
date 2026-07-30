@@ -124,7 +124,14 @@ export function shouldAcceptStateAbbreviationToken({
   const normalizedToken = String(rawToken).toLowerCase()
   const normalizedContent = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
   const upperToken = String(rawToken).toUpperCase()
-  const ambiguousWords = new Set(['DE', 'HI', 'IN', 'LA', 'ME', 'OR'])
+  const ambiguousWords = new Set(['DE', 'HI', 'IN', 'LA', 'ME', 'OK', 'OR'])
+
+  // A bare "ok" can answer a pending state question as Oklahoma. Once a state
+  // or slot is active, the booking flow handles the same text as an affirmative
+  // before state extraction is applied.
+  if (String(abbreviation).toUpperCase() === 'OK' && normalizedContent === 'ok') {
+    return true
+  }
 
   if (rawToken === upperToken) {
     return true

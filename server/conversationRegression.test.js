@@ -318,6 +318,59 @@ test('exact "ok" accepts an active slot without changing the confirmed state to 
   )
 })
 
+test('lowercase "ok" at the end of a sentence does not change the state to Oklahoma', () => {
+  assert.equal(
+    shouldAcceptStateAbbreviationToken({
+      rawToken: 'ok',
+      abbreviation: 'OK',
+      content: 'Necesito hablar primero con mis hijos, ellos son los que me van a dar el dinero y les aviso ok.',
+    }),
+    false,
+  )
+})
+
+test('a bare "ok" reply to the pending state question is interpreted as Oklahoma', () => {
+  for (const rawToken of ['ok', 'Ok', 'OK']) {
+    assert.equal(
+      shouldAcceptStateAbbreviationToken({
+        rawToken,
+        abbreviation: 'OK',
+        content: rawToken,
+      }),
+      true,
+    )
+  }
+
+  assert.equal(
+    shouldTreatOkAsAffirmative({
+      content: 'ok',
+      activeState: '',
+      hasActiveSlot: false,
+    }),
+    false,
+  )
+})
+
+test('a bare "ok" after state collection is treated as an acknowledgement', () => {
+  assert.equal(
+    shouldTreatOkAsAffirmative({
+      content: 'ok',
+      activeState: 'California',
+      hasActiveSlot: false,
+    }),
+    true,
+  )
+
+  assert.equal(
+    shouldAcceptStateAbbreviationToken({
+      rawToken: 'OK',
+      abbreviation: 'OK',
+      content: 'Tulsa, OK',
+    }),
+    true,
+  )
+})
+
 test('"ok" remains available as Oklahoma when no state or slot context exists', () => {
   assert.equal(shouldTreatOkAsAffirmative({ content: 'OK' }), false)
   assert.equal(
