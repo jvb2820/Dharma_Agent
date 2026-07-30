@@ -17,7 +17,7 @@ import {
 } from '../src/data/states.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
-import { isReboundEffectQuestion } from '../src/utils/leadIntentRules.js'
+import { isOralProductQuestion, isReboundEffectQuestion } from '../src/utils/leadIntentRules.js'
 import {
   chooseConfirmedState,
   findStateNameWithMinorTypo,
@@ -2655,7 +2655,9 @@ async function handleRespondBookingAutomation({
   }
 
   const deterministicPolicyAnswer =
-    isUnambiguouslyGeneralMedicationQuestion(latestUserText)
+    isOralProductQuestion(latestUserText)
+      ? getOralProductAnswer(customerLanguage)
+      : isUnambiguouslyGeneralMedicationQuestion(latestUserText)
       ? getGeneralMedicationOfferingAnswer(customerLanguage)
       : isGeneralMedicationSafetyQuestion(latestUserText)
         ? getGeneralMedicationSafetyAnswer(customerLanguage)
@@ -2671,11 +2673,7 @@ async function handleRespondBookingAutomation({
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     let continuation = ''
 
-    if (activeOption) {
-      continuation = bookingCopy(customerLanguage, 'reofferSlot', {
-        slot: formatCustomerStateSlot(activeOption.startTime, details.state, activeOption.timezone, customerLanguage),
-      })
-    } else if (existingBooking.pendingField === 'state' && !details.state) {
+    if (existingBooking.pendingField === 'state' && !details.state) {
       continuation = bookingCopy(customerLanguage, 'askState')
     } else if (existingBooking.pendingField === 'phone') {
       continuation = bookingCopy(
@@ -2686,6 +2684,10 @@ async function handleRespondBookingAutomation({
       continuation = bookingCopy(customerLanguage, 'askPreferredTime')
     } else if (existingBooking.pendingField === 'name') {
       continuation = bookingCopy(customerLanguage, 'askName')
+    } else if (activeOption) {
+      continuation = bookingCopy(customerLanguage, 'reofferSlot', {
+        slot: formatCustomerStateSlot(activeOption.startTime, details.state, activeOption.timezone, customerLanguage),
+      })
     }
 
     return {
@@ -4168,6 +4170,10 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'ℹ️ The medication itself does not cause a rebound effect, but maintaining long-term results also depends on keeping healthy habits. A balanced diet and regular physical activity are important to maximize the benefits of treatment.\n\n📲 For more information, our specialist can explain everything during the free call.'
   }
 
+  if (isOralProductQuestion(content)) {
+    return getOralProductAnswer(customerLanguage)
+  }
+
   if (hasCallFormatQuestion(content)) {
     if (spanish) return 'La llamada de analisis se realiza por llamada telefonica normal; el especialista te llamara al numero que nos compartas.'
     if (portuguese) return 'A chamada de analise e feita por chamada telefonica normal; o especialista ligara para o numero que voce compartilhar.'
@@ -4287,6 +4293,20 @@ function getGeneralMedicationOfferingAnswer(customerLanguage) {
   return 'We offer weight-loss injections such as Semaglutide or Tirzepatide, which can help reduce appetite and support body-fat loss when a provider determines they are appropriate for you. First, we do a free call to explain the options and next steps.'
 }
 
+function getOralProductAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Sí. También ofrecemos suplementos Dharma en cápsulas, como Fat Burner, Berberine y Creatine. Los tratamientos con Semaglutide y Tirzepatide que ofrecemos son inyecciones; nuestra especialista puede explicarte cuál opción se ajusta mejor a tu meta.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Sim. Também oferecemos suplementos Dharma em cápsulas, como Fat Burner, Berberine e Creatine. Os tratamentos com Semaglutide e Tirzepatide que oferecemos são injeções; nossa especialista pode explicar qual opção combina melhor com seu objetivo.'
+  }
+
+  return 'Yes. We also offer Dharma supplements in capsule form, including Fat Burner, Berberine, and Creatine. The Semaglutide and Tirzepatide treatments we offer are injections; our specialist can explain which option best fits your goal.'
+}
+
 function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormalizedText = '') {
   const rawText = String(contentOrNormalizedText || '')
   const normalizedText = maybeNormalizedText || normalizeSearchText(rawText)
@@ -4347,11 +4367,11 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
 
 function isProductOrMedicationQuestion(normalizedText) {
   return [
-    /\b(what|which|what are|tell me|explain)\b[\s\S]{0,60}\b(medication|medications|medicine|medicines|treatment|treatments|injection|injections|product|products)\b/,
-    /\b(medication|medications|medicine|medicines|treatment|treatments|injection|injections|product|products)\b/,
-    /\b(que|cual|cuales|dime|explicame)\b[\s\S]{0,60}\b(medicamento|medicamentos|medicina|medicinas|tratamiento|tratamientos|inyeccion|inyecciones|producto|productos)\b/,
-    /\b(medicamento|medicamentos|medicina|medicinas|tratamiento|tratamientos|inyeccion|inyecciones|producto|productos)\b/,
-    /\b(o que|qual|quais|explique)\b[\s\S]{0,60}\b(medicamento|medicamentos|tratamento|tratamentos|injecao|injecoes|produto|produtos)\b/,
+    /\b(what|which|what are|tell me|explain)\b[\s\S]{0,60}\b(medication|medications|medicine|medicines|treatment|treatments|injection|injections|product|products|pill|pills|tablet|tablets|capsule|capsules)\b/,
+    /\b(medication|medications|medicine|medicines|treatment|treatments|injection|injections|product|products|pill|pills|tablet|tablets|capsule|capsules)\b/,
+    /\b(que|cual|cuales|dime|explicame)\b[\s\S]{0,60}\b(medicamento|medicamentos|medicina|medicinas|tratamiento|tratamientos|inyeccion|inyecciones|producto|productos|pastilla|pastillas|capsula|capsulas)\b/,
+    /\b(medicamento|medicamentos|medicina|medicinas|tratamiento|tratamientos|inyeccion|inyecciones|producto|productos|pastilla|pastillas|capsula|capsulas)\b/,
+    /\b(o que|qual|quais|explique)\b[\s\S]{0,60}\b(medicamento|medicamentos|tratamento|tratamentos|injecao|injecoes|produto|produtos|comprimido|comprimidos|capsula|capsulas)\b/,
   ].some((pattern) => pattern.test(normalizedText))
 }
 

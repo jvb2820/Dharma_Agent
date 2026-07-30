@@ -21,7 +21,7 @@ import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
-import { isReboundEffectQuestion } from '../src/utils/leadIntentRules.js'
+import { isOralProductQuestion, isReboundEffectQuestion } from '../src/utils/leadIntentRules.js'
 
 test('Spanish state names resolve to canonical US state names', () => {
   const cases = [
@@ -116,6 +116,17 @@ test('city plus lowercase state abbreviation is accepted as explicit location', 
 test('rebound-effect questions are recognized deterministically', () => {
   for (const message of ['¿Tiene efecto rebote?', 'efecto rebote', 'rebound effect', 'efeito rebote']) {
     assert.equal(isReboundEffectQuestion(message), true)
+  }
+})
+
+test('pill questions are recognized while a booking field is pending', () => {
+  for (const message of [
+    'Pero tienen las pastillas?',
+    '¿Tienen cápsulas?',
+    'Do you have pills?',
+    'Vocês têm comprimidos?',
+  ]) {
+    assert.equal(isOralProductQuestion(message), true)
   }
 })
 
