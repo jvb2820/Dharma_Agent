@@ -290,6 +290,52 @@ test('Spanish "de" is not treated as Delaware while uppercase DE remains valid',
   )
 })
 
+test('Spanish "mi" is not treated as Michigan in ordinary customer replies', () => {
+  assert.equal(
+    shouldAcceptStateAbbreviationToken({
+      rawToken: 'mi',
+      abbreviation: 'MI',
+      content: 'Trabajo mañana y ese horario no me funciona pero tambien esta fuera de mi alcance economico.',
+    }),
+    false,
+  )
+  assert.equal(
+    shouldAcceptStateAbbreviationToken({
+      rawToken: 'MI',
+      abbreviation: 'MI',
+      content: 'MI',
+    }),
+    true,
+  )
+})
+
+test('unrelated uppercase acronyms are not treated as states', () => {
+  for (const [rawToken, abbreviation, content] of [
+    ['ID', 'ID', 'Necesito mostrar mi ID para la consulta'],
+    ['PR', 'PR', 'Trabajo en PR y marketing'],
+    ['OR', 'OR', 'The OR team will call me later'],
+  ]) {
+    assert.equal(
+      shouldAcceptStateAbbreviationToken({ rawToken, abbreviation, content }),
+      false,
+    )
+  }
+})
+
+test('state abbreviations still work in explicit location and shipping replies', () => {
+  for (const [rawToken, abbreviation, content] of [
+    ['TX', 'TX', 'TX'],
+    ['tx', 'TX', 'Houston tx'],
+    ['DE', 'DE', 'I live in DE'],
+    ['PR', 'PR', 'Do you ship to PR?'],
+  ]) {
+    assert.equal(
+      shouldAcceptStateAbbreviationToken({ rawToken, abbreviation, content }),
+      true,
+    )
+  }
+})
+
 test('exact Spanish casual reply "sip" confirms an inferred state', () => {
   assert.equal(isExactCasualAffirmative('Sip'), true)
   assert.equal(isExactCasualAffirmative('sip!'), true)

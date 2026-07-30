@@ -6775,7 +6775,7 @@ function extractKnownCustomerDetails(userMessages) {
   const joined = userMessages.join('\n')
   const email = joined.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
   const phone = joined.match(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)?\d{3}[\s.-]?\d{4,}/)?.[0]
-  const state = extractStateName(joined)
+  const state = [...userMessages].reverse().map(extractStateName).find(Boolean)
   const language = extractPreferredLanguageName(joined)
   const preferredTime = extractPreferredTimeText(joined)
   const desiredTreatment = extractDesiredTreatmentName(joined)

@@ -124,7 +124,7 @@ export function shouldAcceptStateAbbreviationToken({
   const normalizedToken = String(rawToken).toLowerCase()
   const normalizedContent = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
   const upperToken = String(rawToken).toUpperCase()
-  const ambiguousWords = new Set(['DE', 'HI', 'IN', 'LA', 'ME', 'OK', 'OR'])
+  const ambiguousWords = new Set(['DE', 'HI', 'IN', 'LA', 'ME', 'MI', 'OK', 'OR'])
 
   // A bare "ok" can answer a pending state question as Oklahoma. Once a state
   // or slot is active, the booking flow handles the same text as an affirmative
@@ -133,23 +133,32 @@ export function shouldAcceptStateAbbreviationToken({
     return true
   }
 
-  if (rawToken === upperToken) {
-    return true
-  }
-
-  if (ambiguousWords.has(String(abbreviation).toUpperCase())) {
+  if (
+    ambiguousWords.has(String(abbreviation).toUpperCase()) &&
+    rawToken !== upperToken
+  ) {
     return false
   }
 
   const isStandaloneAbbreviation = normalizedContent === normalizedToken
-  const hasStateContext = new RegExp(
-    String.raw`\b(?:state|estado|in|en|from|de)\s+${escapeRuleRegExp(normalizedToken)}\b`,
-  ).test(normalizedContent)
-  const hasCityBeforeAbbreviation = new RegExp(
-    String.raw`\b[a-z][a-z .'-]*\s+${escapeRuleRegExp(normalizedToken)}$`,
-  ).test(normalizedContent)
+  const escapedToken = escapeRuleRegExp(normalizedToken)
+  const hasStateContext = [
+    new RegExp(String.raw`\b(?:state|estado)\s+(?:is|es|e|of|de)?\s*${escapedToken}\b`),
+    new RegExp(
+      String.raw`\b(?:live|lives|living|located|from|vivo|vive|viviendo|soy|estoy|moro|mora|sou|estou)\s+(?:in|en|em|from|de)?\s*${escapedToken}\b`,
+    ),
+    new RegExp(
+      String.raw`\b(?:ship|shipping|deliver|delivery|send|envio|envios|enviar|entrega|entregas)\b[\s\S]{0,30}\b(?:to|in|a|en|em|para)\s+${escapedToken}\b`,
+    ),
+    new RegExp(String.raw`^(?:in|en|em|from|de)\s+${escapedToken}$`),
+  ].some((pattern) => pattern.test(normalizedContent))
+  const locationTokens = normalizedContent.split(/\s+/)
+  const hasConciseCityBeforeAbbreviation =
+    locationTokens.length >= 2 &&
+    locationTokens.length <= 3 &&
+    locationTokens.at(-1) === normalizedToken
 
-  return isStandaloneAbbreviation || hasStateContext || hasCityBeforeAbbreviation
+  return isStandaloneAbbreviation || hasStateContext || hasConciseCityBeforeAbbreviation
 }
 
 export function findStateNameWithMinorTypo(content = '', states = []) {
