@@ -73,7 +73,11 @@ export function getMinimumStartAfterSlotRejection(
   const rejectsSlot =
     /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized)
 
-  return rejectsSlot ? startTime + delayMs : undefined
+  const rejectsConversationalSlot =
+    /\bno\b[\s\S]{0,50}\b(?:that|this|esa|ese|esta|este)?\s*(?:time|hour|hora|horario)\b/.test(normalized) ||
+    /\b(?:working|at work|trabajando|en el trabajo|trabalhando)\b/.test(normalized)
+
+  return rejectsSlot || rejectsConversationalSlot ? startTime + delayMs : undefined
 }
 
 export function isEarlierSchedulingPreference(content = '') {

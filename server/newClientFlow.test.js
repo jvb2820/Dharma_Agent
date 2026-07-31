@@ -48,6 +48,22 @@ test('booking phrases are never accepted as customer names', () => {
   }
 })
 
+test('full names are accepted after a conversational affirmation', () => {
+  for (const reply of ['Si Sandra Zertuche', 'Sí, Sandra Zertuche', 'Yes Sandra Zertuche']) {
+    assert.deepEqual(splitCustomerFullName(reply), {
+      firstName: 'Sandra',
+      lastName: 'Zertuche',
+      nameConfirmed: true,
+    })
+  }
+})
+
+test('a resend reminder is never accepted as a customer name', () => {
+  for (const reply of ['Ya se lo mande', 'Ya se lo envié', 'I already sent it']) {
+    assert.deepEqual(splitCustomerFullName(reply), {})
+  }
+})
+
 test('new-client phone accepts US numbers with an optional country code', () => {
   assert.equal(isUsCountryCodePhone('+1 (347) 866-5207'), true)
   assert.equal(isUsCountryCodePhone('13478665207'), true)

@@ -94,6 +94,7 @@ function extractExplicitName(content) {
 
 function cleanFullNameCandidate(value) {
   const cleaned = String(value || '')
+    .replace(/^\s*(?:yes|yeah|yep|sure|si|sí|claro|ok|okay)[\s,;:.-]+/i, '')
     .replace(/\b(?:please|pls|thanks|thank you|gracias|por favor|obrigado|obrigada)\b/gi, ' ')
     .replace(/\b(?:book|appointment|cita|consulta|call|llamada|chamada|slot|time|hora|horario)\b/gi, ' ')
     .replace(/[^A-Za-zÀ-ÖØ-öø-ÿ' -]+/g, ' ')
@@ -116,6 +117,10 @@ function isFullNameCandidate(value) {
   }
 
   if (!/^[\p{L}][\p{L}' -]+$/u.test(value)) {
+    return false
+  }
+
+  if (/\b(?:already sent|sent it|se lo mande|se lo envi[eé]|ya lo mande|ya lo envi[eé]|ja enviei|já enviei)\b/.test(normalized)) {
     return false
   }
 

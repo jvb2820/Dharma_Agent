@@ -234,6 +234,19 @@ test('a rejected time moves the next offer at least three hours later', () => {
   assert.equal(getMinimumStartAfterSlotRejection('No puedo hoy', offeredStart), undefined)
 })
 
+test('working at the offered time also moves the next offer three hours later', () => {
+  const offeredStart = Date.UTC(2026, 6, 31, 16, 20)
+  const expectedStart = Date.UTC(2026, 6, 31, 19, 20)
+
+  for (const reply of [
+    'No a esa hora estoy trabajando',
+    'No, I am working at this time',
+    'Nao, estou trabalhando nesse horario',
+  ]) {
+    assert.equal(getMinimumStartAfterSlotRejection(reply, offeredStart), expectedStart)
+  }
+})
+
 test('plural weekday preferences are strict calendar constraints', () => {
   assert.equal(hasStrictRequestedDay('solo puedo los sábados'), true)
   assert.equal(hasStrictRequestedDay('Saturdays only'), true)

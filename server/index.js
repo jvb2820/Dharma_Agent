@@ -2365,6 +2365,30 @@ function isSalesObjection(normalized) {
   ].some((pattern) => pattern.test(normalized))
 }
 
+function isAffordabilityObjection(content = '') {
+  const normalized = normalizeSearchText(content)
+
+  return [
+    /\b(expensive|too expensive|too much|costly|cannot afford|cant afford|pricey)\b/,
+    /\b(caro|cara|costoso|costosa|no puedo pagarlo|no puedo pagar|fuera de mi alcance)\b/,
+    /\b(caro|cara|nao posso pagar|fora do meu alcance)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
+function getAffordabilityAnswer(language) {
+  const normalizedLanguage = normalizeLanguageName(language)
+
+  if (normalizedLanguage === 'Latin American Spanish') {
+    return 'Entiendo. El precio corresponde al tratamiento completo, que incluye atencion personalizada, ajustes de dosis cuando correspondan y orientacion de nutricion y actividad. Tambien pueden estar disponibles pagos quincenales o mensuales, con opciones como tarjeta de debito o credito, Venmo, Zelle, Afterpay, Klarna, Affirm y CareCredit.'
+  }
+
+  if (normalizedLanguage === 'Portuguese') {
+    return 'Entendo. O valor corresponde ao tratamento completo, que inclui atendimento personalizado, ajustes de dose quando apropriados e orientacao de nutricao e atividade. Tambem podem estar disponiveis pagamentos quinzenais ou mensais, com opcoes como cartao de debito ou credito, Venmo, Zelle, Afterpay, Klarna, Affirm e CareCredit.'
+  }
+
+  return 'I understand. The price covers the complete treatment, including personalized support, dose adjustments when appropriate, and nutrition and activity guidance. Biweekly or monthly payments may also be available through options such as debit or credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit.'
+}
+
 function isSupportOrHandoffRequest(normalized) {
   return [
     /\b(refund|replacement|complaint|order issue|side effects|already a client|customer service|support|human|agent)\b/,
@@ -2659,7 +2683,9 @@ async function handleRespondBookingAutomation({
   }
 
   const deterministicPolicyAnswer =
-    isGhkProductQuestion(latestUserText)
+    isAffordabilityObjection(latestUserText)
+      ? getAffordabilityAnswer(customerLanguage)
+      : isGhkProductQuestion(latestUserText)
       ? getGhkProductAnswer(customerLanguage)
       : isOralProductQuestion(latestUserText)
       ? getOralProductAnswer(customerLanguage)
@@ -3133,9 +3159,7 @@ async function handleRespondBookingAutomation({
     const nameDetails = splitCustomerFullName(latestUserText)
     const nextDetails = mergeNonEmptyDetails(
       details,
-      isOutOfFlowQuestion
-        ? nameDetails
-        : { ...nameDetails, nameConfirmed: true },
+      nameDetails,
     )
 
     if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
@@ -3360,6 +3384,7 @@ async function handleRespondBookingAutomation({
 
   // When the user rejects a single offered slot, offer more alternatives instead of asking for preferred time
   if (existingBooking.offeredOption && isNegativeReply(latestUserText)) {
+    const activeOption = existingBooking.offeredOption
     const extractedPreferredTime = extractPreferredTimeText(latestUserText)
     const preferredTime = getPreferredTimeAfterSlotRejection({
       details,
@@ -3370,6 +3395,10 @@ async function handleRespondBookingAutomation({
     const nextDetails = preferredTime
       ? applyAvailabilityConstraintFromPreferredTime({ ...details, preferredTime })
       : details
+    const minimumStartTime = getMinimumStartAfterSlotRejection(
+      latestUserText,
+      activeOption.startTime,
+    )
 
     return await offerSoonestRespondSlot({
       booking: buildBookingWithRejectedAvailability({
@@ -3377,7 +3406,7 @@ async function handleRespondBookingAutomation({
         latestUserText,
         details,
       }),
-      details: nextDetails,
+      details: minimumStartTime ? { ...nextDetails, minimumStartTime } : nextDetails,
       customerLanguage,
       preferredTime,
       closest: Boolean(preferredTime),
@@ -3387,6 +3416,7 @@ async function handleRespondBookingAutomation({
 
   // When user rejects from a list, offer a fresh set of alternatives
   if (existingBooking.options?.length > 1 && isNegativeReply(latestUserText)) {
+    const activeOption = existingBooking.options[0]
     const extractedPreferredTime = extractPreferredTimeText(latestUserText)
     const preferredTime = getPreferredTimeAfterSlotRejection({
       details,
@@ -3397,6 +3427,10 @@ async function handleRespondBookingAutomation({
     const nextDetails = preferredTime
       ? applyAvailabilityConstraintFromPreferredTime({ ...details, preferredTime })
       : details
+    const minimumStartTime = getMinimumStartAfterSlotRejection(
+      latestUserText,
+      activeOption?.startTime,
+    )
 
     return await offerSoonestRespondSlot({
       booking: buildBookingWithRejectedAvailability({
@@ -3404,7 +3438,7 @@ async function handleRespondBookingAutomation({
         latestUserText,
         details,
       }),
-      details: nextDetails,
+      details: minimumStartTime ? { ...nextDetails, minimumStartTime } : nextDetails,
       customerLanguage,
       preferredTime,
       closest: Boolean(preferredTime),
