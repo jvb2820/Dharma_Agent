@@ -14,11 +14,9 @@ const DEFAULT_POST_BOOKING_WORKFLOW_ID = '1660572815'
 
 const PRIORITY_SELLERS = [
   { slug: 'meribet-yazziet', name: 'Meribet', fieldValue: 'Meribet Sampson' },
-  { slug: 'lgoncalves2', name: 'Leo', fieldValue: 'Leonardo Goncales' },
   { slug: 'mclaudia', name: 'Maria Claudia', fieldValue: 'Maria Claudia' },
   { slug: 'acastro29', name: 'Andres', fieldValue: 'Andres Castro' },
   { slug: 'alejandro667', name: 'Alejandro', fieldValue: 'Alejandro Rivera' },
-  { slug: 'diana-giron', name: 'Diana', fieldValue: 'Diana Stephanie' },
 ]
 
 const CUSTOMER_SERVICE_TEAM = [
@@ -83,7 +81,7 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
       continue
     }
 
-    const availabilityPages = await Promise.all(
+    let availabilityPages = await Promise.all(
       monthOffsets.map((monthOffset) =>
         fetchAvailability({ slug: seller.slug, timezone, monthOffset }).catch((error) => {
           console.warn(`Unable to fetch HubSpot availability for ${seller.name}: ${error.message}`)
@@ -91,13 +89,14 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
         }),
       ),
     )
-    const slots = availabilityPages.flatMap(
+    let slots = availabilityPages.flatMap(
       (availability) =>
         availability?.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || [],
     )
 
-    const futureSlots = slots.filter((slot) => slot.startMillisUtc >= Date.now() + MIN_BOOKING_LEAD_TIME_MS)
-    const candidateSlots = futureSlots.filter((slot) => {
+    const filterCandidateSlots = (candidatePool) => candidatePool
+      .filter((slot) => slot.startMillisUtc >= Date.now() + MIN_BOOKING_LEAD_TIME_MS)
+      .filter((slot) => {
       if (preference.dateKey && getDateKey(slot.startMillisUtc, timezone) !== preference.dateKey) {
         return false
       }
@@ -114,6 +113,29 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
       const weekdaysEnglish = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
       return weekdaysEnglish.indexOf(slotWeekdayStr) === weekday
     })
+    let candidateSlots = filterCandidateSlots(slots)
+
+    // A general next-available search can land on the final evening of a month,
+    // when HubSpot's current-month page contains no remaining future slots.
+    // Search one additional month before reporting that the calendar is empty.
+    if (!preference.dateKey && candidateSlots.length === 0) {
+      const nextMonthOffset = Math.max(...monthOffsets) + 1
+      const nextAvailability = await fetchAvailability({
+        slug: seller.slug,
+        timezone,
+        monthOffset: nextMonthOffset,
+      }).catch((error) => {
+        console.warn(`Unable to fetch extended HubSpot availability for ${seller.name}: ${error.message}`)
+        return null
+      })
+
+      availabilityPages = [...availabilityPages, nextAvailability]
+      slots = availabilityPages.flatMap(
+        (availability) =>
+          availability?.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || [],
+      )
+      candidateSlots = filterCandidateSlots(slots)
+    }
     const maxSlotsPerSeller = preference.dateKey || preference.hour != null || weekday !== null ? 100 : 6
 
     for (const slot of candidateSlots.slice(0, maxSlotsPerSeller)) {
@@ -195,9 +217,14 @@ export function getAvailabilityMonthOffsets(preference, weekday, timezone) {
 
   // HubSpot availability pages are month-scoped. A weekday request such as
   // "next Saturday" can cross the month boundary.
-  return weekday !== null && !preference.dateKey
-    ? [monthOffset, monthOffset + 1]
-    : [monthOffset]
+  if (preference.dateKey) {
+    return [monthOffset]
+  }
+
+  // General availability also needs the following page. Around midnight and
+  // month-end, the customer's local date can already be in the next month while
+  // HubSpot's scheduling timezone is still on the previous calendar month.
+  return [monthOffset, monthOffset + 1]
 }
 
 function parsePreferredTime(value, timezone) {

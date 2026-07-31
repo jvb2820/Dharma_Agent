@@ -4944,9 +4944,9 @@ function bookingCopy(language, key, values = {}) {
       `Pronto, sua chamada está agendada para ${values.slot}. Os detalhes do agendamento serão enviados para você.`,
     ),
     noAvailability: tri(
-      'I do not see a matching time right now. I can check another time, day, or specialist without changing your current preference.',
-      'No veo un horario que coincida en este momento. Puedo revisar otra hora, otro dia u otro especialista sin cambiar tu preferencia actual.',
-      'Não vejo um horário correspondente neste momento. Posso verificar outro horário, dia ou especialista sem alterar sua preferência atual.',
+      'I could not find a confirmed opening on the available calendars. What other day or time would you like me to check?',
+      'No encontre un espacio confirmado en los calendarios disponibles. Que otro dia u horario quieres que revise?',
+      'Não encontrei um horário confirmado nos calendários disponíveis. Que outro dia ou horário você quer que eu verifique?',
     ),
     bookingFailed: tri(
       'I could not confirm that appointment right now. Your scheduling preference is still saved, and I can check another confirmed opening.',
@@ -5876,14 +5876,20 @@ function isContextualOutOfFlowFollowUp(content, messages = []) {
 }
 
 function shouldAnswerBeforeReturningToBooking(content, messages = [], modelIntent = null) {
-  if (modelIntent?.answered_booking_field && modelIntent.answered_booking_field !== 'none') {
-    return false
-  }
+  // Deterministic question detection wins over a model-supplied booking-field
+  // classification. This prevents messages such as "direccion, precio y seguro?"
+  // from being discarded while the state question is pending.
+  const hasCustomerQuestion =
+    isOutOfFlowInfoQuestion(content) ||
+    isContextualOutOfFlowFollowUp(content, messages)
+
+  if (hasCustomerQuestion) return true
+
+  if (modelIntent?.answered_booking_field && modelIntent.answered_booking_field !== 'none') return false
 
   return (
     Boolean(modelIntent?.should_answer_question) ||
-    isOutOfFlowInfoQuestion(content) ||
-    isContextualOutOfFlowFollowUp(content, messages)
+    hasCustomerQuestion
   )
 }
 
