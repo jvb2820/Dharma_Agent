@@ -4,6 +4,7 @@ import { hubspotService } from '../services/hubspotService'
 import { detectLatestMessageLanguage } from '../utils/conversationLanguage'
 import { hasNamedPersonTreatmentQuestion, isTreatmentAcquisitionQuestion } from '../utils/privacyRules'
 import { isGeneralMedicationSafetyQuestion } from '../../server/privacyGuard'
+import { isSupplementProductQuestion } from '../utils/leadIntentRules'
 import { applyDefaultAvailabilityRule } from '../utils/availabilityRules'
 import { resolveKansasLocationClarification } from '../utils/bookingRules'
 import { getCanonicalStateAlias } from '../utils/stateAliases'
@@ -337,6 +338,19 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     return {
       nextBooking: booking,
       message: [treatmentAcquisitionText(customerLanguage), continuation].filter(Boolean).join('\n\n'),
+    }
+  }
+
+  if (isSupplementProductQuestion(content)) {
+    const continuation = booking.options?.length
+      ? bookingText(customerLanguage, 'availabilityChoice')
+      : booking.active && booking.currentFieldIndex >= 0
+        ? getBookingQuestion(booking.currentFieldIndex, booking.details || {}, customerLanguage)
+        : ''
+
+    return {
+      nextBooking: booking,
+      message: [supplementProductText(customerLanguage), continuation].filter(Boolean).join('\n\n'),
     }
   }
 
@@ -1111,6 +1125,7 @@ function isNamedPersonTreatmentQuestion(content) {
 
 function isContextualPrivacyFollowUp(content, messages = []) {
   const normalized = normalizeTreatmentSearchText(content)
+  if (isSupplementProductQuestion(content)) return false
   const asksAboutTheirTreatment = /\b(what|which|cual|que|qual)\b[\s\S]{0,40}\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b/.test(normalized)
 
   if (!asksAboutTheirTreatment) return false
@@ -1120,6 +1135,14 @@ function isContextualPrivacyFollowUp(content, messages = []) {
     .filter((message) => message.role === 'user')
     .slice(0, 3)
     .some((message) => isNamedPersonTreatmentQuestion(message.content || ''))
+}
+
+function supplementProductText(language) {
+  if (isSpanishSession(language)) {
+    return 'Claro. Según las instrucciones de nuestros productos: Berberine Plus se toma en dosis de 2 cápsulas antes de la comida principal. MCT Fat Burner se toma en dosis de 2 cápsulas por la mañana y 2 por la noche, de lunes a viernes, descansando sábado y domingo. No excedas la dosis indicada; si estás embarazada, amamantando, tienes una condición médica o tomas medicamentos, consulta primero con un profesional de salud.'
+  }
+
+  return 'Of course. According to our product directions: Berberine Plus is taken as 2 capsules before the main meal. MCT Fat Burner is taken as 2 capsules in the morning and 2 at night, Monday through Friday, with Saturday and Sunday off. Do not exceed the stated dose; if you are pregnant, nursing, have a medical condition, or take medication, consult a healthcare professional first.'
 }
 
 function privacyText(language) {

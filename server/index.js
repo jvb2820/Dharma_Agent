@@ -21,6 +21,7 @@ import {
   isGhkProductQuestion,
   isOralProductQuestion,
   isReboundEffectQuestion,
+  isSupplementProductQuestion,
 } from '../src/utils/leadIntentRules.js'
 import {
   chooseConfirmedState,
@@ -2687,6 +2688,8 @@ async function handleRespondBookingAutomation({
       ? getAffordabilityAnswer(customerLanguage)
       : isGhkProductQuestion(latestUserText)
       ? getGhkProductAnswer(customerLanguage)
+      : isSupplementProductQuestion(latestUserText)
+      ? getSupplementProductAnswer(customerLanguage)
       : isOralProductQuestion(latestUserText)
       ? getOralProductAnswer(customerLanguage)
       : isUnambiguouslyGeneralMedicationQuestion(latestUserText)
@@ -4210,6 +4213,10 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'ℹ️ The medication itself does not cause a rebound effect, but maintaining long-term results also depends on keeping healthy habits. A balanced diet and regular physical activity are important to maximize the benefits of treatment.\n\n📲 For more information, our specialist can explain everything during the free call.'
   }
 
+  if (isSupplementProductQuestion(content)) {
+    return getSupplementProductAnswer(customerLanguage)
+  }
+
   if (isOralProductQuestion(content)) {
     return getOralProductAnswer(customerLanguage)
   }
@@ -4311,6 +4318,7 @@ function getClientPrivacyAnswer(customerLanguage) {
 
 function isContextualClientPrivacyFollowUp(latestUserText, messages = []) {
   const normalized = normalizeSearchText(latestUserText)
+  if (isSupplementProductQuestion(latestUserText)) return false
   const asksAboutTheirTreatment = /\b(what|which|cual|que|qual)\b[\s\S]{0,40}\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b/.test(normalized) ||
     /\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b[\s\S]{0,40}\b(she|he|ella|el|ela|ele)\b/.test(normalized)
 
@@ -4363,6 +4371,20 @@ function getOralProductAnswer(customerLanguage) {
   }
 
   return 'Yes. We also offer Dharma supplements in capsule form, including Fat Burner, Berberine, and Creatine. The Semaglutide and Tirzepatide treatments we offer are injections; our specialist can explain which option best fits your goal.'
+}
+
+function getSupplementProductAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Claro. Según las instrucciones de nuestros productos: Berberine Plus se toma en dosis de 2 cápsulas antes de la comida principal. MCT Fat Burner se toma en dosis de 2 cápsulas por la mañana y 2 por la noche, de lunes a viernes, descansando sábado y domingo. No excedas la dosis indicada; si estás embarazada, amamantando, tienes una condición médica o tomas medicamentos, consulta primero con un profesional de salud.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Claro. De acordo com as instruções dos nossos produtos: Berberine Plus é tomado em uma dose de 2 cápsulas antes da refeição principal. MCT Fat Burner é tomado em uma dose de 2 cápsulas pela manhã e 2 à noite, de segunda a sexta, com pausa no sábado e domingo. Não exceda a dose indicada; se estiver grávida, amamentando, tiver alguma condição médica ou usar medicamentos, consulte primeiro um profissional de saúde.'
+  }
+
+  return 'Of course. According to our product directions: Berberine Plus is taken as 2 capsules before the main meal. MCT Fat Burner is taken as 2 capsules in the morning and 2 at night, Monday through Friday, with Saturday and Sunday off. Do not exceed the stated dose; if you are pregnant, nursing, have a medical condition, or take medication, consult a healthcare professional first.'
 }
 
 function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormalizedText = '') {
@@ -5217,7 +5239,11 @@ async function generateBookingOutOfFlowAnswer({
 }
 
 function preventMedicationPrivacyRegression({ answer, latestUserText, fallbackAnswer, medicationFollowUp = false }) {
-  if (!medicationFollowUp && !isGeneralProductOrMedicationClarification(latestUserText)) {
+  if (
+    !medicationFollowUp &&
+    !isGeneralProductOrMedicationClarification(latestUserText) &&
+    !isSupplementProductQuestion(latestUserText)
+  ) {
     return answer
   }
 

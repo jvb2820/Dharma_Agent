@@ -12,6 +12,14 @@ export function isOralProductQuestion(content = '') {
   )
 }
 
+export function isSupplementProductQuestion(content = '') {
+  const normalized = normalizeLeadIntentText(content)
+
+  return /\b(berberine|berberina|fat burner|mct fat burner|slim boost|supplement|supplements|suplemento|suplementos)\b/.test(
+    normalized,
+  )
+}
+
 export function isGhkProductQuestion(content = '') {
   const normalized = normalizeLeadIntentText(content)
 

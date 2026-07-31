@@ -25,7 +25,18 @@ import {
   isGhkProductQuestion,
   isOralProductQuestion,
   isReboundEffectQuestion,
+  isSupplementProductQuestion,
 } from '../src/utils/leadIntentRules.js'
+
+test('named Dharma supplement questions are recognized as product questions', () => {
+  for (const message of [
+    'YO QUIERO SABER CÓMO SE USA LA BERBERINA Y EL FAT BURNER',
+    'How do I use Berberine Plus?',
+    'Tell me about MCT Fat Burner',
+  ]) {
+    assert.equal(isSupplementProductQuestion(message), true)
+  }
+})
 
 test('Spanish state names resolve to canonical US state names', () => {
   const cases = [
