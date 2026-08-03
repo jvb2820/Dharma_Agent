@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   chooseConfirmedState,
+  confirmsOfferedSlotTime,
   findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
@@ -243,6 +244,14 @@ test('a rejected time moves the next offer at least three hours later', () => {
     Date.UTC(2026, 6, 24, 19, 20),
   )
   assert.equal(getMinimumStartAfterSlotRejection('No puedo hoy', offeredStart), undefined)
+})
+
+test('an affirmative reply repeating the offered time confirms that slot', () => {
+  assert.equal(confirmsOfferedSlotTime('Está bien a las 2', 14, 0), true)
+  assert.equal(confirmsOfferedSlotTime('Yes, 2:00 pm works', 14, 0), true)
+  assert.equal(confirmsOfferedSlotTime('No, a las 2 no puedo', 14, 0), false)
+  assert.equal(confirmsOfferedSlotTime('Está bien a las 2:20', 14, 0), false)
+  assert.equal(confirmsOfferedSlotTime('Está bien a las 2', 15, 0), false)
 })
 
 test('working at the offered time also moves the next offer three hours later', () => {

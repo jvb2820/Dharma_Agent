@@ -25,6 +25,7 @@ import {
 } from '../src/utils/leadIntentRules.js'
 import {
   chooseConfirmedState,
+  confirmsOfferedSlotTime,
   findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
   getNextPreferenceAfterRejectedRelativeDay,
@@ -3236,7 +3237,18 @@ async function handleRespondBookingAutomation({
     )
   }
 
+  const activeOfferedOption = existingBooking.offeredOption
+  const activeOfferedTime = activeOfferedOption
+    ? getOptionCustomerTime(activeOfferedOption, details.state)
+    : null
+  const confirmedOfferedOption =
+    activeOfferedOption &&
+    activeOfferedTime &&
+    confirmsOfferedSlotTime(latestUserText, activeOfferedTime.hour, activeOfferedTime.minute)
+      ? activeOfferedOption
+      : null
   const selectedOption =
+    confirmedOfferedOption ||
     pickRespondAvailabilityOption(latestUserText, existingBooking.options, details.state) ||
     pickRespondAvailabilityOption(latestUserText, existingBooking.excludedOptions, details.state)
   const hasActiveSlotOffer = Boolean(existingBooking.offeredOption || existingBooking.options?.length)

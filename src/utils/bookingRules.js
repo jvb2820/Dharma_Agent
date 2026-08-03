@@ -80,6 +80,35 @@ export function getMinimumStartAfterSlotRejection(
   return rejectsSlot || rejectsConversationalSlot ? startTime + delayMs : undefined
 }
 
+export function confirmsOfferedSlotTime(content = '', offeredHour, offeredMinute = 0) {
+  if (!Number.isInteger(offeredHour) || !Number.isInteger(offeredMinute)) {
+    return false
+  }
+
+  const normalized = normalizeRuleText(content)
+  const confirms = /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|si|claro|dale|esta bien|correcto|confirmo|agendalo|reserva)\b/.test(normalized)
+  const match =
+    normalized.match(/\b(?:at|a las|las)\s+(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)?\b/) ||
+    normalized.match(/\b(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)\b/)
+
+  if (!confirms || !match) {
+    return false
+  }
+
+  let requestedHour = Number(match[1])
+  const requestedMinute = match[2] == null ? 0 : Number(match[2])
+  const period = match[3] || ''
+
+  if (period === 'pm' && requestedHour < 12) requestedHour += 12
+  if (period === 'am' && requestedHour === 12) requestedHour = 0
+
+  const hourMatches = period
+    ? requestedHour === offeredHour
+    : requestedHour % 12 === offeredHour % 12
+
+  return hourMatches && requestedMinute === offeredMinute
+}
+
 export function isEarlierSchedulingPreference(content = '') {
   const normalized = normalizeRuleText(content)
   const usesBeforeAsConversationOrder = [
