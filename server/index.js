@@ -980,7 +980,7 @@ async function processRespondIncomingMessage(event) {
     await transferRespondConversationToCustomerService({
       contactId: event.contactId,
       channelId: event.channelId,
-      customerLanguage: preferredLanguage || 'English',
+      customerLanguage: preferredLanguage || 'Latin American Spanish',
       session,
       respondContactProfile,
       transferTrigger,
@@ -990,7 +990,7 @@ async function processRespondIncomingMessage(event) {
   }
 
   if (shouldRestartRespondConversation(session)) {
-    const initialLanguage = preferredLanguage || 'English'
+    const initialLanguage = preferredLanguage || 'Latin American Spanish'
     const initialDetails = {
       ...getRespondContactBookingDetails(respondContactProfile),
       ...extractRespondBookingDetailsFromText(event.text),
@@ -1069,7 +1069,7 @@ async function processRespondIncomingMessage(event) {
   }
 
   const messages = [...session.messages, userMessage].slice(-12)
-  const customerLanguage = preferredLanguage || 'English'
+  const customerLanguage = preferredLanguage || 'Latin American Spanish'
   const state = extractStateName(event.text)
   console.log('[respond-message-classification]', {
     contactId: event.contactId,
@@ -6450,14 +6450,14 @@ async function sendInitialRespondSequence({ contactId, channelId, customerLangua
 function getInitialGreeting(customerLanguage) {
   return (
     INITIAL_GREETING_BY_LANGUAGE[normalizeLanguageName(customerLanguage)] ||
-    INITIAL_GREETING_BY_LANGUAGE.English
+    INITIAL_GREETING_BY_LANGUAGE['Latin American Spanish']
   )
 }
 
 function getInitialStateQuestion(customerLanguage) {
   return (
     INITIAL_STATE_QUESTION_BY_LANGUAGE[normalizeLanguageName(customerLanguage)] ||
-    INITIAL_STATE_QUESTION_BY_LANGUAGE.English
+    INITIAL_STATE_QUESTION_BY_LANGUAGE['Latin American Spanish']
   )
 }
 

@@ -68,13 +68,17 @@ test('option replies 1, 2, and 3 are Spanish only', () => {
 })
 
 test('Spanish plural option replies select the Spanish opening', () => {
-  for (const message of ['Los 3', 'las 3', 'los tres', 'Las dos']) {
+  for (const message of ['Los 3', 'las 3', 'los tres', 'Las dos', 'Todas las opciones']) {
     assert.equal(detectLatestMessageLanguage(message), 'Latin American Spanish')
   }
 
   for (const message of ['3 PM', 'Route 3', 'the 3 options']) {
     assert.equal(detectLatestMessageLanguage(message), '')
   }
+})
+
+test('Spanish pricing shorthand preserves Spanish during the booking flow', () => {
+  assert.equal(detectLatestMessageLanguage('589 mensual?'), 'Latin American Spanish')
 })
 
 test('latest Spanish scheduling messages override an earlier English language', () => {

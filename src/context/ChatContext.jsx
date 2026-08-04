@@ -55,7 +55,7 @@ const INITIAL_BOOKING = {
 }
 
 const LANGUAGE_QUESTION =
-  '🌐 Hi, this is Maria from Dharma Clinic. What language do you prefer: English or Spanish?'
+  '🌐 Hola, soy Maria de Dharma Clinic. ¿Qué idioma prefieres: español o inglés?'
 const INITIAL_GREETING_BY_LANGUAGE = {
   English: `Hi, my name is Maria from Dharma Clinic.
 
@@ -1296,7 +1296,7 @@ export function ChatProvider({ children }) {
       const userMessage = createMessage('user', trimmedContent)
       const nextMessages = [...messages, userMessage]
       const detectedLanguage = detectCustomerSessionLanguage(trimmedContent) || extractPreferredLanguage(trimmedContent)
-      const nextSessionLanguage = detectedLanguage || sessionLanguage || 'English'
+      const nextSessionLanguage = detectedLanguage || sessionLanguage || 'Latin American Spanish'
 
       setMessages(nextMessages)
       setIsSending(true)

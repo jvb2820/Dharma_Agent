@@ -45,7 +45,7 @@ export function detectLatestMessageLanguage(content = '') {
     return 'Portuguese'
   }
 
-  const spanish = /\b(no puedo|puedo|mas tarde|solo puedo|sabado|domingo|lunes|martes|miercoles|jueves|viernes|manana|hoy|gracias|quiero|cual|cuanto|hablo|tratamiento|llamada|cita|estado|casa|tengo|ella|utilizo|uso|ofrecen|precio|informacion)\b/.test(normalized)
+  const spanish = /\b(no puedo|puedo|mas tarde|solo puedo|sabado|domingo|lunes|martes|miercoles|jueves|viernes|manana|hoy|gracias|quiero|cual|cuanto|hablo|tratamiento|llamada|cita|estado|casa|tengo|ella|utilizo|uso|ofrecen|precio|informacion|todas? las opciones|opciones|mensual)\b/.test(normalized)
   const portuguese = /\b(nao posso|posso|mais tarde|sabado|domingo|segunda|terca|quarta|quinta|sexta|amanha|hoje|obrigad[oa]|quero|qual|quanto|falo|tratamento|chamada|agendamento|estado|casa|tenho|ela|usou|oferecem|preco|informacao|voce)\b/.test(normalized)
   const english = /\b(i cannot|i can|later|only|saturday|sunday|monday|tuesday|wednesday|thursday|friday|tomorrow|today|thanks|want|which|how much|speak|treatment|call|appointment|state|house|have|she|used|offer|price|information)\b/.test(normalized)
 
