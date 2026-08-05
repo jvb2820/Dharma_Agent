@@ -2,7 +2,13 @@ import { createSupabaseServerClient } from './supabaseClient.js'
 
 const DEFAULT_GRACE_MINUTES = 60
 
+export function isPostBookingLockEnabled() {
+  return String(process.env.RESPOND_POST_BOOKING_LOCK_ENABLED || 'true').toLowerCase() !== 'false'
+}
+
 export function buildPostBookingLock({ contactId, assignee, booked = {}, option = {}, now = Date.now() } = {}) {
+  if (!isPostBookingLockEnabled()) return null
+
   const meetingStartAt = normalizeTimestamp(option.startTime || booked.startTime)
   const meetingEndAt = normalizeTimestamp(
     option.endTime || booked.endTime || (meetingStartAt ? meetingStartAt + Number(option.duration || 20 * 60 * 1000) : 0),

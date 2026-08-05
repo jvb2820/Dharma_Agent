@@ -45,6 +45,7 @@ import {
   expirePostBookingLock,
   getPostBookingLock,
   isPostBookingLockActive,
+  isPostBookingLockEnabled,
   isPostBookingLockExpired,
   savePostBookingLock,
 } from './postBookingLockService.js'
@@ -776,7 +777,20 @@ async function processRespondIncomingMessage(event) {
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
     phone: event.contactPhone,
   })
-  const postBookingLock = await getPostBookingLock(event.contactId, session.postBookingLock)
+  const postBookingLockEnabled = isPostBookingLockEnabled()
+  const storedPostBookingLock = await getPostBookingLock(event.contactId, session.postBookingLock)
+  const postBookingLock = postBookingLockEnabled ? storedPostBookingLock : null
+
+  if (!postBookingLockEnabled && storedPostBookingLock) {
+    await expirePostBookingLock(event.contactId).catch((error) => {
+      console.warn(error.message)
+    })
+    await unassignRespondConversationAfterReply(event.contactId)
+    respondContactProfile = mergeRespondContactProfileFallbacks(
+      await getRespondContactProfile(event.contactId, null),
+      { phone: event.contactPhone },
+    )
+  }
 
   if (isPostBookingLockActive(postBookingLock)) {
     respondSessions.set(event.contactId, {
@@ -1125,14 +1139,20 @@ async function processRespondIncomingMessage(event) {
         text: paymentInfoText,
       })
       postReplyMessages.push({ role: 'agent', content: paymentInfoText })
-      const assignment = await assignRespondConversationAfterBooking({
-        contactId: event.contactId,
-        booked: bookingResponse.postReplyRespondAction.booked,
-        option: bookingResponse.postReplyRespondAction.option,
-      }).catch((error) => {
-        console.warn(`Unable to assign Respond conversation after booking: ${error.message}`)
-        return null
-      })
+      const assignment = isPostBookingLockEnabled()
+        ? await assignRespondConversationAfterBooking({
+            contactId: event.contactId,
+            booked: bookingResponse.postReplyRespondAction.booked,
+            option: bookingResponse.postReplyRespondAction.option,
+          }).catch((error) => {
+            console.warn(`Unable to assign Respond conversation after booking: ${error.message}`)
+            return null
+          })
+        : null
+
+      if (!isPostBookingLockEnabled()) {
+        await unassignRespondConversationAfterReply(event.contactId)
+      }
 
       if (assignment?.assigned) {
         nextPostBookingLock = buildPostBookingLock({

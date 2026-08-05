@@ -7,6 +7,21 @@ import {
   isPostBookingLockExpired,
 } from './postBookingLockService.js'
 
+test('post-booking locks can be disabled for testing', () => {
+  const original = process.env.RESPOND_POST_BOOKING_LOCK_ENABLED
+  process.env.RESPOND_POST_BOOKING_LOCK_ENABLED = 'false'
+  try {
+    assert.equal(buildPostBookingLock({
+      contactId: 'contact-1',
+      assignee: 'seller-1',
+      option: { startTime: Date.now() + 60_000, duration: 20 * 60_000 },
+    }), null)
+  } finally {
+    if (original == null) delete process.env.RESPOND_POST_BOOKING_LOCK_ENABLED
+    else process.env.RESPOND_POST_BOOKING_LOCK_ENABLED = original
+  }
+})
+
 test('post-booking lock lasts until the meeting end plus grace period', () => {
   const previousGrace = process.env.RESPOND_POST_BOOKING_GRACE_MINUTES
   process.env.RESPOND_POST_BOOKING_GRACE_MINUTES = '60'
