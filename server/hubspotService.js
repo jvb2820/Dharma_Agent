@@ -615,11 +615,11 @@ export function formatHubSpotWorkflowAppointmentTime(timestamp) {
   return `${values.month} ${values.day}, ${values.year} ${values.hour}:${values.minute} ${values.dayPeriod}`
 }
 
-function buildBookingFormFields({ customer, seller, supportedFormFieldNames = [] }) {
+export function buildBookingFormFields({ customer, seller, supportedFormFieldNames = [] }) {
   const supportedNames = new Set(supportedFormFieldNames)
 
   return [
-    { name: 'create_deal', value: 'false' },
+    { name: 'create_deal', value: 'true' },
     { name: 'agent_lead_management', value: seller.fieldValue },
     { name: 'dont_send_notification', value: 'false' },
     { name: 'desired_treatment', value: customer.desiredTreatment },
@@ -654,7 +654,13 @@ async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
     option,
     meeting,
   })
-  const deal = await createDealProperties(properties)
+  const existingDeal = await findNativeBookingDealWithRetry({
+    contactId: contactRecord.id,
+    meeting,
+  })
+  const deal = existingDeal
+    ? await updateDealProperties(existingDeal.id, properties)
+    : await createDealProperties(properties)
 
   await associateHubSpotObjects('deals', deal.id, 'contacts', contactRecord.id)
 
@@ -665,8 +671,43 @@ async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
     dealId: deal.id,
     meetingId: meeting.id,
     meetingStartTime: confirmedMeetingStartTime,
-    reused: false,
+    reused: Boolean(existingDeal),
   }
+}
+
+async function findNativeBookingDealWithRetry({ contactId, meeting }) {
+  const maxAttempts = Number(process.env.HUBSPOT_BOOKED_DEAL_LOOKUP_ATTEMPTS || 10)
+  const delayMs = Number(process.env.HUBSPOT_BOOKED_DEAL_LOOKUP_DELAY_MS || 1000)
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const deal = await findNativeBookingDeal({ contactId, meeting })
+    if (deal?.id) return deal
+    if (attempt < maxAttempts) await sleep(delayMs)
+  }
+
+  return null
+}
+
+async function findNativeBookingDeal({ contactId, meeting }) {
+  const meetingDealIds = await getAssociatedObjectIds('meetings', meeting.id, 'deals')
+  if (meetingDealIds.length) {
+    return fetchHubSpotObject('deals', meetingDealIds[0], [getDealEvaluationDateProperty()])
+  }
+
+  const contactDealIds = await getAssociatedObjectIds('contacts', contactId, 'deals')
+  if (!contactDealIds.length) return null
+
+  const confirmedStart = new Date(meeting.properties?.hs_meeting_start_time || 0).getTime()
+  const deals = await Promise.all(
+    contactDealIds.map((dealId) =>
+      fetchHubSpotObject('deals', dealId, [getDealEvaluationDateProperty()]).catch(() => null),
+    ),
+  )
+
+  return deals.find((deal) => {
+    const evaluationTime = Number(deal?.properties?.[getDealEvaluationDateProperty()] || 0)
+    return evaluationTime && Math.abs(evaluationTime - confirmedStart) <= BOOKED_MEETING_START_TOLERANCE_MS
+  }) || null
 }
 
 async function findBookedMeetingForContactWithRetry({ contactId, startTime }) {
@@ -783,6 +824,13 @@ function sleep(ms) {
 async function createDealProperties(properties) {
   return hubspotSend('/crm/v3/objects/deals', {
     method: 'POST',
+    body: JSON.stringify({ properties }),
+  })
+}
+
+async function updateDealProperties(dealId, properties) {
+  return hubspotSend(`/crm/v3/objects/deals/${encodeURIComponent(dealId)}`, {
+    method: 'PATCH',
     body: JSON.stringify({ properties }),
   })
 }

@@ -3,9 +3,23 @@ import assert from 'node:assert/strict'
 
 import {
   buildBookingDealProperties,
+  buildBookingFormFields,
   formatHubSpotWorkflowAppointmentTime,
   formatUsPhoneForHubSpot,
 } from './hubspotService.js'
+
+test('HubSpot meeting bookings always request native deal creation', () => {
+  const fields = buildBookingFormFields({
+    customer: { desiredTreatment: 'Supplements' },
+    seller: { fieldValue: 'Test Seller' },
+    supportedFormFieldNames: ['create_deal', 'agent_lead_management', 'desired_treatment'],
+  })
+
+  assert.deepEqual(fields.find(({ name }) => name === 'create_deal'), {
+    name: 'create_deal',
+    value: 'true',
+  })
+})
 
 const bookingInput = {
   seller: {
