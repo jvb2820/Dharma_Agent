@@ -43,10 +43,20 @@ test('named Dharma supplement questions are recognized as product questions', ()
 
 test('supplement catalog answers prices instead of inventing a regimen', () => {
   const answer = buildSupplementCatalogAnswer('Latin American Spanish', 'Quiero saber qué suplementos tienen y cuánto cuestan para bajar 50 libras')
-  assert.match(answer, /MCT Fat Burner: \$33\.90/)
   assert.match(answer, /Berberine\+ HCL 97%: \$39\.99/)
+  assert.match(answer, /metabolismo saludable de la glucosa/i)
   assert.match(answer, /pueden ayudar a apoyar tu meta de pérdida de peso/i)
+  assert.match(answer, /llamada de análisis gratuita/i)
+  assert.doesNotMatch(answer, /MCT Fat Burner/)
   assert.doesNotMatch(answer, /antes de la comida principal/i)
+})
+
+test('an explicit complete-catalog request never dumps every supplement', () => {
+  const answer = buildSupplementCatalogAnswer('English', 'Show me the complete supplement catalog')
+  assert.match(answer, /Berberine\+ HCL 97%: \$39\.99/)
+  assert.doesNotMatch(answer, /MCT Fat Burner/)
+  assert.doesNotMatch(answer, /Hydraglow Powder—Lemonade/)
+  assert.match(answer, /another specific supplement/i)
 })
 
 test('a price follow-up remains in supplement context', () => {

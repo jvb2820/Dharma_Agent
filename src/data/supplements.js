@@ -51,17 +51,29 @@ export function buildSupplementCatalogAnswer(language, content = '') {
     .replace(/\bcreatina\b/g, 'creatine')
     .replace(/\bmagnesio\b/g, 'magnesium')
     .replace(/\bproteina\b/g, 'protein')
-  const matches = SUPPLEMENT_CATALOG.filter(({ name }) => normalize(name).split(' ').filter((token) => token.length > 3).some((token) => aliases.includes(token)))
-  const items = matches.length ? matches : SUPPLEMENT_CATALOG
-  const heading = spanish ? (matches.length ? 'Claro. Esta es la información del producto:' : 'Claro. Este es nuestro catálogo de suplementos:') : (matches.length ? 'Of course. Here is the product information:' : 'Of course. Here is our supplement catalog:')
+  const genericTokens = new Set(['complete', 'daily', 'formula', 'support', 'plus', 'boost', 'powder', 'capsules', 'isolate'])
+  const matches = SUPPLEMENT_CATALOG.filter(({ name }) => normalize(name).split(' ').filter((token) => token.length > 3 && !genericTokens.has(token)).some((token) => aliases.includes(token)))
+  const berberine = SUPPLEMENT_CATALOG.find(({ name }) => name.startsWith('Berberine+'))
+  const items = matches.length ? matches : [berberine]
+  const heading = spanish
+    ? matches.length ? 'Claro. Esta es la información del producto:' : 'Claro. Una de las primeras opciones que podemos mostrarte es Berberine+ HCL 97%:'
+    : matches.length ? 'Of course. Here is the product information:' : 'Of course. One of the first options we can show you is Berberine+ HCL 97%:'
   const lines = items.map((item) => {
     const price = item.price || (spanish ? 'precio no listado' : 'price not listed')
     const stock = item.soldOut ? (spanish ? ' — agotado' : ' — sold out') : ''
+    const description = item === berberine
+      ? spanish
+        ? ' Está formulado para apoyar un metabolismo saludable de la glucosa y complementar hábitos relacionados con el control de peso.'
+        : ' It is formulated to support healthy glucose metabolism and complement habits related to weight management.'
+      : ''
     const directions = asksDirections && item.directions ? ` ${spanish ? 'Cómo tomarlo' : 'Directions'}: ${item.directions}` : ''
-    return `- ${item.name}: ${price}${stock}.${directions}`
+    return `- ${item.name}: ${price}${stock}.${description}${directions}`
   })
   const safety = spanish
     ? 'Nuestros suplementos pueden ayudar a apoyar tu meta de pérdida de peso cuando se combinan con alimentación equilibrada y actividad física. Los resultados varían según cada persona, y podemos ayudarte a conocer las opciones que mejor complementen tu proceso.'
     : 'Our supplements may help support your weight-loss goal when combined with balanced nutrition and physical activity. Results vary from person to person, and we can help you explore the options that may best complement your journey.'
-  return [heading, ...lines, '', safety].join('\n')
+  const nextStep = spanish
+    ? 'Si tienes otro suplemento específico en mente, dime cuál y con gusto te comparto su precio e instrucciones. También podemos continuar con una cita para la llamada de análisis gratuita, donde nuestra especialista puede responder tus preguntas y ayudarte a revisar las opciones.'
+    : 'If you have another specific supplement in mind, tell me which one and I can share its price and directions. We can also continue with an appointment for the free discovery call, where our specialist can answer your questions and help you review the options.'
+  return [heading, ...lines, '', safety, '', nextStep].join('\n')
 }
