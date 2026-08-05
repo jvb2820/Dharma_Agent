@@ -28,6 +28,8 @@ import {
   isReboundEffectQuestion,
   isSupplementProductQuestion,
 } from '../src/utils/leadIntentRules.js'
+import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
+import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
 
 test('named Dharma supplement questions are recognized as product questions', () => {
   for (const message of [
@@ -37,6 +39,43 @@ test('named Dharma supplement questions are recognized as product questions', ()
   ]) {
     assert.equal(isSupplementProductQuestion(message), true)
   }
+})
+
+test('supplement catalog answers prices instead of inventing a regimen', () => {
+  const answer = buildSupplementCatalogAnswer('Latin American Spanish', 'Quiero saber qué suplementos tienen y cuánto cuestan para bajar 50 libras')
+  assert.match(answer, /MCT Fat Burner: \$33\.90/)
+  assert.match(answer, /Berberine\+ HCL 97%: \$39\.99/)
+  assert.match(answer, /no garantizan una pérdida de 50 lb/i)
+  assert.doesNotMatch(answer, /antes de la comida principal/i)
+})
+
+test('a price follow-up remains in supplement context', () => {
+  assert.equal(isContextualSupplementQuestion('¿Y cuánto cuesta?', [{ role: 'user', content: 'Quiero información sobre sus suplementos' }]), true)
+  assert.equal(isContextualSupplementQuestion('¿Y cuánto cuesta?', [{ role: 'user', content: 'Tienen Tirzepatide?' }]), false)
+})
+
+test('named supplement directions use the catalog label instructions', () => {
+  const answer = buildSupplementCatalogAnswer('Latin American Spanish', '¿Cómo se toma la berberina?')
+  assert.match(answer, /Berberine\+ HCL 97%/)
+  assert.match(answer, /Take 2 capsules daily\./)
+  assert.doesNotMatch(answer, /before the main meal/i)
+  assert.doesNotMatch(answer, /MCT Fat Burner/)
+})
+
+test('English and Spanish affordability objections are recognized alongside a state', () => {
+  for (const message of [
+    'This is too expensive for me to pay',
+    'Es Maryland pero eso es mucho para mí pagar',
+    'Como le mencioné es mucho dinero',
+    'No me alcanza para eso',
+  ]) {
+    assert.equal(hasAffordabilityObjection(message), true)
+  }
+})
+
+test('a refusal after an affordability objection remains in affordability context', () => {
+  const messages = [{ role: 'user', content: 'Eso es mucho dinero para mí' }]
+  assert.equal(isContextualAffordabilityObjection('No puedo con eso, gracias', messages), true)
 })
 
 test('Spanish state names resolve to canonical US state names', () => {
@@ -68,7 +107,7 @@ test('option replies 1, 2, and 3 are Spanish only', () => {
 })
 
 test('Spanish plural option replies select the Spanish opening', () => {
-  for (const message of ['Los 3', 'las 3', 'los tres', 'Las dos', 'Todas las opciones']) {
+  for (const message of ['Los 3', 'las 3', 'los tres', 'Las dos', 'Todas las opciones', '1,2y 3', '1, 2 y 3']) {
     assert.equal(detectLatestMessageLanguage(message), 'Latin American Spanish')
   }
 

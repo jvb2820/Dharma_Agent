@@ -15,7 +15,7 @@ export function isOralProductQuestion(content = '') {
 export function isSupplementProductQuestion(content = '') {
   const normalized = normalizeLeadIntentText(content)
 
-  return /\b(berberine|berberina|fat burner|mct fat burner|slim boost|supplement|supplements|suplemento|suplementos)\b/.test(
+  return /\b(berberine|berberina|fat burner|mct fat burner|slim boost|supplement|supplements|suplemento|suplementos|collagen|colageno|probiotic|probiotico|multivitamin|multivitamina|detox|nad|whey|protein|proteina|omega|maca|creatine|creatina|magnesium|magnesio|hydraglow|vitamin d3|oral strips|gel rings)\b/.test(
     normalized,
   )
 }

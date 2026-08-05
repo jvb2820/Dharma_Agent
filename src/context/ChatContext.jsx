@@ -11,6 +11,7 @@ import { getCanonicalStateAlias } from '../utils/stateAliases'
 import { openaiService } from '../services/openaiService'
 import { respondService } from '../services/respondService'
 import { NON_SERVICEABLE_LOCATIONS, US_STATES, isPrescribedTreatmentDeliveryState } from '../data/states'
+import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../data/supplements'
 import { ChatContext } from './chat-context'
 
 const BOOKING_FIELDS = [
@@ -341,7 +342,7 @@ async function handleBookingMessage(content, booking, memory, messages, customer
     }
   }
 
-  if (isSupplementProductQuestion(content)) {
+  if (isSupplementProductQuestion(content) || isContextualSupplementQuestion(content, messages)) {
     const continuation = booking.options?.length
       ? bookingText(customerLanguage, 'availabilityChoice')
       : booking.active && booking.currentFieldIndex >= 0
@@ -350,7 +351,7 @@ async function handleBookingMessage(content, booking, memory, messages, customer
 
     return {
       nextBooking: booking,
-      message: [supplementProductText(customerLanguage), continuation].filter(Boolean).join('\n\n'),
+      message: [supplementProductText(customerLanguage, content), continuation].filter(Boolean).join('\n\n'),
     }
   }
 
@@ -1137,12 +1138,14 @@ function isContextualPrivacyFollowUp(content, messages = []) {
     .some((message) => isNamedPersonTreatmentQuestion(message.content || ''))
 }
 
-function supplementProductText(language) {
+function supplementProductText(language, content = '') {
+  return buildSupplementCatalogAnswer(isSpanishSession(language) ? 'Latin American Spanish' : 'English', content)
+  /* Legacy fallback retained below for reference; the catalog above is authoritative.
   if (isSpanishSession(language)) {
     return 'Claro. Según las instrucciones de nuestros productos: Berberine Plus se toma en dosis de 2 cápsulas antes de la comida principal. MCT Fat Burner se toma en dosis de 2 cápsulas por la mañana y 2 por la noche, de lunes a viernes, descansando sábado y domingo. No excedas la dosis indicada; si estás embarazada, amamantando, tienes una condición médica o tomas medicamentos, consulta primero con un profesional de salud.'
   }
 
-  return 'Of course. According to our product directions: Berberine Plus is taken as 2 capsules before the main meal. MCT Fat Burner is taken as 2 capsules in the morning and 2 at night, Monday through Friday, with Saturday and Sunday off. Do not exceed the stated dose; if you are pregnant, nursing, have a medical condition, or take medication, consult a healthcare professional first.'
+  return 'Of course. According to our product directions: Berberine Plus is taken as 2 capsules before the main meal. MCT Fat Burner is taken as 2 capsules in the morning and 2 at night, Monday through Friday, with Saturday and Sunday off. Do not exceed the stated dose; if you are pregnant, nursing, have a medical condition, or take medication, consult a healthcare professional first.' */
 }
 
 function privacyText(language) {

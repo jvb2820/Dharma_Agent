@@ -110,6 +110,8 @@ import {
 } from './privacyGuard.js'
 import { isTreatmentAcquisitionQuestion } from '../src/utils/privacyRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
+import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
+import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
 
 loadLocalEnv()
 
@@ -2368,27 +2370,21 @@ function isSalesObjection(normalized) {
 }
 
 function isAffordabilityObjection(content = '') {
-  const normalized = normalizeSearchText(content)
-
-  return [
-    /\b(expensive|too expensive|too much|costly|cannot afford|cant afford|pricey)\b/,
-    /\b(caro|cara|costoso|costosa|no puedo pagarlo|no puedo pagar|fuera de mi alcance)\b/,
-    /\b(caro|cara|nao posso pagar|fora do meu alcance)\b/,
-  ].some((pattern) => pattern.test(normalized))
+  return hasAffordabilityObjection(content)
 }
 
 function getAffordabilityAnswer(language) {
   const normalizedLanguage = normalizeLanguageName(language)
 
   if (normalizedLanguage === 'Latin American Spanish') {
-    return 'Entiendo. El precio corresponde al tratamiento completo, que incluye atencion personalizada, ajustes de dosis cuando correspondan y orientacion de nutricion y actividad. Tambien pueden estar disponibles pagos quincenales o mensuales, con opciones como tarjeta de debito o credito, Venmo, Zelle, Afterpay, Klarna, Affirm y CareCredit.'
+    return 'Entiendo que el precio puede ser mucho para ti. Tenemos diferentes opciones de pago que pueden incluir pagos quincenales o mensuales, tarjeta de débito o crédito, Venmo, Zelle, Afterpay, Klarna, Affirm y CareCredit, según disponibilidad y aprobación. La llamada de análisis es gratuita y nuestra especialista puede explicarte estas opciones sin compromiso.'
   }
 
   if (normalizedLanguage === 'Portuguese') {
-    return 'Entendo. O valor corresponde ao tratamento completo, que inclui atendimento personalizado, ajustes de dose quando apropriados e orientacao de nutricao e atividade. Tambem podem estar disponiveis pagamentos quinzenais ou mensais, com opcoes como cartao de debito ou credito, Venmo, Zelle, Afterpay, Klarna, Affirm e CareCredit.'
+    return 'Entendo que o valor pode ser alto para você. Temos diferentes opções de pagamento, que podem incluir pagamentos quinzenais ou mensais, cartão de débito ou crédito, Venmo, Zelle, Afterpay, Klarna, Affirm e CareCredit, conforme disponibilidade e aprovação. A chamada de análise é gratuita, e nossa especialista pode explicar essas opções sem compromisso.'
   }
 
-  return 'I understand. The price covers the complete treatment, including personalized support, dose adjustments when appropriate, and nutrition and activity guidance. Biweekly or monthly payments may also be available through options such as debit or credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit.'
+  return 'I understand that the price may feel like too much. We have different payment options that may include biweekly or monthly payments, debit or credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, subject to availability and approval. The discovery call is free, and our specialist can explain these options with no obligation.'
 }
 
 function isSupportOrHandoffRequest(normalized) {
@@ -2685,12 +2681,12 @@ async function handleRespondBookingAutomation({
   }
 
   const deterministicPolicyAnswer =
-    isAffordabilityObjection(latestUserText)
+    isAffordabilityObjection(latestUserText) || isContextualAffordabilityObjection(latestUserText, messages)
       ? getAffordabilityAnswer(customerLanguage)
       : isGhkProductQuestion(latestUserText)
       ? getGhkProductAnswer(customerLanguage)
-      : isSupplementProductQuestion(latestUserText)
-      ? getSupplementProductAnswer(customerLanguage)
+      : isSupplementProductQuestion(latestUserText) || isContextualSupplementQuestion(latestUserText, messages)
+      ? getSupplementProductAnswer(customerLanguage, latestUserText)
       : isOralProductQuestion(latestUserText)
       ? getOralProductAnswer(customerLanguage)
       : isUnambiguouslyGeneralMedicationQuestion(latestUserText)
@@ -4226,7 +4222,7 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (isSupplementProductQuestion(content)) {
-    return getSupplementProductAnswer(customerLanguage)
+    return getSupplementProductAnswer(customerLanguage, content)
   }
 
   if (isOralProductQuestion(content)) {
@@ -4385,7 +4381,9 @@ function getOralProductAnswer(customerLanguage) {
   return 'Yes. We also offer Dharma supplements in capsule form, including Fat Burner, Berberine, and Creatine. The Semaglutide and Tirzepatide treatments we offer are injections; our specialist can explain which option best fits your goal.'
 }
 
-function getSupplementProductAnswer(customerLanguage) {
+function getSupplementProductAnswer(customerLanguage, content = '') {
+  return buildSupplementCatalogAnswer(normalizeLanguageName(customerLanguage), content)
+  /* Legacy fallback retained below for reference; the catalog above is authoritative.
   const language = normalizeLanguageName(customerLanguage)
 
   if (language === 'Latin American Spanish') {
@@ -4396,7 +4394,7 @@ function getSupplementProductAnswer(customerLanguage) {
     return 'Claro. De acordo com as instruções dos nossos produtos: Berberine Plus é tomado em uma dose de 2 cápsulas antes da refeição principal. MCT Fat Burner é tomado em uma dose de 2 cápsulas pela manhã e 2 à noite, de segunda a sexta, com pausa no sábado e domingo. Não exceda a dose indicada; se estiver grávida, amamentando, tiver alguma condição médica ou usar medicamentos, consulte primeiro um profissional de saúde.'
   }
 
-  return 'Of course. According to our product directions: Berberine Plus is taken as 2 capsules before the main meal. MCT Fat Burner is taken as 2 capsules in the morning and 2 at night, Monday through Friday, with Saturday and Sunday off. Do not exceed the stated dose; if you are pregnant, nursing, have a medical condition, or take medication, consult a healthcare professional first.'
+  return 'Of course. According to our product directions: Berberine Plus is taken as 2 capsules before the main meal. MCT Fat Burner is taken as 2 capsules in the morning and 2 at night, Monday through Friday, with Saturday and Sunday off. Do not exceed the stated dose; if you are pregnant, nursing, have a medical condition, or take medication, consult a healthcare professional first.' */
 }
 
 function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormalizedText = '') {

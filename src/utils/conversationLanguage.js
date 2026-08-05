@@ -21,6 +21,11 @@ export function detectLatestMessageLanguage(content = '') {
     return 'Latin American Spanish'
   }
 
+  // Spanish leads commonly select several numbered options as "1,2 y 3".
+  if (/^1\s*2\s*y?\s*3$/.test(normalized)) {
+    return 'Latin American Spanish'
+  }
+
   if (/\b(no hablo|no entiendo)\s+(portugues|ingles)\b/.test(normalized)) {
     return 'Latin American Spanish'
   }
