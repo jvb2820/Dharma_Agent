@@ -45,7 +45,7 @@ test('supplement catalog answers prices instead of inventing a regimen', () => {
   const answer = buildSupplementCatalogAnswer('Latin American Spanish', 'Quiero saber qué suplementos tienen y cuánto cuestan para bajar 50 libras')
   assert.match(answer, /MCT Fat Burner: \$33\.90/)
   assert.match(answer, /Berberine\+ HCL 97%: \$39\.99/)
-  assert.match(answer, /no garantizan una pérdida de 50 lb/i)
+  assert.match(answer, /pueden ayudar a apoyar tu meta de pérdida de peso/i)
   assert.doesNotMatch(answer, /antes de la comida principal/i)
 })
 

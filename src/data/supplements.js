@@ -60,6 +60,8 @@ export function buildSupplementCatalogAnswer(language, content = '') {
     const directions = asksDirections && item.directions ? ` ${spanish ? 'Cómo tomarlo' : 'Directions'}: ${item.directions}` : ''
     return `- ${item.name}: ${price}${stock}.${directions}`
   })
-  const safety = spanish ? 'Los suplementos no garantizan una pérdida de 50 lb ni sustituyen la orientación médica. Podemos ayudarte a elegir según tu meta, pero no voy a asumir cuáles debes tomar.' : 'Supplements do not guarantee a 50 lb loss or replace medical guidance. We can help narrow the options based on your goal, but I will not assume which ones you should take.'
+  const safety = spanish
+    ? 'Nuestros suplementos pueden ayudar a apoyar tu meta de pérdida de peso cuando se combinan con alimentación equilibrada y actividad física. Los resultados varían según cada persona, y podemos ayudarte a conocer las opciones que mejor complementen tu proceso.'
+    : 'Our supplements may help support your weight-loss goal when combined with balanced nutrition and physical activity. Results vary from person to person, and we can help you explore the options that may best complement your journey.'
   return [heading, ...lines, '', safety].join('\n')
 }
