@@ -3965,7 +3965,7 @@ function getPreferredTimeAfterSlotRejection({
 }
 
 function hasExactClockPreference(value) {
-  return /\b(?:1[0-2]|0?[1-9])(?::\d{2})?\s*(?:am|pm)\b|\b(after|around|about|at|a las|las)\s+(?:1[0-2]|0?[1-9])\b/i.test(
+  return /\b(?:1[0-2]|0?[1-9])(?:[:.]\d{2})?\s*(?:am|pm)\b|\b(after|around|about|at|a las|las)\s+(?:1[0-2]|0?[1-9])\b/i.test(
     String(value || ''),
   )
 }
@@ -5586,7 +5586,7 @@ function pickRespondAvailabilityOptionByTime(content, options = [], state = '') 
 }
 
 function extractRequestedSlotTime(content) {
-  const match = String(content || '').match(/\b(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)\b/i)
+  const match = String(content || '').match(/\b(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)\b/i)
 
   if (!match) {
     return null
@@ -5627,7 +5627,7 @@ function extractRequestedSlotWeekday(content) {
 
 function getOptionCustomerTime(option, state = '') {
   const timeText = formatCustomerStateTime(option.startTime, state, option.timezone)
-  const match = timeText.match(/\b(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)\b/i)
+  const match = timeText.match(/\b(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)\b/i)
 
   if (!match) {
     return null
@@ -6044,7 +6044,7 @@ function extractAvailabilityPreference(content) {
   }
 
   const exactClockMatch = String(preferenceText || '').match(
-    /\b(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)\b|\b(?:at|a las|las)\s+(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)?\b/i,
+    /\b(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)\b|\b(?:at|a las|las)\s+(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)?\b/i,
   )
 
   if (exactClockMatch) {
@@ -6295,7 +6295,7 @@ function extractPreferredDatePhrase(content) {
 
 function extractPreferredClockOrDayPart(content) {
   const normalized = normalizeSearchText(content)
-  const clock = String(content || '').match(/\b(?:around|about|like|como|a las|las|at)?\s*(1[0-2]|0?[1-9])(?::\d{2})?\s*(am|pm)\b/i)
+  const clock = String(content || '').match(/\b(?:around|about|like|como|a las|las|at)?\s*(1[0-2]|0?[1-9])(?:[:.]\d{2})?\s*(am|pm)\b/i)
 
   if (clock) {
     return clock[0].trim()
@@ -7151,7 +7151,7 @@ function extractPreferredTimeText(content) {
     return dateTimeMatch[0].trim()
   }
 
-  const timeMatch = preferenceText.match(/\b(?:1[0-2]|0?[1-9])(?::\d{2})?\s*(?:am|pm)\b/i)
+  const timeMatch = preferenceText.match(/\b(?:1[0-2]|0?[1-9])(?:[:.]\d{2})?\s*(?:am|pm)\b/i)
 
   if (timeMatch) {
     return timeMatch[0]

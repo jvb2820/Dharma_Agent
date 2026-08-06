@@ -17,7 +17,7 @@ export function applyDefaultAvailabilityRule(details = {}, preferredTime = '') {
 
 export function extractClockHour(value = '') {
   const normalized = String(value).toLowerCase()
-  const match = normalized.match(/\b(1[0-2]|0?[1-9])(?::\d{2})?\s*(am|pm)\b/)
+  const match = normalized.match(/\b(1[0-2]|0?[1-9])(?:[:.]\d{2})?\s*(am|pm)\b/)
   if (!match) return null
   let hour = Number(match[1])
   if (match[2] === 'pm' && hour < 12) hour += 12

@@ -227,7 +227,7 @@ export function getAvailabilityMonthOffsets(preference, weekday, timezone) {
   return [monthOffset, monthOffset + 1]
 }
 
-function parsePreferredTime(value, timezone) {
+export function parsePreferredTime(value, timezone) {
   const normalized = String(value || '').toLowerCase()
   const preference = {
     dateKey: parsePreferredDateKey(normalized, timezone),
@@ -239,7 +239,7 @@ function parsePreferredTime(value, timezone) {
     )
     .replace(/\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/, '')
     .replace(/\b\d{1,2}(?:st|nd|rd|th)\b/i, '')
-  const hourMatch = timeText.match(/\b(1[0-2]|0?[1-9])(?::\d{2})?\s*(am|pm)?\b/)
+  const hourMatch = timeText.match(/\b(1[0-2]|0?[1-9])(?:[:.]\d{2})?\s*(am|pm)?\b/)
 
   if (!hourMatch) {
     return preference
@@ -247,7 +247,7 @@ function parsePreferredTime(value, timezone) {
 
   let hour = Number(hourMatch[1])
   const period = hourMatch[2]
-  const minuteMatch = hourMatch[0].match(/:(\d{2})/)
+  const minuteMatch = hourMatch[0].match(/[:.](\d{2})/)
   const minute = minuteMatch ? Number(minuteMatch[1]) : 0
 
   if (period === 'pm' && hour < 12) {
