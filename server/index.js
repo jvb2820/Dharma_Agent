@@ -140,7 +140,7 @@ const INITIAL_GREETING_BY_LANGUAGE = {
 📍 We are a telemedicine company located in the U.S. and our consultations are online.
 
 💰 *BEST-SELLING PRICES:*
-- *$589* - Up to 4-week personalized GLP-1 package
+- *$499* - Up to 4-week personalized GLP-1 package
 - *$299* - Zepbound prescription access
 
 We also offer longer treatments depending on your goal.
@@ -155,7 +155,7 @@ We also offer longer treatments depending on your goal.
 📍 Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
 
 💰 *PRECIOS DE LOS MAS VENDIDOS:*
-- *$589* - Paquete de hasta 4 semanas de GLP-1 personalizado
+- *$499* - Paquete de hasta 4 semanas de GLP-1 personalizado
 - *$299* - Acceso a prescripcion de Zepbound
 
 Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
@@ -170,7 +170,7 @@ Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 📍 Somos uma empresa de telemedicina localizada nos EUA e as consultas são online.
 
 💰 *PREÇOS DOS MAIS VENDIDOS:*
-- *$589* - Pacote de até 4 semanas de GLP-1 personalizado
+- *$499* - Pacote de até 4 semanas de GLP-1 personalizado
 - *$299* - Acesso à receita de Zepbound
 
 Temos tratamentos mais longos para que você possa alcançar seu objetivo.
@@ -1141,13 +1141,13 @@ async function processRespondIncomingMessage(event) {
       postReplyMessages.push({ role: 'agent', content: paymentInfoText })
       const assignment = isPostBookingLockEnabled()
         ? await assignRespondConversationAfterBooking({
-            contactId: event.contactId,
-            booked: bookingResponse.postReplyRespondAction.booked,
-            option: bookingResponse.postReplyRespondAction.option,
-          }).catch((error) => {
-            console.warn(`Unable to assign Respond conversation after booking: ${error.message}`)
-            return null
-          })
+          contactId: event.contactId,
+          booked: bookingResponse.postReplyRespondAction.booked,
+          option: bookingResponse.postReplyRespondAction.option,
+        }).catch((error) => {
+          console.warn(`Unable to assign Respond conversation after booking: ${error.message}`)
+          return null
+        })
         : null
 
       if (!isPostBookingLockEnabled()) {
@@ -2704,22 +2704,22 @@ async function handleRespondBookingAutomation({
     isAffordabilityObjection(latestUserText) || isContextualAffordabilityObjection(latestUserText, messages)
       ? getAffordabilityAnswer(customerLanguage)
       : isGhkProductQuestion(latestUserText)
-      ? getGhkProductAnswer(customerLanguage)
-      : isSupplementProductQuestion(latestUserText) || isContextualSupplementQuestion(latestUserText, messages)
-      ? getSupplementProductAnswer(customerLanguage, latestUserText)
-      : isOralProductQuestion(latestUserText)
-      ? getOralProductAnswer(customerLanguage)
-      : isUnambiguouslyGeneralMedicationQuestion(latestUserText)
-      ? getGeneralMedicationOfferingAnswer(customerLanguage)
-      : isGeneralMedicationSafetyQuestion(latestUserText)
-        ? getGeneralMedicationSafetyAnswer(customerLanguage)
-        : isClientTreatmentPrivacyQuestion(latestUserText) ||
-          isContextualClientPrivacyFollowUp(latestUserText, messages)
-          ? getClientPrivacyAnswer(customerLanguage)
-          : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText)) &&
-              !isReboundEffectQuestion(latestUserText)
-            ? getOutOfFlowAnswer(latestUserText, customerLanguage)
-            : ''
+        ? getGhkProductAnswer(customerLanguage)
+        : isSupplementProductQuestion(latestUserText) || isContextualSupplementQuestion(latestUserText, messages)
+          ? getSupplementProductAnswer(customerLanguage, latestUserText)
+          : isOralProductQuestion(latestUserText)
+            ? getOralProductAnswer(customerLanguage)
+            : isUnambiguouslyGeneralMedicationQuestion(latestUserText)
+              ? getGeneralMedicationOfferingAnswer(customerLanguage)
+              : isGeneralMedicationSafetyQuestion(latestUserText)
+                ? getGeneralMedicationSafetyAnswer(customerLanguage)
+                : isClientTreatmentPrivacyQuestion(latestUserText) ||
+                  isContextualClientPrivacyFollowUp(latestUserText, messages)
+                  ? getClientPrivacyAnswer(customerLanguage)
+                  : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText)) &&
+                    !isReboundEffectQuestion(latestUserText)
+                    ? getOutOfFlowAnswer(latestUserText, customerLanguage)
+                    : ''
 
   if (deterministicPolicyAnswer) {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
@@ -3259,8 +3259,8 @@ async function handleRespondBookingAutomation({
     : null
   const confirmedOfferedOption =
     activeOfferedOption &&
-    activeOfferedTime &&
-    confirmsOfferedSlotTime(latestUserText, activeOfferedTime.hour, activeOfferedTime.minute)
+      activeOfferedTime &&
+      confirmsOfferedSlotTime(latestUserText, activeOfferedTime.hour, activeOfferedTime.minute)
       ? activeOfferedOption
       : null
   const selectedOption =
@@ -6560,11 +6560,11 @@ function normalizeRespondWebhookEvent(body) {
     assignee,
     timestamp: normalizeRespondWebhookTimestamp(
       body.timestamp ||
-        body.createdAt ||
-        body.data?.timestamp ||
-        body.data?.createdAt ||
-        conversation.updatedAt ||
-        conversation.updated_at,
+      body.createdAt ||
+      body.data?.timestamp ||
+      body.data?.createdAt ||
+      conversation.updatedAt ||
+      conversation.updated_at,
     ),
     isConversationAssignmentEvent:
       /conversation[\s._-]*(?:assign|assignee)|assignee[\s._-]*(?:assign|change|update)/i.test(
@@ -6604,11 +6604,11 @@ function extractRespondWebhookAssignee({ body = {}, contact = {}, conversation =
     if (candidate && typeof candidate === 'object') {
       const value = String(
         candidate.email ||
-          candidate.id ||
-          candidate.userId ||
-          candidate.user_id ||
-          candidate.name ||
-          '',
+        candidate.id ||
+        candidate.userId ||
+        candidate.user_id ||
+        candidate.name ||
+        '',
       ).trim()
       if (value) return value
     }
