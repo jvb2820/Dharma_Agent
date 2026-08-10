@@ -30,6 +30,14 @@ export function normalizeUsPhoneNumber(phone) {
   return ''
 }
 
+export function extractUsPhoneNumber(content = '') {
+  const candidates = String(content).match(/(?<![\d+])\+?\d[\d\s().-]{7,}\d(?!\d)/g) || []
+
+  return candidates
+    .map((candidate) => candidate.trim())
+    .find((candidate) => isUsCountryCodePhone(candidate)) || ''
+}
+
 export function createDummyEmailFromProvidedPhone(phone) {
   const digits = normalizePhoneDigitsForEmail(phone)
 

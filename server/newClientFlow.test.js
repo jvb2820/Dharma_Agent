@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  extractUsPhoneNumber,
   hasConfirmedFullName,
   isExactRespondClientStatus,
   isUsCountryCodePhone,
@@ -71,6 +72,16 @@ test('new-client phone accepts US numbers with an optional country code', () => 
   assert.equal(isUsCountryCodePhone('801 574 9966'), true)
   assert.equal(isUsCountryCodePhone('+52 55 1234 5678'), false)
   assert.equal(isUsCountryCodePhone(''), false)
+})
+
+test('extracts a US phone number when its final digits are unusually spaced', () => {
+  assert.equal(extractUsPhoneNumber('323 975 52 92'), '323 975 52 92')
+  assert.equal(normalizeUsPhoneNumber(extractUsPhoneNumber('Mi numero es 323 975 52 92')), '13239755292')
+})
+
+test('does not extract international or incomplete numbers as US phone numbers', () => {
+  assert.equal(extractUsPhoneNumber('+52 55 1234 5678'), '')
+  assert.equal(extractUsPhoneNumber('323 975 529'), '')
 })
 
 test('US phone numbers are normalized with a leading 1 for booking and dummy email', () => {

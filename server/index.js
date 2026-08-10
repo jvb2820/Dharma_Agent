@@ -97,6 +97,7 @@ import {
 } from './transfer.js'
 import {
   createDummyEmailFromProvidedPhone,
+  extractUsPhoneNumber,
   hasConfirmedFullName,
   isExactRespondClientStatus,
   isUsCountryCodePhone,
@@ -7189,6 +7190,12 @@ function extractPreferredTimeText(content) {
 }
 
 function extractPhoneNumber(content) {
+  const usPhone = extractUsPhoneNumber(content)
+
+  if (usPhone) {
+    return usPhone
+  }
+
   return (
     String(content || '').match(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)?\d{3}[\s.-]?\d{4,}/)
     ?.[0] || ''
