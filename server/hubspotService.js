@@ -26,6 +26,12 @@ const CUSTOMER_SERVICE_TEAM = [
   { slug: 'edmilson-morales', name: 'Edmilson', fieldValue: 'Edmilson Morales' },
 ]
 
+const FRONT_DESK_TEAM = [
+  { slug: 'laura-sanchez', name: 'Laura', fieldValue: 'Laura Sanchez' },
+  { slug: 'william-carcamo', name: 'William', fieldValue: 'William Carcamo' },
+  { slug: 'ailene-nuevas', name: 'Ailene', fieldValue: 'Ailene Nuevas' },
+]
+
 export async function getPrioritySellerAvailability({
   limit = 6,
   preferredTime = '',
@@ -1157,6 +1163,20 @@ export function getConfiguredCustomerServiceTeam() {
 
   return configuredSlugs
     .map((slug) => defaultTeam.find((member) => member.slug === slug))
+    .filter(Boolean)
+}
+
+export function getConfiguredFrontDeskTeam() {
+  const configuredSlugs = process.env.RESPOND_FRONT_DESK_TEAM_SLUGS?.split(',')
+    .map((slug) => slug.trim())
+    .filter(Boolean)
+
+  if (!configuredSlugs?.length) {
+    return FRONT_DESK_TEAM
+  }
+
+  return configuredSlugs
+    .map((slug) => FRONT_DESK_TEAM.find((member) => member.slug === slug))
     .filter(Boolean)
 }
 

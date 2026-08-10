@@ -62,7 +62,7 @@ import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
   findHubSpotContactByEmail,
-  getConfiguredCustomerServiceTeam,
+  getConfiguredFrontDeskTeam,
   getCustomerServiceAvailability,
   getPrioritySellerAvailability,
 } from './hubspotService.js'
@@ -1387,19 +1387,19 @@ async function transferRespondConversationToCustomerService({
   transferTrigger,
   userMessage,
 }) {
-  const assignee = getRespondCustomerServiceAssignee()
+  const assignee = getRespondFrontDeskAssignee()
   let assigned = false
 
   if (!assignee) {
     console.warn(
-      `Unable to transfer Respond conversation to Customer Service: no configured Customer Service team member has a Respond assignee in RESPOND_BOOKING_ASSIGNEES.`,
+      `Unable to transfer Respond conversation to Customer Service: no configured Front Desk team member has a Respond assignee in RESPOND_BOOKING_ASSIGNEES.`,
     )
   } else {
     try {
       await assignRespondConversation({ contactId, assignee })
       assigned = true
     } catch (error) {
-      console.warn(`Unable to transfer Respond conversation to Customer Service: ${error.message}`)
+      console.warn(`Unable to transfer Respond conversation to Customer Service via Front Desk: ${error.message}`)
     }
   }
 
@@ -1430,7 +1430,7 @@ async function transferRespondConversationToCustomerService({
   })
 
   console.log(
-    '[respond-transfer-customer-service]',
+    '[respond-transfer-front-desk]',
     Object.fromEntries(
       Object.entries({
         contactId,
@@ -1442,9 +1442,9 @@ async function transferRespondConversationToCustomerService({
   )
 }
 
-function getRespondCustomerServiceAssignee() {
+function getRespondFrontDeskAssignee() {
   const assignees = parseRespondAssigneeMap(process.env.RESPOND_BOOKING_ASSIGNEES)
-  const customerServiceAssignees = getConfiguredCustomerServiceTeam()
+  const frontDeskAssignees = getConfiguredFrontDeskTeam()
     .flatMap((member) => [
       member.slug,
       member.name,
@@ -1452,7 +1452,7 @@ function getRespondCustomerServiceAssignee() {
     ])
     .map((value) => assignees[normalizeRespondAssigneeKey(value)])
     .filter(Boolean)
-  const uniqueAssignees = [...new Set(customerServiceAssignees)]
+  const uniqueAssignees = [...new Set(frontDeskAssignees)]
 
   if (uniqueAssignees.length) {
     return pickRandomItem(uniqueAssignees)
