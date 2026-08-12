@@ -2,10 +2,27 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildRespondTransferMessage,
   detectRespondTransferTrigger,
   isDoctorOrProviderQuestion,
   isGeneralProductOrMedicationClarification,
 } from './transfer.js'
+
+test('state clarification handoffs use neutral Front Desk wording', () => {
+  for (const [language, expected] of [
+    ['English', /Front Desk team.*confirm your location/i],
+    ['Latin American Spanish', /Front Desk.*confirmarán tu ubicación/i],
+    ['Portuguese', /Front Desk.*confirmarão sua localização/i],
+  ]) {
+    const message = buildRespondTransferMessage({
+      customerLanguage: language,
+      trigger: { type: 'state_location_clarification' },
+    })
+
+    assert.match(message, expected)
+    assert.doesNotMatch(message, /frustrat|complaint|queja/i)
+  }
+})
 
 test('does not transfer Spanish questions about speaking with a doctor', () => {
   const message = 'No, voy hablar con un doctor?'

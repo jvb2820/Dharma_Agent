@@ -26,6 +26,18 @@ export function isGhkProductQuestion(content = '') {
   return /\bghk(?: cu)?\b/.test(normalized)
 }
 
+export function isTreatmentPackageInclusionsQuestion(content = '') {
+  const normalized = normalizeLeadIntentText(content)
+  const packageOrTreatment = /\b(package|packages|treatment|treatments|glp 1|program|paquete|paquetes|tratamiento|tratamientos|programa|pacote|pacotes|tratamento|tratamentos)\b/.test(normalized)
+  const inclusionOrPriceStructure = [
+    /\b(what else|what is included|what does it include|included in|come with|comes with|just the cost|separately|cost increase|price increase|supplements included|support included)\b/,
+    /\b(que mas|que incluye|incluido en|incluida en|viene con|solo es el costo|por separado|aumenta el costo|aumenta el precio|suplementos incluidos|soporte incluido)\b/,
+    /\b(o que mais|o que inclui|incluido no|incluida no|vem com|apenas o custo|separadamente|o custo aumenta|o preco aumenta|suplementos incluidos|suporte incluido)\b/,
+  ].some((pattern) => pattern.test(normalized))
+
+  return packageOrTreatment && inclusionOrPriceStructure
+}
+
 function normalizeLeadIntentText(content) {
   return String(content || '')
     .normalize('NFD')

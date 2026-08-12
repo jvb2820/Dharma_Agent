@@ -344,6 +344,19 @@ export function buildRespondTransferMessage({ customerLanguage = 'English', trig
 function buildRespondTransferMessageForTrigger({ customerLanguage = 'English', trigger = null } = {}) {
   const language = String(customerLanguage || '').toLowerCase()
   const isRequestedTransfer = trigger?.type === 'transfer_request'
+  const isStateLocationClarification = trigger?.type === 'state_location_clarification'
+
+  if (isStateLocationClarification) {
+    if (language.includes('spanish') || /\bes\b/.test(language)) {
+      return '💛 Para ayudarte mejor, voy a transferirte con nuestro equipo de Front Desk. Ellos confirmarán tu ubicación contigo y continuarán ayudándote. 🙏'
+    }
+
+    if (language.includes('portuguese') || /\bpt\b/.test(language)) {
+      return '💛 Para ajudar você melhor, vou transferir para nossa equipe de Front Desk. Eles confirmarão sua localização com você e continuarão ajudando. 🙏'
+    }
+
+    return '💛 To help you better, I’m transferring you to our Front Desk team. They’ll confirm your location with you and continue assisting. 🙏'
+  }
 
   if (language.includes('spanish') || /\bes\b/.test(language)) {
     if (isRequestedTransfer) {

@@ -80,6 +80,36 @@ export function getMinimumStartAfterSlotRejection(
   return rejectsSlot || rejectsConversationalSlot ? startTime + delayMs : undefined
 }
 
+export function getLaterSlotDelayMs(offeredLocalHour) {
+  return Number(offeredLocalHour) >= 16
+    ? 60 * 60 * 1000
+    : 3 * 60 * 60 * 1000
+}
+
+export function parseAfterTimePreference(content = '') {
+  const normalized = normalizeRuleText(content)
+  const match = normalized.match(
+    /\b(?:after|later than|from|despues de|despues de las|a partir de|a partir de las|mas tarde de|mas tarde de las)\s+(?:las\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/,
+  )
+
+  if (!match) return null
+
+  let hour = Number(match[1])
+  const minute = Number(match[2] || 0)
+  const period = match[3] || ''
+
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null
+  if (period === 'am') hour = hour === 12 ? 0 : hour
+  else if (period === 'pm') hour = hour === 12 ? 12 : hour + 12
+  else if (hour >= 1 && hour <= 7) hour += 12
+
+  return {
+    hour,
+    minute,
+    minutesOfDay: hour * 60 + minute,
+  }
+}
+
 export function confirmsOfferedSlotTime(content = '', offeredHour, offeredMinute = 0) {
   if (!Number.isInteger(offeredHour) || !Number.isInteger(offeredMinute)) {
     return false
@@ -246,6 +276,15 @@ export function looksLikeExplicitStateDeclaration(content = '') {
   return /\b(?:i live in|i lived in|i am from|i m from|my state is|vivo en|soy de|mi estado es|moro em|sou de|meu estado e)\s+\S/.test(
     normalized,
   )
+}
+
+export function getUnrecognizedStateAttemptResult(previousAttempts = 0) {
+  const attempts = Math.max(0, Number(previousAttempts) || 0) + 1
+
+  return {
+    attempts,
+    shouldTransfer: attempts >= 2,
+  }
 }
 
 function getDamerauLevenshteinDistance(left, right) {

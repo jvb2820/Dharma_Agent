@@ -8,6 +8,7 @@ import {
   formatCustomerStateSlot,
   formatCustomerStateTime,
   getCustomerStateHour,
+  getCustomerStateMinutesOfDay,
   getStateTimeZone,
 } from './timezones.js'
 import {
@@ -22,18 +23,22 @@ import {
   isOralProductQuestion,
   isReboundEffectQuestion,
   isSupplementProductQuestion,
+  isTreatmentPackageInclusionsQuestion,
 } from '../src/utils/leadIntentRules.js'
 import {
   chooseConfirmedState,
   confirmsOfferedSlotTime,
   findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
+  getLaterSlotDelayMs,
   getNextPreferenceAfterRejectedRelativeDay,
+  getUnrecognizedStateAttemptResult,
   hasCallFormatQuestion,
   hasStrictRequestedDay,
   isEarlierSchedulingPreference,
   isExactCasualAffirmative,
   looksLikeExplicitStateDeclaration,
+  parseAfterTimePreference,
   shouldAcceptStateAbbreviationToken,
   shouldTreatOkAsAffirmative,
   rejectsOfferedCalendarDate,
@@ -64,6 +69,7 @@ import {
   findHubSpotContactByEmail,
   getConfiguredFrontDeskTeam,
   getCustomerServiceAvailability,
+  getNewClientAvailability,
   getPrioritySellerAvailability,
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
@@ -114,6 +120,10 @@ import { isTreatmentAcquisitionQuestion } from '../src/utils/privacyRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
+import {
+  buildInactivityFollowUpMessage,
+  isInactivityFollowUpDue,
+} from './inactivityFollowUpService.js'
 
 loadLocalEnv()
 
@@ -128,6 +138,10 @@ const RESPOND_AGENT = {
 }
 const SESSION_RESTART_WINDOW_MS =
   Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
+const INACTIVITY_FOLLOW_UP_DELAY_MS =
+  Number(process.env.RESPOND_INACTIVITY_FOLLOW_UP_MINUTES || 60) * 60 * 1000
+const INACTIVITY_FOLLOW_UP_SWEEP_MS =
+  Number(process.env.RESPOND_INACTIVITY_FOLLOW_UP_SWEEP_SECONDS || 60) * 1000
 const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
 const BOOKING_CONFIRMATION_VIDEO_URL =
   process.env.RESPOND_BOOKING_CONFIRMATION_VIDEO_URL ||
@@ -148,7 +162,7 @@ We also offer longer treatments depending on your goal.
 
 📲 First, we do a *free* discovery call by video.
 
-💥 *SPECIAL OFFER TODAY* 💥`,
+☀️ *SPECIAL SUMMER OFFER* ☀️`,
   'Latin American Spanish': `Hola, mi nombre es Maria, de Dharma Clinic.
 
 👋 Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic* 📸.
@@ -163,7 +177,7 @@ Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 
 📲 Primero realizamos una llamada de analisis *gratuita* por videollamada.
 
-💥 *OFERTA ESPECIAL DE VERANO* 💥`,
+☀️ *OFERTA ESPECIAL DE VERANO* ☀️`,
   Portuguese: `Olá, meu nome é Maria, da Dharma Clinic.
 
 👋 É um prazer ter você aqui. Você também pode dar uma olhada no nosso Instagram *@dharma.clinic* 📸.
@@ -178,7 +192,7 @@ Temos tratamentos mais longos para que você possa alcançar seu objetivo.
 
 📲 Primeiro, realizamos uma chamada de análise *gratuita* por videochamada.
 
-💥 *OFERTA ESPECIAL HOJE* 💥`,
+☀️ *OFERTA ESPECIAL DE VERÃO* ☀️`,
 }
 const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
   English: '📍Please tell us which state you live in to find out if we ship to your state?',
@@ -300,6 +314,13 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`)
 })
+
+const inactivityFollowUpInterval = setInterval(() => {
+  processRespondInactivityFollowUps().catch((error) => {
+    console.warn(`Unable to process Respond inactivity follow-ups: ${error.message}`)
+  })
+}, Math.max(1000, INACTIVITY_FOLLOW_UP_SWEEP_MS))
+inactivityFollowUpInterval.unref()
 
 async function serveStaticFile(pathname, response) {
   const normalizedPath = pathname === '/' ? '/index.html' : pathname
@@ -1024,6 +1045,7 @@ async function processRespondIncomingMessage(event) {
     await unassignRespondConversationAfterReply(event.contactId)
 
     respondSessions.set(event.contactId, {
+      channelId: event.channelId,
       customerLanguage: initialLanguage,
       languageAsked: false,
       lastInteractionAt: Date.now(),
@@ -1060,6 +1082,7 @@ async function processRespondIncomingMessage(event) {
     await unassignRespondConversationAfterReply(event.contactId)
 
     respondSessions.set(event.contactId, {
+      channelId: event.channelId,
       customerLanguage: preferredLanguage,
       languageAsked: false,
       lastInteractionAt: Date.now(),
@@ -1112,6 +1135,19 @@ async function processRespondIncomingMessage(event) {
   })
 
   if (bookingResponse) {
+    if (bookingResponse.frontDeskTransfer?.type === 'state_location_clarification') {
+      await transferRespondConversationToCustomerService({
+        contactId: event.contactId,
+        channelId: event.channelId,
+        customerLanguage,
+        session: { ...session, booking: bookingResponse.booking },
+        respondContactProfile,
+        transferTrigger: bookingResponse.frontDeskTransfer,
+        userMessage,
+      })
+      return
+    }
+
     bookingResponse.text = enforceReplyLanguage({
       text: bookingResponse.text,
       customerLanguage,
@@ -1176,6 +1212,7 @@ async function processRespondIncomingMessage(event) {
     }
 
     respondSessions.set(event.contactId, {
+      channelId: event.channelId,
       customerLanguage,
       languageAsked: false,
       lastInteractionAt: Date.now(),
@@ -1236,6 +1273,7 @@ async function processRespondIncomingMessage(event) {
   await unassignRespondConversationAfterReply(event.contactId)
 
   respondSessions.set(event.contactId, {
+    channelId: event.channelId,
     customerLanguage,
     languageAsked: false,
     lastInteractionAt: Date.now(),
@@ -1482,7 +1520,9 @@ async function resolveRespondTransferMessage({ customerLanguage, latestUserText,
         'Write one short customer-facing handoff message in the same language as the customer message.',
         'Return only the message text. Do not include JSON, labels, notes, or quotation marks.',
         'Use a kind, calm tone with one warm emoji at the start and one prayer/thanks emoji at the end.',
-        transferTrigger?.type === 'transfer_request'
+        transferTrigger?.type === 'state_location_clarification'
+          ? 'The automated assistant could not confidently understand the customer state after one clarification. Say the Front Desk team will help confirm their location and continue assisting. Do not imply the customer is frustrated or did anything wrong.'
+          : transferTrigger?.type === 'transfer_request'
           ? 'The customer explicitly asked to be transferred. Say we can connect them now and that Customer Service will help in more detail.'
           : 'The customer is frustrated or asking for a refund/escalation. Say you understand their frustration, are sorry for the situation, and will escalate the case to Customer Service specialists who handle cases like this.',
         'Do not continue booking, do not ask for state/phone/name, and do not promise a refund or resolution.',
@@ -1701,6 +1741,76 @@ function getRespondSession(contactId) {
     booking: null,
     respondContactProfile: null,
   }
+}
+
+async function processRespondInactivityFollowUps(now = Date.now()) {
+  for (const [contactId, session] of respondSessions.entries()) {
+    if (!isInactivityFollowUpDue(session, now, INACTIVITY_FOLLOW_UP_DELAY_MS)) continue
+
+    const interactionVersion = session.lastInteractionAt
+
+    if (await shouldPauseRespondReplyForHumanTakeover(contactId, session)) continue
+
+    const currentSession = respondSessions.get(contactId)
+    if (
+      !currentSession ||
+      currentSession.lastInteractionAt !== interactionVersion ||
+      !isInactivityFollowUpDue(currentSession, Date.now(), INACTIVITY_FOLLOW_UP_DELAY_MS)
+    ) {
+      continue
+    }
+
+    const continuation = getRespondInactivityFlowContinuation(currentSession)
+    const text = buildInactivityFollowUpMessage({
+      customerLanguage: currentSession.customerLanguage,
+      continuation,
+    })
+
+    await sendRespondTextMessage({
+      contactId,
+      channelId: currentSession.channelId,
+      text,
+    })
+    await unassignRespondConversationAfterReply(contactId)
+
+    respondSessions.set(contactId, {
+      ...currentSession,
+      inactivityFollowUpSentAt: Date.now(),
+      messages: [
+        ...(currentSession.messages || []),
+        { role: 'agent', content: text },
+      ].slice(-12),
+    })
+
+    console.log('[respond-inactivity-follow-up]', {
+      contactId,
+      pendingField: currentSession.booking?.pendingField || '',
+    })
+  }
+}
+
+function getRespondInactivityFlowContinuation(session = {}) {
+  const booking = session.booking || {}
+  const details = booking.details || {}
+  const language = session.customerLanguage || 'Latin American Spanish'
+  const option = booking.offeredOption || booking.options?.[0]
+
+  if (booking.pendingField === 'state') return bookingCopy(language, 'askState')
+  if (booking.pendingField === 'phone') {
+    return bookingCopy(
+      language,
+      shouldUseNewClientBookingFlow(session.respondContactProfile) ? 'askUsPhone' : 'askPhone',
+    )
+  }
+  if (booking.pendingField === 'name') return bookingCopy(language, 'askName')
+  if (booking.pendingField === 'preferredTime') return bookingCopy(language, 'askPreferredTime')
+  if (option) {
+    return bookingCopy(language, 'reofferSlot', {
+      slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone, language),
+    })
+  }
+
+  return ''
 }
 
 async function getRespondContactProfile(contactId, fallbackProfile = null) {
@@ -2644,6 +2754,7 @@ async function handleRespondBookingAutomation({
   }
 
   const hasUnresolvedExplicitState =
+    existingBooking.pendingField === 'state' &&
     looksLikeExplicitStateDeclaration(latestUserText) &&
     !latestSignals.state
   const latestNameDetails =
@@ -2687,23 +2798,19 @@ async function handleRespondBookingAutomation({
   })
 
   if (hasUnresolvedExplicitState) {
-    return {
-      text: bookingCopy(customerLanguage, 'askStateDifferent'),
-      booking: {
-        ...existingBooking,
-        bookingTeam,
-        details: {
-          ...details,
-          state: existingBooking.details?.state || '',
-        },
-        pendingField: 'state',
-      },
-    }
+    return buildUnrecognizedStateAttemptResponse({
+      existingBooking,
+      bookingTeam,
+      details: { ...details, state: existingBooking.details?.state || '' },
+      customerLanguage,
+    })
   }
 
   const deterministicPolicyAnswer =
     isAffordabilityObjection(latestUserText) || isContextualAffordabilityObjection(latestUserText, messages)
       ? getAffordabilityAnswer(customerLanguage)
+      : isTreatmentPackageInclusionsQuestion(latestUserText)
+        ? getTreatmentPackageInclusionsAnswer(customerLanguage)
       : isGhkProductQuestion(latestUserText)
         ? getGhkProductAnswer(customerLanguage)
         : isSupplementProductQuestion(latestUserText) || isContextualSupplementQuestion(latestUserText, messages)
@@ -2862,17 +2969,24 @@ async function handleRespondBookingAutomation({
       }
 
       if (!confirmedState) {
-        const text = getPendingStateRecoveryText(latestUserText, customerLanguage)
-
-        return {
-          text,
-          booking: {
-            ...existingBooking,
-            bookingTeam,
-            details: { ...details, state: '' },
-            pendingField: 'state',
-          },
+        if (isNonAttemptPendingStateMessage(latestUserText)) {
+          return {
+            text: getPendingStateRecoveryText(latestUserText, customerLanguage),
+            booking: {
+              ...existingBooking,
+              bookingTeam,
+              details: { ...details, state: '' },
+              pendingField: 'state',
+            },
+          }
         }
+
+        return buildUnrecognizedStateAttemptResponse({
+          existingBooking,
+          bookingTeam,
+          details: { ...details, state: '' },
+          customerLanguage,
+        })
       }
     }
 
@@ -2882,6 +2996,8 @@ async function handleRespondBookingAutomation({
       inferredCity: '',
       inferredState: '',
     })
+
+    existingBooking.stateClarificationAttempts = 0
 
     // Once state qualification is complete, a pricing detour should resume
     // scheduling with tomorrow's real calendar availability.
@@ -3364,6 +3480,11 @@ async function handleRespondBookingAutomation({
     const nextDetails = preferredTime
       ? applyAvailabilityConstraintFromPreferredTime({ ...details, preferredTime })
       : details
+    const contextualDetails = applyContextualLaterCutoff({
+      details: nextDetails,
+      latestUserText,
+      currentOption: activeOption,
+    })
     const minimumStartTime = getMinimumStartAfterSlotRejection(
       latestUserText,
       activeOption?.startTime,
@@ -3371,7 +3492,7 @@ async function handleRespondBookingAutomation({
 
     return await offerSoonestRespondSlot({
       booking: nextBooking,
-      details: minimumStartTime ? { ...nextDetails, minimumStartTime } : nextDetails,
+      details: minimumStartTime ? { ...contextualDetails, minimumStartTime } : contextualDetails,
       customerLanguage,
       preferredTime,
       closest: Boolean(preferredTime),
@@ -3740,7 +3861,7 @@ async function offerSoonestRespondSlot({
   const getAvailability =
     booking.bookingTeam === 'customer_service'
       ? getCustomerServiceAvailability
-      : getPrioritySellerAvailability
+      : getNewClientAvailability
   const hasTimeConstraint = hasAvailabilityTimeConstraint(details)
   const hasExcludedAvailability = hasBookingAvailabilityExclusions(booking)
   const availabilityLimit =
@@ -4009,10 +4130,12 @@ function shouldOfferMultipleScheduleOptions({ closest = false, details = {}, pre
 function filterOptionsByAvailabilityPreference(options = [], details = {}) {
   return options.filter((option) => {
     const localHour = getCustomerStateHour(option.startTime, details.state, option.timezone)
+    const localMinutes = getCustomerStateMinutesOfDay(option.startTime, details.state, option.timezone)
 
     if (localHour == null) return false
     if (localHour >= 19) return false
     if (Number.isInteger(details.earliestHour) && localHour < details.earliestHour) return false
+    if (Number.isInteger(details.earliestMinuteOfDay) && localMinutes < details.earliestMinuteOfDay) return false
     if (Number.isFinite(details.latestHour) && localHour >= details.latestHour) return false
     if (details.latestStartTime && Number(option.startTime) >= Number(details.latestStartTime)) return false
     if (details.minimumStartTime && Number(option.startTime) < Number(details.minimumStartTime)) return false
@@ -4032,9 +4155,14 @@ function applyContextualLaterCutoff({
     return details
   }
 
-  const threeHoursLater = Number(currentOption.startTime) + 3 * 60 * 60 * 1000
+  const offeredLocalHour = getCustomerStateHour(
+    currentOption.startTime,
+    details.state,
+    currentOption.timezone,
+  )
+  const laterStartTime = Number(currentOption.startTime) + getLaterSlotDelayMs(offeredLocalHour)
   const laterHour = getCustomerStateHour(
-    threeHoursLater,
+    laterStartTime,
     details.state,
     currentOption.timezone,
   )
@@ -4042,7 +4170,7 @@ function applyContextualLaterCutoff({
   if (laterHour == null || laterHour < 19) {
     return {
       ...details,
-      minimumStartTime: threeHoursLater,
+      minimumStartTime: laterStartTime,
       direction: 'later',
     }
   }
@@ -4285,9 +4413,9 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (hasPriceOrPaymentQuestion(normalized)) {
-    if (spanish) return 'El paquete personalizado GLP-1 para perdida de peso empieza en $589 por hasta 4 semanas, y el acceso a prescripcion de Zepbound cuesta $299. Los tratamientos mas largos dependen de tu meta.'
-    if (portuguese) return 'O pacote personalizado GLP-1 para perda de peso comeca em $589 por ate 4 semanas, e o acesso a prescricao de Zepbound custa $299. Tratamentos mais longos dependem do seu objetivo.'
-    return 'The personalized GLP-1 weight-loss package starts at $589 for up to 4 weeks, and Zepbound prescription access is $299. Longer treatments depend on your goal.'
+    if (spanish) return 'El paquete personalizado GLP-1 para perdida de peso empieza en $499 por hasta 4 semanas, y el acceso a prescripcion de Zepbound cuesta $299. Los tratamientos mas largos dependen de tu meta.'
+    if (portuguese) return 'O pacote personalizado GLP-1 para perda de peso comeca em $499 por ate 4 semanas, e o acesso a prescricao de Zepbound custa $299. Tratamentos mais longos dependem do seu objetivo.'
+    return 'The personalized GLP-1 weight-loss package starts at $499 for up to 4 weeks, and Zepbound prescription access is $299. Longer treatments depend on your goal.'
   }
 
   if (/\b(doctor|doctors|provider|providers|doctor name|medico|medicos|doctor|doctores|nombre del doctor|proveedor|proveedores|doutor|medico)\b/.test(normalized)) {
@@ -4374,6 +4502,20 @@ function getGeneralMedicationOfferingAnswer(customerLanguage) {
   return 'We offer weight-loss injections such as Semaglutide or Tirzepatide, which can help reduce appetite and support body-fat loss when a provider determines they are appropriate for you. First, we do a free call to explain the options and next steps.'
 }
 
+function getTreatmentPackageInclusionsAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Entiendo. Tenemos varias opciones de paquetes; algunos incluyen citas nutricionales y suplementos dentro del precio. Por ejemplo, los $499 corresponden a un paquete personalizado de GLP-1 de hasta 4 semanas que ya incluye el apoyo médico y el acompañamiento de nuestra clínica. El contenido y el precio pueden variar según el paquete y tu meta. Durante la llamada gratuita de análisis, nuestro especialista podrá explicarte todas las opciones.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Entendo. Temos várias opções de pacotes; alguns incluem consultas nutricionais e suplementos no preço. Por exemplo, os $499 correspondem a um pacote personalizado de GLP-1 de até 4 semanas que já inclui suporte médico e acompanhamento da nossa clínica. O conteúdo e o preço podem variar conforme o pacote e seu objetivo. Durante a chamada gratuita de análise, nosso especialista poderá explicar todas as opções.'
+  }
+
+  return 'I understand. We have several package options, and some include nutrition appointments and supplements in the price. For example, the $499 personalized GLP-1 package for up to 4 weeks already includes medical support and support from our clinic. The contents and price may vary depending on the package and your goal. During the free discovery call, our specialist can explain all the options.'
+}
+
 function getGhkProductAnswer(customerLanguage) {
   const language = normalizeLanguageName(customerLanguage)
 
@@ -4423,6 +4565,14 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
   const normalizedText = maybeNormalizedText || normalizeSearchText(rawText)
 
   if (isTreatmentAcquisitionQuestion(rawText)) {
+    return false
+  }
+
+  if (
+    isTreatmentPackageInclusionsQuestion(rawText) &&
+    !/\b(client|patient|customer|cliente|paciente|she|he|ella|el|ele|ela|celebrity|celebridad|public figure|figura publica)\b/.test(normalizedText) &&
+    !/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\s+[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/.test(rawText)
+  ) {
     return false
   }
 
@@ -4601,8 +4751,9 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
     }
   }
 
+  const selectedBookingTeam = option.bookingTeam || booking.bookingTeam
   const bookMeeting =
-    booking.bookingTeam === 'customer_service'
+    selectedBookingTeam === 'customer_service'
       ? bookCustomerServiceMeeting
       : bookPrioritySellerMeeting
   const customer = buildRespondBookingCustomer(details, customerLanguage)
@@ -4613,7 +4764,7 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
 
   return {
     text: await buildBookedMessage({
-      bookingTeam: booking.bookingTeam,
+      bookingTeam: selectedBookingTeam,
       option,
       booked,
       customer,
@@ -4850,9 +5001,26 @@ function bookingCopy(language, key, values = {}) {
       'Entendido. Vamos deixar o agendamento pendente por enquanto. Quando quiser continuar, retomamos da mesma etapa.',
     ),
     askState: tri(
-      '📍Please tell us which state you live in to find out if we ship to your state?',
-      '📍Dime por favor en que estado vives para saber si hacemos envios a su Estado?',
-      '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
+      pickRandomItem([
+        '📍 I’d love to help you find out if we ship to your area! What state do you currently live in?',
+        '📍 To check whether treatment is available in your area, which state are you located in?',
+        '📍 Which state do you live in? I’ll check availability for your area.',
+      ]),
+      pickRandomItem([
+        '📍 ¡Me encantaría ayudarte a confirmar si hacemos envíos a tu área! ¿En qué estado vives actualmente?',
+        '📍 Para verificar si el tratamiento está disponible en tu área, ¿en qué estado te encuentras?',
+        '📍 ¿En qué estado vives? Revisaré la disponibilidad para tu área.',
+      ]),
+      pickRandomItem([
+        '📍 Vou adorar ajudar você a confirmar se fazemos entregas na sua região! Em qual estado você mora atualmente?',
+        '📍 Para verificar se o tratamento está disponível na sua região, em qual estado você está?',
+        '📍 Em qual estado você mora? Vou verificar a disponibilidade na sua região.',
+      ]),
+    ),
+    askStateClarification: tri(
+      '📍 I’m sorry, I couldn’t identify the state. Could you please type the full state name one more time?',
+      '📍 Lo siento, no pude identificar el estado. ¿Podrías escribir el nombre completo del estado una vez más?',
+      '📍 Desculpe, não consegui identificar o estado. Pode escrever o nome completo do estado mais uma vez?',
     ),
     confirmInferredState: tri(
       `Are you in ${values.city}, ${values.state}?`,
@@ -5028,6 +5196,42 @@ function getPendingStateRecoveryText(content, customerLanguage) {
   }
 
   return askState
+}
+
+function isNonAttemptPendingStateMessage(content) {
+  return isGreetingOnly(content) || isBookingRequest(content)
+}
+
+function buildUnrecognizedStateAttemptResponse({
+  existingBooking,
+  bookingTeam,
+  details,
+  customerLanguage,
+}) {
+  const result = getUnrecognizedStateAttemptResult(existingBooking.stateClarificationAttempts)
+  const booking = {
+    ...existingBooking,
+    bookingTeam,
+    details,
+    pendingField: 'state',
+    stateClarificationAttempts: result.attempts,
+  }
+
+  if (result.shouldTransfer) {
+    return {
+      text: '',
+      booking,
+      frontDeskTransfer: {
+        type: 'state_location_clarification',
+        reason: 'State remained unrecognized after one clarification attempt.',
+      },
+    }
+  }
+
+  return {
+    text: bookingCopy(customerLanguage, 'askStateClarification'),
+    booking,
+  }
 }
 
 async function generatePendingStateOutOfFlowAnswer({
@@ -6044,6 +6248,19 @@ function extractAvailabilityPreference(content) {
     return { hasPreference: false }
   }
 
+  const afterTime = parseAfterTimePreference(preferenceText)
+
+  if (afterTime) {
+    return {
+      hasPreference: true,
+      preferredTime: `after ${formatPreferenceClock(afterTime.hour, afterTime.minute)}`,
+      earliestHour: afterTime.hour,
+      earliestMinuteOfDay: afterTime.minutesOfDay,
+      dayPart: afterTime.hour >= 12 ? 'afternoon' : 'morning',
+      direction: 'after',
+    }
+  }
+
   const exactClockMatch = String(preferenceText || '').match(
     /\b(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)\b|\b(?:at|a las|las)\s+(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)?\b/i,
   )
@@ -6121,29 +6338,6 @@ function extractAvailabilityPreference(content) {
       preferredTime: 'evening',
       earliestHour: 17,
       dayPart: 'evening',
-    }
-  }
-
-  const afterHourPatterns = [
-    /\b(?:after|later than|from)\s+(?:las\s+)?(\d{1,2})(?::\d{2})?\s*(am|pm)?\b/,
-    /\b(?:despues de|despues de las|a partir de|a partir de las|mas tarde de|mas tarde de las|despues)\s+(\d{1,2})(?::\d{2})?\s*(am|pm)?\b/,
-    /\b(?:después de|después de las|más tarde de|más tarde de las)\s+(\d{1,2})(?::\d{2})?\s*(am|pm)?\b/i,
-  ]
-
-  for (const pattern of afterHourPatterns) {
-    const match = String(preferenceText || '').match(pattern)
-
-    if (match) {
-      const earliestHour = normalizeAvailabilityHour(Number(match[1]), match[2])
-
-      if (earliestHour != null) {
-        return {
-          hasPreference: true,
-          preferredTime: `after ${formatPreferenceHour(earliestHour)}`,
-          earliestHour,
-          dayPart: earliestHour >= 12 ? 'afternoon' : 'morning',
-        }
-      }
     }
   }
 
@@ -6348,6 +6542,13 @@ function formatPreferenceHour(hour) {
   const displayHour = normalizedHour % 12 || 12
 
   return `${displayHour}${period}`
+}
+
+function formatPreferenceClock(hour, minute = 0) {
+  const base = formatPreferenceHour(hour)
+  if (!minute) return base
+
+  return base.replace(/(am|pm)$/i, `:${String(minute).padStart(2, '0')}$1`)
 }
 
 function isBookingRequest(content) {
@@ -6755,7 +6956,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names. If asked about FDA approval, do not say compounded Semaglutide or compounded Tirzepatide are FDA-approved. Explain that FDA-approved branded medications include Wegovy and Zepbound, and Dharma uses the same active compounds with licensed medical oversight when appropriate.',
     'Dharma works with GHK-Cu. If a customer asks whether we carry or work with GHK-Cu, answer yes, then explain that during the free discovery call our specialist can explain the available options, how they work, and whether they fit the customer goals. Do not invent a format, price, benefit, dosage, shipping rule, or eligibility claim.',
-    'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $589 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. Never ask for state if the booking context already shows a Known state. If a real slot is already active, briefly return to that slot after answering. If state is known but no slot is active, let the application append real availability for the following day. Ask for state only when the booking context has no Known state.',
+    'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $499 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. Never ask for state if the booking context already shows a Known state. If a real slot is already active, briefly return to that slot after answering. If state is known but no slot is active, let the application append real availability for the following day. Ask for state only when the booking context has no Known state.',
     'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
     `State and product qualification rule: use company knowledge for which products are deliverable in each state. If the customer is out of state for weight-loss injections, do not offer or book a prescribed-treatment appointment and do not claim injections can ship there. If they ask a general question, answer it normally in their language using company knowledge and then gently guide them toward supplements or nutrition support. Only send the exact out-of-state supplement alternative script when the customer is trying to qualify, book, buy, or ship weight-loss injections in a non-serviceable state.
 
@@ -6916,7 +7117,7 @@ function extractShownAgentTopics(agentMessages) {
   const joined = agentMessages.join('\n').toLowerCase()
   const topics = []
 
-  if (/\$\s*589|glp-?1/.test(joined)) {
+  if (/\$\s*499|glp-?1/.test(joined)) {
     topics.push('GLP-1 package price/details')
   }
 

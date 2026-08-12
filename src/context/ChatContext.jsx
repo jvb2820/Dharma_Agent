@@ -65,14 +65,14 @@ const INITIAL_GREETING_BY_LANGUAGE = {
 📍 We are a telemedicine company located in the U.S. and our consultations are online.
 
 💰 *BEST-SELLING PRICES:*
-- *$589* - Up to 4-week personalized GLP-1 package
+- *$499* - Up to 4-week personalized GLP-1 package
 - *$299* - Zepbound prescription access
 
 We also offer longer treatments depending on your goal.
 
 📲 First, we do a *free* discovery call by video.
 
-💥 *SPECIAL OFFER TODAY* 💥`,
+☀️ *SPECIAL SUMMER OFFER* ☀️`,
   'Latin American Spanish': `Hola, mi nombre es Maria, de Dharma Clinic.
 
 👋 Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic* 📸.
@@ -80,14 +80,14 @@ We also offer longer treatments depending on your goal.
 📍 Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
 
 💰 *PRECIOS DE LOS MAS VENDIDOS:*
-- *$589* - Paquete de hasta 4 semanas de GLP-1 personalizado
+- *$499* - Paquete de hasta 4 semanas de GLP-1 personalizado
 - *$299* - Acceso a prescripcion de Zepbound
 
 Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 
 📲 Primero realizamos una llamada de analisis *gratuita* por videollamada.
 
-💥 *OFERTA ESPECIAL HOY* 💥`,
+☀️ *OFERTA ESPECIAL DE VERANO* ☀️`,
 }
 const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
   English: '📍 What state do you live in so I can confirm whether we deliver there?',

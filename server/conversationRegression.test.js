@@ -6,17 +6,25 @@ import {
   confirmsOfferedSlotTime,
   findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
+  getLaterSlotDelayMs,
   getNextPreferenceAfterRejectedRelativeDay,
+  getUnrecognizedStateAttemptResult,
   hasStrictRequestedDay,
   hasCallFormatQuestion,
   isEarlierSchedulingPreference,
   isExactCasualAffirmative,
   looksLikeExplicitStateDeclaration,
+  parseAfterTimePreference,
   shouldAcceptStateAbbreviationToken,
   shouldTreatOkAsAffirmative,
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
+
+test('unrecognized state answers clarify once and transfer on the second attempt', () => {
+  assert.deepEqual(getUnrecognizedStateAttemptResult(0), { attempts: 1, shouldTransfer: false })
+  assert.deepEqual(getUnrecognizedStateAttemptResult(1), { attempts: 2, shouldTransfer: true })
+})
 import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
@@ -27,9 +35,20 @@ import {
   isOralProductQuestion,
   isReboundEffectQuestion,
   isSupplementProductQuestion,
+  isTreatmentPackageInclusionsQuestion,
 } from '../src/utils/leadIntentRules.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
+
+test('general package inclusion questions are recognized as commercial questions', () => {
+  for (const message of [
+    'I need to know what else they give in the treatment? Or is it just the cost of the GLP-1 and the other supplements separately? Does the cost increase?',
+    '¿Qué incluye el paquete y los suplementos se pagan por separado?',
+    'O que inclui o pacote e o custo aumenta com os suplementos?',
+  ]) {
+    assert.equal(isTreatmentPackageInclusionsQuestion(message), true)
+  }
+})
 
 test('named Dharma supplement questions are recognized as product questions', () => {
   for (const message of [
@@ -297,6 +316,26 @@ test('a rejected time moves the next offer at least three hours later', () => {
     Date.UTC(2026, 6, 24, 19, 20),
   )
   assert.equal(getMinimumStartAfterSlotRejection('No puedo hoy', offeredStart), undefined)
+})
+
+test('generic later requests use a one-hour delay from 4 PM and three hours before then', () => {
+  assert.equal(getLaterSlotDelayMs(15), 3 * 60 * 60 * 1000)
+  assert.equal(getLaterSlotDelayMs(16), 60 * 60 * 1000)
+  assert.equal(getLaterSlotDelayMs(18), 60 * 60 * 1000)
+})
+
+test('after-time preferences preserve the minute-level cutoff', () => {
+  assert.deepEqual(parseAfterTimePreference('Después de 1:30 para recibir la llamada'), {
+    hour: 13,
+    minute: 30,
+    minutesOfDay: 810,
+  })
+  assert.deepEqual(parseAfterTimePreference('after 5:20 pm'), {
+    hour: 17,
+    minute: 20,
+    minutesOfDay: 1040,
+  })
+  assert.equal(parseAfterTimePreference('1:30 pm'), null)
 })
 
 test('an affirmative reply repeating the offered time confirms that slot', () => {

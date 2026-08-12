@@ -64,6 +64,22 @@ export async function getCustomerServiceAvailability({
   })
 }
 
+export async function getNewClientAvailability({
+  limit = 6,
+  preferredTime = '',
+  preferredSpecialist = '',
+  timezone = EASTERN_TIMEZONE,
+  language = '',
+} = {}) {
+  return getTeamAvailability({
+    members: filterSellersByPreference(getConfiguredNewClientBookingTeam(), preferredSpecialist),
+    limit,
+    preferredTime,
+    timezone,
+    language,
+  })
+}
+
 async function getTeamAvailability({ members, limit = 6, preferredTime = '', timezone = EASTERN_TIMEZONE, language = '' }) {
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
@@ -155,6 +171,7 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
         duration,
         timezone,
         sellerPriority: sellerIndex,
+        bookingTeam: seller.bookingTeam || 'sales',
         display: formatSpecialistSlot({
           specialistName: seller.name,
           timestamp: slot.startMillisUtc,
@@ -1126,7 +1143,7 @@ async function hubspotSend(path, options = {}) {
   return data
 }
 
-function getConfiguredPrioritySellers() {
+export function getConfiguredPrioritySellers() {
   const disabledSlugs = new Set(
     (process.env.HUBSPOT_DISABLED_SELLER_SLUGS || DEFAULT_DISABLED_SELLER_SLUGS.join(','))
       .split(',')
@@ -1164,6 +1181,13 @@ export function getConfiguredCustomerServiceTeam() {
   return configuredSlugs
     .map((slug) => defaultTeam.find((member) => member.slug === slug))
     .filter(Boolean)
+}
+
+export function getConfiguredNewClientBookingTeam() {
+  return [
+    ...getConfiguredPrioritySellers().map((member) => ({ ...member, bookingTeam: 'sales' })),
+    ...getConfiguredCustomerServiceTeam().map((member) => ({ ...member, bookingTeam: 'customer_service' })),
+  ]
 }
 
 export function getConfiguredFrontDeskTeam() {

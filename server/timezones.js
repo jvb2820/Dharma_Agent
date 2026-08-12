@@ -131,6 +131,21 @@ export function getCustomerStateHour(timestamp, state, fallbackTimezone = DEFAUL
   return Number(parts.find((part) => part.type === 'hour')?.value ?? NaN)
 }
 
+export function getCustomerStateMinutesOfDay(timestamp, state, fallbackTimezone = DEFAULT_TIMEZONE) {
+  if (!timestamp) return null
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: getStateTimeZone(state, fallbackTimezone),
+  }).formatToParts(new Date(timestamp))
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? NaN)
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? NaN)
+
+  return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null
+}
+
 function normalizeStateName(state) {
   return String(state || '').trim()
 }
