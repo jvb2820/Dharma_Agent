@@ -35,6 +35,7 @@ import {
   isOralProductQuestion,
   isReboundEffectQuestion,
   isSupplementProductQuestion,
+  isPrescribedTreatmentDeclination,
   isTreatmentPackageInclusionsQuestion,
 } from '../src/utils/leadIntentRules.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
@@ -47,6 +48,16 @@ test('general package inclusion questions are recognized as commercial questions
     'O que inclui o pacote e o custo aumenta com os suplementos?',
   ]) {
     assert.equal(isTreatmentPackageInclusionsQuestion(message), true)
+  }
+})
+
+test('declining GLP-1 or Zepbound is treated as a general preference, not privacy', () => {
+  for (const message of [
+    'En Texas pero no estoy interesada en GLP 1 o zepbound',
+    'I am in Texas but I am not interested in GLP-1 or Zepbound',
+    'Estou no Texas, mas não estou interessada em GLP-1 ou Zepbound',
+  ]) {
+    assert.equal(isPrescribedTreatmentDeclination(message), true)
   }
 })
 

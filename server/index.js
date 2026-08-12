@@ -23,6 +23,7 @@ import {
   isOralProductQuestion,
   isReboundEffectQuestion,
   isSupplementProductQuestion,
+  isPrescribedTreatmentDeclination,
   isTreatmentPackageInclusionsQuestion,
 } from '../src/utils/leadIntentRules.js'
 import {
@@ -2718,7 +2719,9 @@ async function handleRespondBookingAutomation({
   }
 
   const deterministicPolicyAnswer =
-    isAffordabilityObjection(latestUserText) || isContextualAffordabilityObjection(latestUserText, messages)
+    isPrescribedTreatmentDeclination(latestUserText)
+      ? getPrescribedTreatmentDeclinationAnswer(customerLanguage)
+      : isAffordabilityObjection(latestUserText) || isContextualAffordabilityObjection(latestUserText, messages)
       ? getAffordabilityAnswer(customerLanguage)
       : isTreatmentPackageInclusionsQuestion(latestUserText)
         ? getTreatmentPackageInclusionsAnswer(customerLanguage)
@@ -2741,6 +2744,21 @@ async function handleRespondBookingAutomation({
                     : ''
 
   if (deterministicPolicyAnswer) {
+    if (isPrescribedTreatmentDeclination(latestUserText)) {
+      return {
+        text: deterministicPolicyAnswer,
+        booking: {
+          ...buildBookingWithExcludedOptions({ ...existingBooking, bookingTeam }),
+          details: {
+            ...details,
+            desiredTreatment: 'supplements or nutrition support',
+          },
+          pendingField: '',
+          prescribedTreatmentDeclined: true,
+        },
+      }
+    }
+
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     let continuation = ''
 
@@ -4413,6 +4431,20 @@ function getGeneralMedicationOfferingAnswer(customerLanguage) {
   return 'We offer weight-loss injections such as Semaglutide or Tirzepatide, which can help reduce appetite and support body-fat loss when a provider determines they are appropriate for you. First, we do a free call to explain the options and next steps.'
 }
 
+function getPrescribedTreatmentDeclinationAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Entiendo, gracias por aclararlo. No tienes que elegir GLP-1 ni Zepbound. También ofrecemos suplementos y apoyo nutricional. Si quieres, puedo explicarte brevemente esas alternativas según tu objetivo.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Entendo, obrigado por esclarecer. Você não precisa escolher GLP-1 nem Zepbound. Também oferecemos suplementos e apoio nutricional. Se quiser, posso explicar brevemente essas alternativas de acordo com seu objetivo.'
+  }
+
+  return 'I understand, and thank you for clarifying. You do not have to choose GLP-1 or Zepbound. We also offer supplements and nutrition support. If you would like, I can briefly explain those alternatives based on your goal.'
+}
+
 function getTreatmentPackageInclusionsAnswer(customerLanguage) {
   const language = normalizeLanguageName(customerLanguage)
 
@@ -4476,6 +4508,10 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
   const normalizedText = maybeNormalizedText || normalizeSearchText(rawText)
 
   if (isTreatmentAcquisitionQuestion(rawText)) {
+    return false
+  }
+
+  if (isPrescribedTreatmentDeclination(rawText)) {
     return false
   }
 

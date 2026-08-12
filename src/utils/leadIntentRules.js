@@ -38,6 +38,14 @@ export function isTreatmentPackageInclusionsQuestion(content = '') {
   return packageOrTreatment && inclusionOrPriceStructure
 }
 
+export function isPrescribedTreatmentDeclination(content = '') {
+  const normalized = normalizeLeadIntentText(content)
+  const declinesInterest = /\b(not interested|dont want|do not want|no interest|no estoy interesad[ao]|no me interesa|no quiero|nao estou interessad[ao]|nao tenho interesse|nao quero)\b/.test(normalized)
+  const prescribedTreatment = /\b(glp 1|zepbound|semaglutide|tirzepatide|injection|injections|inyeccion|inyecciones|injecao|injecoes)\b/.test(normalized)
+
+  return declinesInterest && prescribedTreatment
+}
+
 function normalizeLeadIntentText(content) {
   return String(content || '')
     .normalize('NFD')
