@@ -120,10 +120,6 @@ import { isTreatmentAcquisitionQuestion } from '../src/utils/privacyRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
-import {
-  buildInactivityFollowUpMessage,
-  isInactivityFollowUpDue,
-} from './inactivityFollowUpService.js'
 
 loadLocalEnv()
 
@@ -138,10 +134,6 @@ const RESPOND_AGENT = {
 }
 const SESSION_RESTART_WINDOW_MS =
   Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
-const INACTIVITY_FOLLOW_UP_DELAY_MS =
-  Number(process.env.RESPOND_INACTIVITY_FOLLOW_UP_MINUTES || 60) * 60 * 1000
-const INACTIVITY_FOLLOW_UP_SWEEP_MS =
-  Number(process.env.RESPOND_INACTIVITY_FOLLOW_UP_SWEEP_SECONDS || 60) * 1000
 const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
 const BOOKING_CONFIRMATION_VIDEO_URL =
   process.env.RESPOND_BOOKING_CONFIRMATION_VIDEO_URL ||
@@ -314,13 +306,6 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`)
 })
-
-const inactivityFollowUpInterval = setInterval(() => {
-  processRespondInactivityFollowUps().catch((error) => {
-    console.warn(`Unable to process Respond inactivity follow-ups: ${error.message}`)
-  })
-}, Math.max(1000, INACTIVITY_FOLLOW_UP_SWEEP_MS))
-inactivityFollowUpInterval.unref()
 
 async function serveStaticFile(pathname, response) {
   const normalizedPath = pathname === '/' ? '/index.html' : pathname
@@ -1038,7 +1023,6 @@ async function processRespondIncomingMessage(event) {
 
     await sendInitialRespondSequence({
       contactId: event.contactId,
-      channelId: event.channelId,
       customerLanguage: initialLanguage,
       firstName: getCustomerFirstName(initialDetails, respondContactProfile),
     })
@@ -1075,7 +1059,6 @@ async function processRespondIncomingMessage(event) {
 
     await sendInitialRespondSequence({
       contactId: event.contactId,
-      channelId: event.channelId,
       customerLanguage: preferredLanguage,
       firstName: getCustomerFirstName(getRespondContactBookingDetails(respondContactProfile), respondContactProfile),
     })
@@ -1212,7 +1195,6 @@ async function processRespondIncomingMessage(event) {
     }
 
     respondSessions.set(event.contactId, {
-      channelId: event.channelId,
       customerLanguage,
       languageAsked: false,
       lastInteractionAt: Date.now(),
@@ -1273,7 +1255,6 @@ async function processRespondIncomingMessage(event) {
   await unassignRespondConversationAfterReply(event.contactId)
 
   respondSessions.set(event.contactId, {
-    channelId: event.channelId,
     customerLanguage,
     languageAsked: false,
     lastInteractionAt: Date.now(),
@@ -1741,76 +1722,6 @@ function getRespondSession(contactId) {
     booking: null,
     respondContactProfile: null,
   }
-}
-
-async function processRespondInactivityFollowUps(now = Date.now()) {
-  for (const [contactId, session] of respondSessions.entries()) {
-    if (!isInactivityFollowUpDue(session, now, INACTIVITY_FOLLOW_UP_DELAY_MS)) continue
-
-    const interactionVersion = session.lastInteractionAt
-
-    if (await shouldPauseRespondReplyForHumanTakeover(contactId, session)) continue
-
-    const currentSession = respondSessions.get(contactId)
-    if (
-      !currentSession ||
-      currentSession.lastInteractionAt !== interactionVersion ||
-      !isInactivityFollowUpDue(currentSession, Date.now(), INACTIVITY_FOLLOW_UP_DELAY_MS)
-    ) {
-      continue
-    }
-
-    const continuation = getRespondInactivityFlowContinuation(currentSession)
-    const text = buildInactivityFollowUpMessage({
-      customerLanguage: currentSession.customerLanguage,
-      continuation,
-    })
-
-    await sendRespondTextMessage({
-      contactId,
-      channelId: currentSession.channelId,
-      text,
-    })
-    await unassignRespondConversationAfterReply(contactId)
-
-    respondSessions.set(contactId, {
-      ...currentSession,
-      inactivityFollowUpSentAt: Date.now(),
-      messages: [
-        ...(currentSession.messages || []),
-        { role: 'agent', content: text },
-      ].slice(-12),
-    })
-
-    console.log('[respond-inactivity-follow-up]', {
-      contactId,
-      pendingField: currentSession.booking?.pendingField || '',
-    })
-  }
-}
-
-function getRespondInactivityFlowContinuation(session = {}) {
-  const booking = session.booking || {}
-  const details = booking.details || {}
-  const language = session.customerLanguage || 'Latin American Spanish'
-  const option = booking.offeredOption || booking.options?.[0]
-
-  if (booking.pendingField === 'state') return bookingCopy(language, 'askState')
-  if (booking.pendingField === 'phone') {
-    return bookingCopy(
-      language,
-      shouldUseNewClientBookingFlow(session.respondContactProfile) ? 'askUsPhone' : 'askPhone',
-    )
-  }
-  if (booking.pendingField === 'name') return bookingCopy(language, 'askName')
-  if (booking.pendingField === 'preferredTime') return bookingCopy(language, 'askPreferredTime')
-  if (option) {
-    return bookingCopy(language, 'reofferSlot', {
-      slot: formatCustomerStateSlot(option.startTime, details.state, option.timezone, language),
-    })
-  }
-
-  return ''
 }
 
 async function getRespondContactProfile(contactId, fallbackProfile = null) {
