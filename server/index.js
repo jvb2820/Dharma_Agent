@@ -121,6 +121,7 @@ import { isTreatmentAcquisitionQuestion } from '../src/utils/privacyRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
+import { createRespondMessageCoordinator } from './respondMessageCoordinator.js'
 
 loadLocalEnv()
 
@@ -196,6 +197,7 @@ const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
 }
 const respondSessions = new Map()
 const pendingPostBookingAssignments = new Map()
+const respondMessageCoordinator = createRespondMessageCoordinator()
 
 const MIME_TYPES = {
   '.css': 'text/css',
@@ -578,9 +580,20 @@ async function handleRespondWebhook(request, response) {
     return
   }
 
+  const coordinatedMessage = respondMessageCoordinator.enqueue({
+    contactId: event.contactId,
+    messageId: event.messageId,
+    task: () => processRespondIncomingMessage(event),
+  })
+
+  if (coordinatedMessage.duplicate) {
+    sendJson(response, 200, { ok: true, skipped: true, reason: 'Duplicate Respond message.' })
+    return
+  }
+
   sendJson(response, 200, { ok: true, accepted: true })
 
-  processRespondIncomingMessage(event).catch((error) => {
+  coordinatedMessage.promise.catch((error) => {
     console.error('Respond webhook processing failed:', error)
   })
 }
@@ -6682,6 +6695,16 @@ function normalizeRespondWebhookEvent(body) {
     /outgoing|sent|delivered|read/i.test(eventName)
 
   return {
+    messageId: String(
+      message.id ||
+      message.messageId ||
+      message.message_id ||
+      body.messageId ||
+      body.message_id ||
+      body.data?.messageId ||
+      body.data?.message_id ||
+      '',
+    ).trim(),
     contactId:
       String(
         contact.id ||
