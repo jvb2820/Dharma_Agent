@@ -6262,6 +6262,7 @@ function hasAvailabilityDateOrTimeSignal(content) {
   const normalized = normalizeSearchText(content)
 
   return [
+    /\b(next week|following week|proxima semana|semana que viene|semana siguiente|semana seguinte)\b/,
     /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|am|pm)\b/,
     /\b(hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|tarde|noche)\b/,
     /\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|tarde|noite)\b/,
@@ -6290,6 +6291,15 @@ function extractAvailabilityPreference(content) {
 
   if (!normalized) {
     return { hasPreference: false }
+  }
+
+  if (/\b(next week|following week|proxima semana|semana que viene|semana siguiente|semana seguinte)\b/.test(normalized)) {
+    return {
+      hasPreference: true,
+      preferredTime: 'next week',
+      dayPart: '',
+      direction: 'next_week',
+    }
   }
 
   const afterTime = parseAfterTimePreference(preferenceText)

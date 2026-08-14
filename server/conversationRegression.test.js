@@ -299,6 +299,12 @@ test('Saturday and explicit dates are hard availability constraints', () => {
   assert.equal(hasStrictRequestedDay('later'), false)
 })
 
+test('next-week requests are strict availability constraints', () => {
+  for (const message of ['next week', 'la próxima semana', 'na próxima semana']) {
+    assert.equal(hasStrictRequestedDay(message), true)
+  }
+})
+
 test('a rejected relative date rejects the whole offered calendar day', () => {
   assert.equal(rejectsOfferedCalendarDate('Mañana no puedo'), true)
   assert.equal(rejectsOfferedCalendarDate("I can't make Thursday"), true)

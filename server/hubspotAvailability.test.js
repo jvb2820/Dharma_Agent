@@ -48,3 +48,12 @@ test('preferred appointment times accept colon and dot minute separators', () =>
     minute: 30,
   })
 })
+
+test('next week creates a strict minimum date and searches across month boundaries', () => {
+  const preference = parsePreferredTime('I am only available next week', 'America/New_York')
+
+  assert.equal(preference.dateKey, '')
+  assert.match(preference.minimumDateKey, /^\d{4}-\d{2}-\d{2}$/)
+  assert.ok(preference.minimumDateKey > new Date().toISOString().slice(0, 10))
+  assert.equal(getAvailabilityMonthOffsets(preference, null, 'America/New_York').length, 2)
+})

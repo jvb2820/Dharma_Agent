@@ -119,7 +119,13 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
     const filterCandidateSlots = (candidatePool) => candidatePool
       .filter((slot) => slot.startMillisUtc >= Date.now() + MIN_BOOKING_LEAD_TIME_MS)
       .filter((slot) => {
-      if (preference.dateKey && getDateKey(slot.startMillisUtc, timezone) !== preference.dateKey) {
+      const slotDateKey = getDateKey(slot.startMillisUtc, timezone)
+
+      if (preference.dateKey && slotDateKey !== preference.dateKey) {
+        return false
+      }
+
+      if (preference.minimumDateKey && slotDateKey < preference.minimumDateKey) {
         return false
       }
 
@@ -221,12 +227,14 @@ function compareAvailabilityOptions(left, right, preference, timezone) {
 }
 
 function getMonthOffsetForPreference(preference, timezone) {
-  if (!preference.dateKey) {
+  const targetDateKey = preference.dateKey || preference.minimumDateKey
+
+  if (!targetDateKey) {
     return 0
   }
 
   const current = getDateParts(Date.now(), timezone)
-  const [targetYear, targetMonth] = preference.dateKey.split('-').map(Number)
+  const [targetYear, targetMonth] = targetDateKey.split('-').map(Number)
 
   if (!targetYear || !targetMonth) {
     return 0
@@ -244,6 +252,10 @@ export function getAvailabilityMonthOffsets(preference, weekday, timezone) {
     return [monthOffset]
   }
 
+  if (preference.minimumDateKey) {
+    return [monthOffset, monthOffset + 1]
+  }
+
   // General availability also needs the following page. Around midnight and
   // month-end, the customer's local date can already be in the next month while
   // HubSpot's scheduling timezone is still on the previous calendar month.
@@ -252,8 +264,10 @@ export function getAvailabilityMonthOffsets(preference, weekday, timezone) {
 
 export function parsePreferredTime(value, timezone) {
   const normalized = String(value || '').toLowerCase()
+  const minimumDateKey = parsePreferredMinimumDateKey(normalized, timezone)
   const preference = {
     dateKey: parsePreferredDateKey(normalized, timezone),
+    ...(minimumDateKey ? { minimumDateKey } : {}),
   }
   const timeText = normalized
     .replace(
@@ -282,6 +296,27 @@ export function parsePreferredTime(value, timezone) {
   }
 
   return { ...preference, hour, minute }
+}
+
+function parsePreferredMinimumDateKey(value, timezone) {
+  const normalized = normalizeTreatmentSearchText(value)
+
+  if (!/\b(next week|following week|proxima semana|semana que viene|semana siguiente|semana seguinte)\b/.test(normalized)) {
+    return ''
+  }
+
+  const currentWeekday = getWeekdayIndex(Date.now(), timezone)
+  const daysUntilNextMonday = currentWeekday === 0 ? 1 : 8 - currentWeekday
+  return getDateKey(Date.now() + daysUntilNextMonday * 24 * 60 * 60 * 1000, timezone)
+}
+
+function getWeekdayIndex(timestamp, timezone) {
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    timeZone: timezone,
+  }).format(new Date(timestamp)).toLowerCase()
+
+  return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(weekday)
 }
 
 function parsePreferredDateKey(value, timezone) {
