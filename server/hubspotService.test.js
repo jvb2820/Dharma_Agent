@@ -69,7 +69,7 @@ test('booking deals include the customer phone number', () => {
     },
   })
 
-  assert.equal(properties.phone, '+1 (347) 866-5207')
+  assert.equal(properties.phone, '+13478665207')
 })
 
 test('booking deals omit an unavailable customer phone number', () => {
@@ -94,14 +94,14 @@ test('confirmation workflow time is written explicitly in Florida time', () => {
   )
 })
 
-test('HubSpot phone values are normalized to the US display format', () => {
+test('HubSpot phone values are normalized to strict E.164 format', () => {
   for (const input of [
     '19547981563',
     '9547981563',
     '+1 954-798-1563',
     '(954) 798 1563',
   ]) {
-    assert.equal(formatUsPhoneForHubSpot(input), '+1 (954) 798-1563')
+    assert.equal(formatUsPhoneForHubSpot(input), '+19547981563')
   }
 })
 
@@ -117,5 +117,5 @@ test('deal phone is normalized even when the customer provides raw digits', () =
     },
   })
 
-  assert.equal(properties.phone, '+1 (954) 798-1563')
+  assert.equal(properties.phone, '+19547981563')
 })

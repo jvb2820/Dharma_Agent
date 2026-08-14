@@ -969,7 +969,9 @@ export function formatUsPhoneForHubSpot(phone = '') {
     return rawPhone
   }
 
-  return `+1 (${nationalNumber.slice(0, 3)}) ${nationalNumber.slice(3, 6)}-${nationalNumber.slice(6)}`
+  // HubSpot validates booking/contact phone properties as E.164. A display
+  // value can be rejected by the scheduler even when it has the same digits.
+  return `+1${nationalNumber}`
 }
 
 async function updateContactProperties(contactId, properties) {

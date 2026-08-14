@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  createDummyEmailFromProvidedPhone,
   extractUsPhoneNumber,
   hasConfirmedFullName,
   isExactRespondClientStatus,
@@ -89,4 +90,5 @@ test('US phone numbers are normalized with a leading 1 for booking and dummy ema
   assert.equal(normalizeUsPhoneNumber('1 801 574 9966'), '18015749966')
   assert.equal(normalizeUsPhoneNumber('+1 (801) 574-9966'), '18015749966')
   assert.equal(normalizeUsPhoneNumber('+52 55 1234 5678'), '')
+  assert.equal(createDummyEmailFromProvidedPhone('+1 (801) 574-9966'), '18015749966@dummy.com')
 })

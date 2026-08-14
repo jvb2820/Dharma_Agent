@@ -4823,6 +4823,23 @@ function buildRespondBookingFailure(booking, details, customerLanguage, error) {
   console.warn(`Unable to book Respond HubSpot appointment: ${error.message}`)
   const failureType = classifyBookingFailure(error)
   const slotUnavailable = failureType === 'slot_unavailable'
+  const invalidPhone =
+    failureType === 'invalid_details' &&
+    /(?:invalid_phone_number|\bphone\b|\btelefono\b|\btelefone\b)/i.test(String(error?.message || error))
+
+  if (invalidPhone) {
+    return {
+      text: bookingCopy(customerLanguage, 'askValidUsPhone'),
+      booking: {
+        ...booking,
+        details: { ...details, phone: '', phoneConfirmed: false },
+        pendingField: 'phone',
+        lastBookingError: error.message,
+        lastBookingFailureType: failureType,
+        bookingFailureCount: Number(booking.bookingFailureCount || 0) + 1,
+      },
+    }
+  }
 
   return {
     text: bookingCopy(customerLanguage, 'bookingFailed'),
@@ -5095,6 +5112,11 @@ function bookingCopy(language, key, values = {}) {
       'To finish booking your appointment, could you please share your U.S. phone number? 📲',
       'Para terminar de agendar tu cita, ¿podrías compartir tu número de teléfono de Estados Unidos? 📲',
       'Para concluir o agendamento, você poderia enviar seu número de telefone dos Estados Unidos? 📲',
+    ),
+    askValidUsPhone: tri(
+      'I could not validate that phone number. Your selected appointment time is still saved. Please send a valid U.S. phone number so I can finish booking it. 📲',
+      'No pude validar ese número de teléfono. El horario que elegiste sigue guardado. Envíame un número válido de Estados Unidos para terminar de agendar la cita. 📲',
+      'Não consegui validar esse número de telefone. O horário escolhido continua salvo. Envie um número válido dos Estados Unidos para eu concluir o agendamento. 📲',
     ),
     askName: tri(
       'That time works. What full name should I put on the appointment? 📲',
