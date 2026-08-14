@@ -51,9 +51,11 @@ export function normalizePhoneDigitsForEmail(phone) {
 export function extractCustomerFullName(content = '') {
   const withoutPhoneOrEmail = stripPhoneAndEmail(content)
   const explicitName = extractExplicitName(withoutPhoneOrEmail)
-  const candidate = explicitName || withoutPhoneOrEmail
+  if (explicitName) {
+    return cleanExplicitNameCandidate(explicitName)
+  }
 
-  return cleanFullNameCandidate(candidate)
+  return cleanFullNameCandidate(withoutPhoneOrEmail)
 }
 
 export function splitCustomerFullName(content = '') {
@@ -114,6 +116,17 @@ function cleanFullNameCandidate(value) {
   }
 
   return cleaned
+}
+
+function cleanExplicitNameCandidate(value) {
+  const cleaned = String(value || '')
+    .replace(/\b(?:please|pls|thanks|thank you|gracias|por favor|obrigado|obrigada)\b/gi, ' ')
+    .replace(/[^A-Za-zÀ-ÖØ-öø-ÿ' -]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const parts = cleaned.split(/\s+/).filter(Boolean)
+
+  return parts.length >= 1 && parts.length <= 5 ? cleaned : ''
 }
 
 function isFullNameCandidate(value) {

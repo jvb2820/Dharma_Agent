@@ -122,6 +122,20 @@ import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
 import { createRespondMessageCoordinator } from './respondMessageCoordinator.js'
+import {
+  classifyBookingFailure,
+  getInitialConsultationCostAnswer,
+  getInsuranceAnswer,
+  isGeneralZepboundQuestion,
+  isInitialConsultationCostQuestion,
+  isInsuranceQuestion,
+} from './respondConversationRules.js'
+import {
+  clearRespondSessions as clearStoredRespondSessions,
+  deleteRespondSession as deleteStoredRespondSession,
+  loadRespondSession,
+  saveRespondSession,
+} from './respondSessionService.js'
 
 loadLocalEnv()
 
@@ -196,6 +210,7 @@ const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
     '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
 }
 const respondSessions = new Map()
+const respondSessionPersistenceQueues = new Map()
 const pendingPostBookingAssignments = new Map()
 const respondMessageCoordinator = createRespondMessageCoordinator()
 
@@ -530,6 +545,7 @@ async function handleRespondSessionReset(request, response) {
   if (body.all === true) {
     const cleared = respondSessions.size
     respondSessions.clear()
+    await clearStoredRespondSessions()
     sendJson(response, 200, { ok: true, cleared })
     return
   }
@@ -540,7 +556,7 @@ async function handleRespondSessionReset(request, response) {
   }
 
   const contactId = String(body.contactId)
-  const existed = respondSessions.delete(contactId)
+  const existed = removeRespondSession(contactId)
 
   sendJson(response, 200, { ok: true, contactId, cleared: existed ? 1 : 0 })
 }
@@ -685,6 +701,7 @@ function getDefaultInitialImageUrl() {
 }
 
 async function handleRespondConversationStateEvent(event) {
+  await hydrateRespondSession(event.contactId)
   const session = getRespondSession(event.contactId)
 
   if (event.isConversationUnassignedEvent) {
@@ -723,7 +740,7 @@ async function handleRespondConversationStateEvent(event) {
         assignedAt: event.timestamp || Date.now(),
       })
       await saveHumanTakeoverLock(humanLock).catch((error) => console.warn(error.message))
-      respondSessions.set(event.contactId, {
+      setRespondSession(event.contactId, {
         ...session,
         humanTakeoverLock: humanLock,
         lastInteractionAt: Date.now(),
@@ -757,7 +774,7 @@ async function handleRespondConversationStateEvent(event) {
       ...(closedLock ? { humanTakeoverLock: closedLock } : {}),
       lastInteractionAt: Date.now(),
     }
-    respondSessions.set(event.contactId, nextSession)
+    setRespondSession(event.contactId, nextSession)
     console.log('[respond-conversation-closed]', {
       contactId: event.contactId,
       eventName: event.eventName,
@@ -793,6 +810,7 @@ async function sendBookingConfirmationVideo({ contactId, channelId }) {
 }
 
 async function processRespondIncomingMessage(event) {
+  await hydrateRespondSession(event.contactId)
   let session = getRespondSession(event.contactId)
   let respondContactProfile = await getRespondContactProfile(event.contactId, session.respondContactProfile)
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
@@ -814,7 +832,7 @@ async function processRespondIncomingMessage(event) {
   }
 
   if (isPostBookingLockActive(postBookingLock)) {
-    respondSessions.set(event.contactId, {
+    setRespondSession(event.contactId, {
       ...session,
       postBookingLock,
       respondContactProfile,
@@ -832,7 +850,7 @@ async function processRespondIncomingMessage(event) {
       console.warn(error.message)
     })
     await unassignRespondConversationAfterReply(event.contactId)
-    respondSessions.delete(event.contactId)
+    removeRespondSession(event.contactId)
     session = getRespondSession(event.contactId)
     respondContactProfile = mergeRespondContactProfileFallbacks(
       await getRespondContactProfile(event.contactId, null),
@@ -873,7 +891,7 @@ async function processRespondIncomingMessage(event) {
   }
 
   if (isHumanTakeoverLockActive(humanTakeoverLock)) {
-    respondSessions.set(event.contactId, {
+    setRespondSession(event.contactId, {
       ...session,
       humanTakeoverLock,
       respondContactProfile,
@@ -895,7 +913,7 @@ async function processRespondIncomingMessage(event) {
       console.warn(error.message)
     })
     await unassignRespondConversationAfterReply(event.contactId)
-    respondSessions.delete(event.contactId)
+    removeRespondSession(event.contactId)
     session = getRespondSession(event.contactId)
     respondContactProfile = mergeRespondContactProfileFallbacks(
       await getRespondContactProfile(event.contactId, null),
@@ -915,7 +933,7 @@ async function processRespondIncomingMessage(event) {
     await saveHumanTakeoverLock(humanTakeoverLock).catch((error) => {
       console.warn(error.message)
     })
-    respondSessions.set(event.contactId, {
+    setRespondSession(event.contactId, {
       ...session,
       humanTakeoverLock,
       respondContactProfile,
@@ -950,7 +968,7 @@ async function processRespondIncomingMessage(event) {
     } else {
       const transferHandoffAt = automationDecision.lastHumanActivityAt || session.transferHandoffAt || Date.now()
 
-      respondSessions.set(event.contactId, {
+      setRespondSession(event.contactId, {
         ...session,
         transferHandoffAt,
         lastInteractionAt: Date.now(),
@@ -1042,7 +1060,7 @@ async function processRespondIncomingMessage(event) {
     })
     await unassignRespondConversationAfterReply(event.contactId)
 
-    respondSessions.set(event.contactId, {
+    setRespondSession(event.contactId, {
       channelId: event.channelId,
       customerLanguage: initialLanguage,
       languageAsked: false,
@@ -1078,7 +1096,7 @@ async function processRespondIncomingMessage(event) {
     })
     await unassignRespondConversationAfterReply(event.contactId)
 
-    respondSessions.set(event.contactId, {
+    setRespondSession(event.contactId, {
       channelId: event.channelId,
       customerLanguage: preferredLanguage,
       languageAsked: false,
@@ -1208,7 +1226,7 @@ async function processRespondIncomingMessage(event) {
       await unassignRespondConversationAfterReply(event.contactId)
     }
 
-    respondSessions.set(event.contactId, {
+    setRespondSession(event.contactId, {
       customerLanguage,
       languageAsked: false,
       lastInteractionAt: Date.now(),
@@ -1268,7 +1286,7 @@ async function processRespondIncomingMessage(event) {
   })
   await unassignRespondConversationAfterReply(event.contactId)
 
-  respondSessions.set(event.contactId, {
+  setRespondSession(event.contactId, {
     customerLanguage,
     languageAsked: false,
     lastInteractionAt: Date.now(),
@@ -1355,7 +1373,7 @@ async function shouldPauseRespondReplyForHumanTakeover(contactId, session = {}) 
     assignee: getConversationAssignee(profile),
   })
   await saveHumanTakeoverLock(detectedLock).catch((error) => console.warn(error.message))
-  respondSessions.set(contactId, {
+  setRespondSession(contactId, {
     ...session,
     humanTakeoverLock: detectedLock,
     respondContactProfile: profile,
@@ -1447,7 +1465,7 @@ async function transferRespondConversationToCustomerService({
 
   await sendRespondTextMessage({ contactId, channelId, text })
 
-  respondSessions.set(contactId, {
+  setRespondSession(contactId, {
     ...session,
     customerLanguage,
     languageAsked: false,
@@ -1597,7 +1615,7 @@ function clearRespondTransferSessionMarkers(contactId, session = {}, respondCont
   delete nextSession.handoffAt
   delete nextSession.transferClosedAt
 
-  respondSessions.set(contactId, nextSession)
+  setRespondSession(contactId, nextSession)
 }
 
 function formatRespondAutomationDecisionLog(decision = {}) {
@@ -1736,6 +1754,41 @@ function getRespondSession(contactId) {
     booking: null,
     respondContactProfile: null,
   }
+}
+
+async function hydrateRespondSession(contactId) {
+  if (respondSessions.has(contactId)) return respondSessions.get(contactId)
+
+  const storedSession = await loadRespondSession(contactId, null)
+  if (storedSession) respondSessions.set(contactId, storedSession)
+  return storedSession
+}
+
+function setRespondSession(contactId, session) {
+  respondSessions.set(contactId, session)
+  queueRespondSessionPersistence(contactId, () => saveRespondSession(contactId, session))
+  return session
+}
+
+function removeRespondSession(contactId) {
+  const existed = respondSessions.delete(contactId)
+  queueRespondSessionPersistence(contactId, () => deleteStoredRespondSession(contactId))
+  return existed
+}
+
+function queueRespondSessionPersistence(contactId, operation) {
+  const previous = respondSessionPersistenceQueues.get(contactId) || Promise.resolve()
+  const current = previous.catch(() => {}).then(operation)
+  const settled = current
+    .catch((error) => console.warn(error.message))
+    .finally(() => {
+      if (respondSessionPersistenceQueues.get(contactId) === settled) {
+        respondSessionPersistenceQueues.delete(contactId)
+      }
+    })
+
+  respondSessionPersistenceQueues.set(contactId, settled)
+  return settled
 }
 
 async function getRespondContactProfile(contactId, fallbackProfile = null) {
@@ -2732,7 +2785,13 @@ async function handleRespondBookingAutomation({
   }
 
   const deterministicPolicyAnswer =
-    isPrescribedTreatmentDeclination(latestUserText)
+    isInsuranceQuestion(latestUserText)
+      ? getInsuranceAnswer(customerLanguage)
+      : isInitialConsultationCostQuestion(latestUserText)
+        ? getInitialConsultationCostAnswer(customerLanguage)
+        : isGeneralZepboundQuestion(latestUserText)
+          ? getGeneralMedicationOfferingAnswer(customerLanguage)
+          : isPrescribedTreatmentDeclination(latestUserText)
       ? getPrescribedTreatmentDeclinationAnswer(customerLanguage)
       : isAffordabilityObjection(latestUserText) || isContextualAffordabilityObjection(latestUserText, messages)
       ? getAffordabilityAnswer(customerLanguage)
@@ -3240,6 +3299,23 @@ async function handleRespondBookingAutomation({
       details,
       nameDetails,
     )
+
+    // A customer can change the requested time while also providing a name
+    // (for example, "8:30am, mi nombre es Jenny"). Honor the scheduling
+    // change first and retain any usable name details for the next step.
+    if (activeOption && latestSignals.preferredTime) {
+      return await offerSoonestRespondSlot({
+        booking: buildBookingWithRejectedAvailability({
+          booking: { ...existingBooking, bookingTeam, pendingField: '' },
+          latestUserText,
+          details: nextDetails,
+        }),
+        details: nextDetails,
+        customerLanguage,
+        preferredTime: nextDetails.preferredTime,
+        closest: true,
+      })
+    }
 
     if (!hasBookableRespondCustomerName(nextDetails, respondContactProfile)) {
       if (isOutOfFlowQuestion) {
@@ -4528,6 +4604,10 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
     return false
   }
 
+  if (isGeneralZepboundQuestion(rawText)) {
+    return false
+  }
+
   if (
     isTreatmentPackageInclusionsQuestion(rawText) &&
     !/\b(client|patient|customer|cliente|paciente|she|he|ella|el|ele|ela|celebrity|celebridad|public figure|figura publica)\b/.test(normalizedText) &&
@@ -4741,13 +4821,17 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
 
 function buildRespondBookingFailure(booking, details, customerLanguage, error) {
   console.warn(`Unable to book Respond HubSpot appointment: ${error.message}`)
+  const failureType = classifyBookingFailure(error)
+  const slotUnavailable = failureType === 'slot_unavailable'
 
   return {
     text: bookingCopy(customerLanguage, 'bookingFailed'),
     booking: {
-      ...buildBookingWithExcludedOptions(booking),
+      ...(slotUnavailable ? buildBookingWithExcludedOptions(booking) : booking),
       details,
       lastBookingError: error.message,
+      lastBookingFailureType: failureType,
+      bookingFailureCount: Number(booking.bookingFailureCount || 0) + 1,
     },
   }
 }

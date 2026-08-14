@@ -534,7 +534,10 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
       errors: data.errors,
       category: data.category,
     })
-    throw new Error(data.message || `HubSpot booking failed with ${response.status}.`)
+    const error = new Error(data.message || `HubSpot booking failed with ${response.status}.`)
+    error.status = response.status
+    error.category = data.category || ''
+    throw error
   }
 
   if (data.isOffline) {
