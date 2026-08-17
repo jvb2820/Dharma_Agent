@@ -32,7 +32,12 @@ export async function withRespondContactLock({ contactId, messageId = '', task }
     if (messageClaimed) {
       await supabase
         .from('respond_processed_messages')
-        .update({ status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          updated_at: new Date().toISOString(),
+        })
         .eq('contact_id', String(contactId))
         .eq('message_id', String(messageId))
         .eq('owner_id', ownerId)

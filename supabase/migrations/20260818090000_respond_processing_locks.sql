@@ -55,8 +55,7 @@ create or replace function public.claim_respond_webhook_message(
 language plpgsql security definer set search_path = public
 as $$
 begin
-  delete from public.respond_processed_messages
-  where status = 'processing' and expires_at <= now();
+  delete from public.respond_processed_messages where expires_at <= now();
 
   insert into public.respond_processed_messages (
     contact_id, message_id, owner_id, status, expires_at
