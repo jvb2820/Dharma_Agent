@@ -499,6 +499,23 @@ export async function bookCustomerServiceMeeting({ customer, option }) {
   })
 }
 
+export async function isMeetingOptionAvailable(option = {}) {
+  const sellerSlug = String(option.sellerSlug || '').trim()
+  const startTime = Number(option.startTime)
+  const timezone = option.timezone || EASTERN_TIMEZONE
+  if (!sellerSlug || !Number.isFinite(startTime)) return false
+
+  const meetingInfo = await fetchMeetingInfo({ slug: sellerSlug, timezone })
+  const duration = Number(option.duration || meetingInfo.customParams?.durations?.[0] || 1200000)
+  const target = getDateParts(startTime, timezone)
+  const current = getDateParts(Date.now(), timezone)
+  const monthOffset = Math.max(0, (target.year - current.year) * 12 + (target.month - current.month))
+  const availability = await fetchAvailability({ slug: sellerSlug, timezone, monthOffset })
+  const slots = availability?.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || []
+
+  return slots.some((slot) => Number(slot.startMillisUtc) === startTime)
+}
+
 export async function enrollContactInPostBookingWorkflow(email) {
   if (!email) {
     throw new Error('A HubSpot contact email is required for workflow enrollment.')

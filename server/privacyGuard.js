@@ -20,7 +20,7 @@ export function hasExplicitNamedPersonMedicationQuestion(text = '') {
 
 export function isExplicitThirdPartyMedicationQuestion(text = '') {
   const normalized = normalizePrivacyText(text)
-  const person = '(?:customer|customers|client|clients|patient|patients|cliente|clientes|paciente|pacientes|she|he|they|ella|ellos|ellas|ele|ela)'
+  const person = '(?:(?:this|that|the|your|a specific|one of your|ese|esa|aquel|aquella|el|la|su|sua|seu)\\s+(?:customer|client|patient|cliente|paciente)|(?:a|the|this|that)?\\s*(?:celebrity|public figure|celebridad|figura publica)|she|he|ella|ele|ela)'
   const treatment = '(?:medication|medications|medicine|treatment|treatments|program|injection|injections|semaglutide|tirzepatide|zepbound|medicamento|medicamentos|tratamiento|tratamientos|programa|inyeccion|inyecciones|tratamento|tratamentos|injecao|injecoes)'
 
   return [

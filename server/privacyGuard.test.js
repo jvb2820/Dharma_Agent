@@ -72,6 +72,24 @@ test('third-party customer treatment questions are privacy questions', () => {
   }
 })
 
+test('general questions about clients and celebrities are not private records requests', () => {
+  for (const message of [
+    'What treatments do your clients use?',
+    'Which medication is most popular with patients?',
+    'What treatments are popular with celebrities?',
+    'Que tratamientos usan sus clientes?',
+    'Cual medicamento es popular entre pacientes?',
+  ]) {
+    assert.equal(isExplicitThirdPartyMedicationQuestion(message), false)
+    assert.equal(hasExplicitNamedPersonMedicationQuestion(message), false)
+  }
+})
+
+test('a celebrity treatment question still protects the identifiable person', () => {
+  assert.equal(isExplicitThirdPartyMedicationQuestion('Which treatment did that celebrity use?'), true)
+  assert.equal(isExplicitThirdPartyMedicationQuestion('Que medicamento uso esa celebridad?'), true)
+})
+
 test('general treatment questions are not privacy questions', () => {
   for (const message of [
     'Which treatments?',

@@ -5,7 +5,12 @@ export function hasNamedPersonTreatmentQuestion(text = '') {
   const useOrComparisonSignal = /\b(use|using|used|take|taking|took|same as|like|what she|what he|uso|utilizo|utiliza|tomo|igual que|lo mismo|usou|usa|tomou|mesmo que)\b/.test(normalized)
   const generalMedicationQuestion = /\b(may i know|can i know|want to know|know more|more about|tell me about|your medications?|your treatments?|saber mas|mas sobre|saber mais|mais sobre)\b/.test(normalized)
   const explicitPersonReference = /\b(client|patient|cliente|paciente|she|he|they|ella|ellos|ellas|ele|ela|same as|same things as|same treatment as|igual que|mesmo que)\b/.test(normalized)
-  const explicitThirdPartyTreatment = /\b(customer|customers|client|clients|patient|patients|cliente|clientes|paciente|pacientes|she|he|they|ella|ellos|ellas|ele|ela)\b[\s\S]{0,80}\b(medication|medications|medicine|treatment|treatments|program|injection|injections|medicamento|medicamentos|tratamiento|tratamientos|programa|inyeccion|inyecciones|tratamento|tratamentos|injecao|injecoes)\b|\b(medication|medications|medicine|treatment|treatments|program|injection|injections|medicamento|medicamentos|tratamiento|tratamientos|programa|inyeccion|inyecciones|tratamento|tratamentos|injecao|injecoes)\b[\s\S]{0,80}\b(customer|customers|client|clients|patient|patients|cliente|clientes|paciente|pacientes|she|he|they|ella|ellos|ellas|ele|ela)\b/.test(normalized)
+  const identifiableThirdParty = '(?:(?:this|that|the|your|a specific|one of your|ese|esa|aquel|aquella|el|la|su|sua|seu)\\s+(?:customer|client|patient|cliente|paciente)|(?:a|the|this|that)?\\s*(?:celebrity|public figure|celebridad|figura publica)|she|he|ella|ele|ela)'
+  const thirdPartyTreatment = '(?:medication|medications|medicine|treatment|treatments|program|injection|injections|medicamento|medicamentos|tratamiento|tratamientos|programa|inyeccion|inyecciones|tratamento|tratamentos|injecao|injecoes)'
+  const explicitThirdPartyTreatment = [
+    new RegExp(`\\b${identifiableThirdParty}\\b[\\s\\S]{0,80}\\b${thirdPartyTreatment}\\b`),
+    new RegExp(`\\b${thirdPartyTreatment}\\b[\\s\\S]{0,80}\\b${identifiableThirdParty}\\b`),
+  ].some((pattern) => pattern.test(normalized))
 
   if (explicitThirdPartyTreatment) return true
 

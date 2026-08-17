@@ -73,6 +73,7 @@ import {
   getCustomerServiceAvailability,
   getNewClientAvailability,
   getPrioritySellerAvailability,
+  isMeetingOptionAvailable,
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
 import {
@@ -123,6 +124,7 @@ import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
 import { createRespondMessageCoordinator } from './respondMessageCoordinator.js'
+import { acquireSlotClaim, releaseSlotClaim } from './slotClaimService.js'
 import {
   classifyBookingFailure,
   getInitialConsultationCostAnswer,
@@ -818,6 +820,7 @@ async function processRespondIncomingMessage(event) {
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
     phone: event.contactPhone,
   })
+  respondContactProfile.contactId = event.contactId
   const postBookingLockEnabled = isPostBookingLockEnabled()
   const storedPostBookingLock = await getPostBookingLock(event.contactId, session.postBookingLock)
   const postBookingLock = postBookingLockEnabled ? storedPostBookingLock : null
@@ -4508,11 +4511,12 @@ function isContextualClientPrivacyFollowUp(latestUserText, messages = []) {
 
   if (!asksAboutTheirTreatment) return false
 
-  return [...messages]
+  const previousUserMessage = [...messages]
     .reverse()
     .filter((message) => message.role === 'user' && message.content !== latestUserText)
-    .slice(0, 3)
-    .some((message) => isClientTreatmentPrivacyQuestion(message.content))
+    .at(0)
+
+  return Boolean(previousUserMessage && isClientTreatmentPrivacyQuestion(previousUserMessage.content))
 }
 
 function getGeneralMedicationOfferingAnswer(customerLanguage) {
@@ -4653,13 +4657,6 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
 
   return (
     isNamedPersonTreatmentQuestion(rawText, normalizedText) ||
-    /\b(celebrity|celebrities|famous|public figure)\b/.test(
-      normalizedText,
-    ) ||
-    /\b(famosa|famoso|celebridad|celebridades|figura publica)\b/.test(
-      normalizedText,
-    ) ||
-    /\b(famosa|famoso|celebridade|figura publica)\b/.test(normalizedText) ||
     /\b(client|patient|cliente|paciente)\b[\s\S]{0,40}\b(treatment|medication|medicine|program|tratamiento|medicamento|programa|tratamento)\b/.test(
       normalizedText,
     ) ||
@@ -4806,10 +4803,29 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
       ? bookCustomerServiceMeeting
       : bookPrioritySellerMeeting
   const customer = buildRespondBookingCustomer(details, customerLanguage)
-  const booked = await bookMeeting({
-    customer,
-    option,
-  })
+  const claimContactId = respondContactProfile?.contactId || customer.email || customer.phone
+  const claim = await acquireSlotClaim({ option, contactId: claimContactId })
+
+  if (!claim.acquired) {
+    const error = new Error('The selected slot is already being booked by another customer.')
+    error.status = 409
+    throw error
+  }
+
+  let booked
+
+  try {
+    const stillAvailable = await isMeetingOptionAvailable(option)
+    if (!stillAvailable) {
+      const error = new Error('The selected slot is no longer available.')
+      error.status = 409
+      throw error
+    }
+
+    booked = await bookMeeting({ customer, option })
+  } finally {
+    await releaseSlotClaim({ slotKey: claim.slotKey, contactId: claimContactId })
+  }
 
   return {
     text: await buildBookedMessage({
@@ -4828,7 +4844,7 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
   }
 }
 
-function buildRespondBookingFailure(booking, details, customerLanguage, error) {
+async function buildRespondBookingFailure(booking, details, customerLanguage, error) {
   console.warn(`Unable to book Respond HubSpot appointment: ${error.message}`)
   const failureType = classifyBookingFailure(error)
   const slotUnavailable = failureType === 'slot_unavailable'
@@ -4847,6 +4863,27 @@ function buildRespondBookingFailure(booking, details, customerLanguage, error) {
         lastBookingFailureType: failureType,
         bookingFailureCount: Number(booking.bookingFailureCount || 0) + 1,
       },
+    }
+  }
+
+  if (slotUnavailable) {
+    const replacement = await offerSoonestRespondSlot({
+      booking: buildBookingWithExcludedOptions(booking),
+      details,
+      customerLanguage,
+      preferredTime: details.preferredTime,
+      closest: Boolean(details.preferredTime),
+      offerCopyKey: 'offerAlternativeSlot',
+    }).catch((availabilityError) => {
+      console.warn(`Unable to recover from Respond slot conflict: ${availabilityError.message}`)
+      return null
+    })
+
+    if (replacement?.booking?.offeredOption || replacement?.booking?.options?.length) {
+      return {
+        ...replacement,
+        text: `${bookingCopy(customerLanguage, 'slotTaken')}\n\n${replacement.text}`,
+      }
     }
   }
 
@@ -5226,6 +5263,11 @@ function bookingCopy(language, key, values = {}) {
       'I could not confirm that appointment right now. Your scheduling preference is still saved, and I can check another confirmed opening.',
       'No pude confirmar esa cita en este momento. Tu preferencia de horario sigue guardada y puedo revisar otro espacio confirmado.',
       'Não consegui confirmar esse agendamento agora. Sua preferência de horário continua salva e posso verificar outra vaga confirmada.',
+    ),
+    slotTaken: tri(
+      'That time was just reserved by another customer, so I checked the calendar again.',
+      'Ese horario acaba de ser reservado por otro cliente, asi que revise el calendario nuevamente.',
+      'Esse horario acabou de ser reservado por outro cliente, entao consultei o calendario novamente.',
     ),
     checking: tri(
       'Give me a moment and I will help with the next available time.',
