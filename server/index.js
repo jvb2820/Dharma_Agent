@@ -170,7 +170,7 @@ It is a pleasure to have you here. Take a look at our Instagram *@dharma.clinic*
 
 💰*PRICE OF OUR BEST-SELLING TREATMENT:*
 
-• *$266* – Personalized GLP-1 starting at $266/month
+• *$235* – Personalized GLP-1 starting at $235/month
 
 We offer longer treatments to help you reach your goal.
 
@@ -185,7 +185,7 @@ Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic*
 
 💰*PRECIO DE LO MÁS VENDIDO:*
 
-• *$266* – A partir de $266/mes de GLP-1 personalizado
+• *$235* – A partir de $235/mes de GLP-1 personalizado
 
 Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
 
@@ -200,7 +200,7 @@ Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
 
 💰*PREÇO DO NOSSO TRATAMENTO MAIS VENDIDO:*
 
-• *$266* – GLP-1 personalizado a partir de $266/mês
+• *$235* – GLP-1 personalizado a partir de $235/mês
 
 Temos tratamentos mais longos para que você possa alcançar seu objetivo.
 
