@@ -40,7 +40,7 @@ const BOOKING_SPECIALIST_NAMES = {
 }
 
 export async function buildBookedMessage({ bookingTeam, option, booked, customer = {}, language = '' }) {
-  const scheduledAt = option?.startTime || booked?.startTime
+  const scheduledAt = resolveBookedScheduledAt({ option, booked })
   const timezone = getStateTimeZone(customer.state, option?.timezone || FLORIDA_TIMEZONE)
   const timeLabel = getStateTimeLabel(customer.state)
   const specialistName = resolveBookedSpecialistName({ bookingTeam, option, booked })
@@ -89,6 +89,10 @@ export async function buildBookedMessage({ bookingTeam, option, booked, customer
     '',
     "⚠️*To secure your discount, ensure availability for your initial evaluation call. Our schedule fills quickly; rescheduling on the same day is not guaranteed if the call is missed.*",
   ].join('\n')
+}
+
+export function resolveBookedScheduledAt({ option, booked } = {}) {
+  return booked?.confirmedStartTime || booked?.startTime || option?.startTime
 }
 
 async function resolveCurrentAircallNumber({ specialistName, option, booked }) {

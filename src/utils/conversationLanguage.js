@@ -34,6 +34,17 @@ export function detectLatestMessageLanguage(content = '') {
     return 'Latin American Spanish'
   }
 
+  // Spanish conditional scheduling replies often contain only short words
+  // that overlap with Portuguese after accents are removed. "Ese/este
+  // horario" and "no podria" are unambiguous Spanish booking phrases.
+  if (
+    /\b(ese|este|otro)\s+horario\b/.test(normalized) ||
+    /\bno+\s+(?:me\s+)?(?:podria|funcionaria|serviria)\b/.test(normalized) ||
+    /\b(?:podria|funcionaria|serviria)\s+(?:ese|este|otro)\s+horario\b/.test(normalized)
+  ) {
+    return 'Latin American Spanish'
+  }
+
   if (/\b(cual|ella|utilizo|fue|el tratamiento)\b/.test(normalized)) {
     return 'Latin American Spanish'
   }

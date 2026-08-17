@@ -188,6 +188,18 @@ test('latest Spanish scheduling messages override an earlier English language', 
   }
 })
 
+test('Spanish conditional slot rejections override a stale Portuguese language', () => {
+  for (const message of [
+    'Noo ese horario no podría',
+    'Ese horario no me serviría',
+    'No podría a esa hora',
+    'Este horario no me funcionaría',
+  ]) {
+    assert.equal(detectLatestMessageLanguage(message), 'Latin American Spanish')
+    assert.equal(resolveLatestMessageLanguage(message, 'Portuguese'), 'Latin American Spanish')
+  }
+})
+
 test('Spanish treatment requests select Spanish for the opening templates', () => {
   for (const message of [
     'Necesito la tirzepatida',
@@ -324,6 +336,19 @@ test('a rejected relative date rejects the whole offered calendar day', () => {
   assert.equal(rejectsOfferedCalendarDate("I can't make Thursday"), true)
   assert.equal(rejectsOfferedCalendarDate('Amanhã não posso'), true)
   assert.equal(rejectsOfferedCalendarDate('11:00 no me funciona'), false)
+})
+
+test('rejecting the referenced offered day advances to another calendar date', () => {
+  const offeredStart = Date.UTC(2026, 7, 18, 16, 20)
+
+  for (const message of [
+    'No puedo trabajo ese día. No tengo acceso al teléfono',
+    "I can't that day",
+    'Não posso esse dia',
+  ]) {
+    assert.equal(rejectsOfferedCalendarDate(message), true)
+    assert.equal(getMinimumStartAfterSlotRejection(message, offeredStart), undefined)
+  }
 })
 
 test('a rejected relative day advances scheduling instead of searching it again', () => {

@@ -104,10 +104,14 @@ test('general treatment questions are not privacy questions', () => {
 })
 
 test('a Tirzepatide price question is general pricing, not client privacy', () => {
-  assert.equal(
-    hasExplicitNamedPersonMedicationQuestion('Quiero saber el precio de la Tirzepatide'),
-    false,
-  )
+  for (const message of [
+    'Quiero saber el precio de la Tirzepatide',
+    '¿Cuánto cuesta el semaglutide?',
+    'Cuanto cuesta el Zepbound?',
+  ]) {
+    assert.equal(hasExplicitNamedPersonMedicationQuestion(message), false)
+    assert.equal(isExplicitThirdPartyMedicationQuestion(message), false)
+  }
 })
 
 test('does not treat general medication questions as named-person questions', () => {

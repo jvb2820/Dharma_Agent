@@ -48,7 +48,7 @@ export function hasStrictRequestedDay(preferredTime = '') {
 export function rejectsOfferedCalendarDate(content = '') {
   const normalized = normalizeRuleText(content)
   const negative = /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized)
-  const date = /\b(today|tomorrow|day after tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|hoy|manana|pasado manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoje|amanha|segunda|terca|quarta|quinta|sexta)\b/.test(normalized)
+  const date = /\b(today|tomorrow|day after tomorrow|that day|this day|the offered day|monday|tuesday|wednesday|thursday|friday|saturday|sunday|hoy|manana|pasado manana|ese dia|este dia|el dia ofrecido|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoje|amanha|esse dia|este dia|o dia oferecido|segunda|terca|quarta|quinta|sexta)\b/.test(normalized)
 
   return negative && date
 }

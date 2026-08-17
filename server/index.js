@@ -124,6 +124,7 @@ import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
 import { createRespondMessageCoordinator } from './respondMessageCoordinator.js'
+import { withRespondContactLock } from './respondProcessingService.js'
 import { acquireSlotClaim, releaseSlotClaim } from './slotClaimService.js'
 import {
   classifyBookingFailure,
@@ -603,7 +604,18 @@ async function handleRespondWebhook(request, response) {
   const coordinatedMessage = respondMessageCoordinator.enqueue({
     contactId: event.contactId,
     messageId: event.messageId,
-    task: () => processRespondIncomingMessage(event),
+    task: () => withRespondContactLock({
+      contactId: event.contactId,
+      messageId: event.messageId,
+      task: async () => {
+        await refreshRespondSession(event.contactId)
+        try {
+          return await processRespondIncomingMessage(event)
+        } finally {
+          await waitForRespondSessionPersistence(event.contactId)
+        }
+      },
+    }),
   })
 
   if (coordinatedMessage.duplicate) {
@@ -1767,6 +1779,17 @@ async function hydrateRespondSession(contactId) {
   const storedSession = await loadRespondSession(contactId, null)
   if (storedSession) respondSessions.set(contactId, storedSession)
   return storedSession
+}
+
+async function refreshRespondSession(contactId) {
+  const storedSession = await loadRespondSession(contactId, null)
+  if (storedSession) respondSessions.set(contactId, storedSession)
+  else respondSessions.delete(contactId)
+  return storedSession
+}
+
+async function waitForRespondSessionPersistence(contactId) {
+  await (respondSessionPersistenceQueues.get(contactId) || Promise.resolve())
 }
 
 function setRespondSession(contactId, session) {
@@ -4507,7 +4530,7 @@ function isContextualClientPrivacyFollowUp(latestUserText, messages = []) {
   const normalized = normalizeSearchText(latestUserText)
   if (isSupplementProductQuestion(latestUserText)) return false
   const asksAboutTheirTreatment = /\b(what|which|cual|que|qual)\b[\s\S]{0,40}\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b/.test(normalized) ||
-    /\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b[\s\S]{0,40}\b(she|he|ella|el|ela|ele)\b/.test(normalized)
+    /\b(treatment|medication|medicine|tratamiento|tratamento|medicamento)\b[\s\S]{0,40}\b(she|he|ella|ela|ele)\b/.test(normalized)
 
   if (!asksAboutTheirTreatment) return false
 
@@ -4623,7 +4646,7 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
 
   if (
     isTreatmentPackageInclusionsQuestion(rawText) &&
-    !/\b(client|patient|customer|cliente|paciente|she|he|ella|el|ele|ela|celebrity|celebridad|public figure|figura publica)\b/.test(normalizedText) &&
+    !/\b(client|patient|customer|cliente|paciente|she|he|ella|ele|ela|celebrity|celebridad|public figure|figura publica)\b/.test(normalizedText) &&
     !/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\s+[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/.test(rawText)
   ) {
     return false
@@ -4639,12 +4662,20 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
     return true
   }
 
+  // General pricing is answerable company information. This check belongs
+  // after the named/specific-person checks so questions about an identifiable
+  // person's treatment remain private, while "el semaglutide" is correctly
+  // understood as the Spanish article "the", not the pronoun "he".
+  if (hasPriceOrPaymentQuestion(normalizedText)) {
+    return false
+  }
+
   const explicitlyRejectsNamedPersonQuestion =
     /\b(no|not)\b[\s\S]{0,40}\b(person|persona|client|cliente|patient|paciente|celebrity|celebridad)\b/.test(
       normalizedText,
     )
   const hasExplicitPrivacySubject =
-    /\b(celebrity|celebrities|famous|public figure|famosa|famoso|celebridad|celebridades|figura publica|client|patient|cliente|paciente|she|he|her|his|ella|el|ellos|ellas|ele|ela)\b/.test(
+    /\b(celebrity|celebrities|famous|public figure|famosa|famoso|celebridad|celebridades|figura publica|client|patient|cliente|paciente|she|he|her|his|ella|ellos|ellas|ele|ela)\b/.test(
       normalizedText,
     ) || (String(rawText || '').match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || []).length >= 2
 
@@ -4663,10 +4694,10 @@ function isClientTreatmentPrivacyQuestion(contentOrNormalizedText, maybeNormaliz
     /\b(treatment|medication|medicine|program|tratamiento|medicamento|programa|tratamento)\b[\s\S]{0,40}\b(client|patient|cliente|paciente)\b/.test(
       normalizedText,
     ) ||
-    /\b(she|he|they|her|his|ella|el|ellos|ellas|ele|ela)\b[\s\S]{0,60}\b(semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|tratamiento|medicamento|inyeccion|inyecciones|tratamento|medicamento|injecao)\b/.test(
+    /\b(she|he|they|her|his|ella|ellos|ellas|ele|ela)\b[\s\S]{0,60}\b(semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|tratamiento|medicamento|inyeccion|inyecciones|tratamento|medicamento|injecao)\b/.test(
       normalizedText,
     ) ||
-    /\b(semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|tratamiento|medicamento|inyeccion|inyecciones|tratamento|medicamento|injecao)\b[\s\S]{0,60}\b(she|he|they|her|his|ella|el|ellos|ellas|ele|ela)\b/.test(
+    /\b(semaglutide|tirzepatide|zepbound|glp 1|injection|injections|medication|medicine|treatment|tratamiento|medicamento|inyeccion|inyecciones|tratamento|medicamento|injecao)\b[\s\S]{0,60}\b(she|he|they|her|his|ella|ellos|ellas|ele|ela)\b/.test(
       normalizedText,
     )
   )
@@ -4699,7 +4730,8 @@ function isNamedPersonTreatmentQuestion(rawText, normalizedText) {
       normalizedText,
     )
   const hasThirdPersonReference =
-    /\b(she|he|her|him|his|they|them|ella|el|ellos|ellas|ele|ela)\b/.test(normalizedText)
+    /\b(she|he|her|him|his|they|them|ella|ellos|ellas|ele|ela)\b/.test(normalizedText) ||
+    /\bél\b/i.test(String(rawText || ''))
   const capitalizedWords = String(rawText || '').match(/\b[A-Z][a-zA-ZÀ-ÿ'-]{2,}\b/g) || []
   const hasLikelyName =
     capitalizedWords.length >= 2 ||

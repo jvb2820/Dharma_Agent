@@ -563,6 +563,7 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
     }),
   }
 
+  const bookingRequestedAt = Date.now()
   const response = await fetch(
     `${HUBSPOT_API_BASE_URL}/scheduler/v3/meetings/meeting-links/book?timezone=${encodeURIComponent(timezone)}`,
     {
@@ -607,11 +608,26 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
     return contact
   })
 
+  const confirmedMeeting = await findRecentlyCreatedScheduledMeetingWithRetry({
+    contactId: contact?.id,
+    createdAfter: bookingRequestedAt - 10_000,
+  })
+  const confirmedStartTime = new Date(
+    confirmedMeeting?.properties?.hs_meeting_start_time || 0,
+  ).getTime()
+
+  if (!confirmedMeeting?.id || !confirmedStartTime) {
+    throw new Error('HubSpot created a calendar event, but its confirmed meeting timestamp could not be verified.')
+  }
+
+  assertConfirmedMeetingMatchesOption(option.startTime, confirmedStartTime)
+
   const dealSync = await syncBookedMeetingDeal({
     customer,
     option,
     seller,
     contact,
+    meeting: confirmedMeeting,
   }).catch((error) => {
     console.warn(`Unable to sync booked meeting deal: ${error.message}`)
     return {
@@ -640,6 +656,7 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
 
   return {
     ...data,
+    confirmedStartTime,
     dealSync,
     appointmentContactSync,
     workflowEnrollment,
@@ -653,6 +670,24 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
       language: customer.preferredLanguage,
     }),
   }
+}
+
+export function assertConfirmedMeetingMatchesOption(expectedStartTime, confirmedStartTime) {
+  const expected = Number(expectedStartTime)
+  const confirmed = Number(confirmedStartTime)
+
+  if (!Number.isFinite(expected) || !Number.isFinite(confirmed) ||
+      Math.abs(confirmed - expected) > BOOKED_MEETING_START_TOLERANCE_MS) {
+    const error = new Error(
+      `HubSpot confirmed a different appointment time. Expected ${new Date(expected).toISOString()}, received ${new Date(confirmed).toISOString()}.`,
+    )
+    error.category = 'confirmed_time_mismatch'
+    error.expectedStartTime = expected
+    error.confirmedStartTime = confirmed
+    throw error
+  }
+
+  return confirmed
 }
 
 async function syncBookedTimeToContact({ contact, customer, startTime }) {
@@ -705,14 +740,14 @@ export function buildBookingFormFields({ customer, seller, supportedFormFieldNam
   ].filter((field) => field.value && supportedNames.has(field.name))
 }
 
-async function syncBookedMeetingDeal({ customer, option, seller, contact }) {
+async function syncBookedMeetingDeal({ customer, option, seller, contact, meeting: confirmedMeeting }) {
   const contactRecord = contact?.id ? contact : await findHubSpotContactByEmail(customer.email)
 
   if (!contactRecord?.id) {
     throw new Error('HubSpot contact was not found after booking.')
   }
 
-  const meeting = await findBookedMeetingForContactWithRetry({
+  const meeting = confirmedMeeting || await findBookedMeetingForContactWithRetry({
     contactId: contactRecord.id,
     startTime: option.startTime,
   })
@@ -807,6 +842,21 @@ async function findBookedMeetingForContactWithRetry({ contactId, startTime }) {
   return findBookedMeetingForContact({ contactId, startTime })
 }
 
+async function findRecentlyCreatedScheduledMeetingWithRetry({ contactId, createdAfter }) {
+  if (!contactId) return null
+
+  const maxAttempts = Number(process.env.HUBSPOT_BOOKED_MEETING_LOOKUP_ATTEMPTS || BOOKED_MEETING_LOOKUP_ATTEMPTS)
+  const delayMs = Number(process.env.HUBSPOT_BOOKED_MEETING_LOOKUP_DELAY_MS || BOOKED_MEETING_LOOKUP_DELAY_MS)
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const meeting = await findRecentlyCreatedScheduledMeeting({ contactId, createdAfter })
+    if (meeting?.id) return meeting
+    if (attempt < maxAttempts) await sleep(delayMs)
+  }
+
+  return null
+}
+
 export function buildBookingDealProperties({ customer, seller, option, meeting }) {
   const fullName = formatCustomerName(customer)
   const treatment = normalizeDesiredTreatment(customer.desiredTreatment)
@@ -891,6 +941,30 @@ async function findBookedMeetingForContact({ contactId, startTime }) {
     .sort((left, right) => left.startDelta - right.startDelta)[0]
 
   return closestMeeting?.startDelta <= BOOKED_MEETING_START_TOLERANCE_MS ? closestMeeting : null
+}
+
+async function findRecentlyCreatedScheduledMeeting({ contactId, createdAfter }) {
+  const associations = await getAssociatedObjectIds('contacts', contactId, 'meetings')
+  const meetings = await Promise.all(
+    associations.map((meetingId) =>
+      fetchHubSpotObject('meetings', meetingId, [
+        'hs_createdate',
+        'hs_meeting_start_time',
+        'hs_meeting_end_time',
+        'hs_meeting_outcome',
+        'hubspot_owner_id',
+      ]).catch(() => null),
+    ),
+  )
+
+  return meetings
+    .filter((meeting) => meeting?.id)
+    .filter((meeting) => String(meeting.properties?.hs_meeting_outcome || '').toUpperCase() !== 'CANCELED')
+    .filter((meeting) => new Date(meeting.properties?.hs_createdate || 0).getTime() >= Number(createdAfter || 0))
+    .sort((left, right) =>
+      new Date(right.properties?.hs_createdate || 0).getTime() -
+      new Date(left.properties?.hs_createdate || 0).getTime(),
+    )[0] || null
 }
 
 function sleep(ms) {

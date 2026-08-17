@@ -2,11 +2,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  assertConfirmedMeetingMatchesOption,
   buildBookingDealProperties,
   buildBookingFormFields,
   formatHubSpotWorkflowAppointmentTime,
   formatUsPhoneForHubSpot,
 } from './hubspotService.js'
+
+test('rejects a HubSpot meeting confirmed on a different date', () => {
+  const expected = Date.UTC(2026, 7, 18, 18, 40)
+  const wrongDate = Date.UTC(2026, 7, 17, 18, 40)
+
+  assert.throws(
+    () => assertConfirmedMeetingMatchesOption(expected, wrongDate),
+    (error) => error.category === 'confirmed_time_mismatch' &&
+      error.expectedStartTime === expected && error.confirmedStartTime === wrongDate,
+  )
+  assert.equal(assertConfirmedMeetingMatchesOption(expected, expected), expected)
+})
 
 test('HubSpot meeting bookings always request native deal creation', () => {
   const fields = buildBookingFormFields({
