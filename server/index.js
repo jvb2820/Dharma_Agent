@@ -38,6 +38,7 @@ import {
   hasStrictRequestedDay,
   isEarlierSchedulingPreference,
   isExactCasualAffirmative,
+  isRecognizedStateQualificationReply,
   looksLikeExplicitStateDeclaration,
   parseAfterTimePreference,
   shouldAcceptStateAbbreviationToken,
@@ -129,6 +130,7 @@ import {
   isGeneralZepboundQuestion,
   isInitialConsultationCostQuestion,
   isInsuranceQuestion,
+  isGeneratedBookingPromptLine,
 } from './respondConversationRules.js'
 import {
   clearRespondSessions as clearStoredRespondSessions,
@@ -2774,6 +2776,11 @@ async function handleRespondBookingAutomation({
     booking: { ...existingBooking, bookingTeam, details },
     latestSignals,
   })
+  const recognizedStateQualificationReply = isRecognizedStateQualificationReply({
+    pendingField: existingBooking.pendingField,
+    state: latestSignals.state,
+    content: latestUserText,
+  })
 
   if (hasUnresolvedExplicitState) {
     return buildUnrecognizedStateAttemptResponse({
@@ -2807,8 +2814,10 @@ async function handleRespondBookingAutomation({
               ? getGeneralMedicationOfferingAnswer(customerLanguage)
               : isGeneralMedicationSafetyQuestion(latestUserText)
                 ? getGeneralMedicationSafetyAnswer(customerLanguage)
-                : isClientTreatmentPrivacyQuestion(latestUserText) ||
+                : !recognizedStateQualificationReply && (
+                  isClientTreatmentPrivacyQuestion(latestUserText) ||
                   isContextualClientPrivacyFollowUp(latestUserText, messages)
+                )
                   ? getClientPrivacyAnswer(customerLanguage)
                   : isMedicalHistoryOrSafetyQuestion(normalizeSearchText(latestUserText)) &&
                     !isReboundEffectQuestion(latestUserText)
@@ -5753,6 +5762,8 @@ function stripBookingPromptFromGeneratedAnswer(answer) {
 }
 
 function isBookingPromptLine(line) {
+  if (isGeneratedBookingPromptLine(line)) return true
+
   const normalized = normalizeSearchText(line)
 
   if (

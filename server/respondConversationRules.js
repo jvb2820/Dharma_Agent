@@ -82,3 +82,16 @@ export function classifyBookingFailure(error) {
 
   return 'unknown'
 }
+
+export function isGeneratedBookingPromptLine(line = '') {
+  const normalized = String(line || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+  return /\b(quieres|deseas|puedo|podemos)\b[\s\S]{0,50}\b(reservar|agendar)\b/.test(normalized) ||
+    /\b(would you like|do you want|can i|can we)\b[\s\S]{0,50}\b(reserve|book|schedule)\b/.test(normalized) ||
+    /\b(quer|gostaria|posso|podemos)\b[\s\S]{0,50}\b(reservar|agendar)\b/.test(normalized)
+}

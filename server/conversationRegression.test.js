@@ -13,6 +13,7 @@ import {
   hasCallFormatQuestion,
   isEarlierSchedulingPreference,
   isExactCasualAffirmative,
+  isRecognizedStateQualificationReply,
   looksLikeExplicitStateDeclaration,
   parseAfterTimePreference,
   shouldAcceptStateAbbreviationToken,
@@ -20,6 +21,19 @@ import {
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
+
+test('a recognized state-only reply bypasses unrelated policy routing', () => {
+  assert.equal(isRecognizedStateQualificationReply({
+    pendingField: 'state',
+    state: 'Pennsylvania',
+    content: 'Vivo en Pennsylvania USA',
+  }), true)
+  assert.equal(isRecognizedStateQualificationReply({
+    pendingField: 'state',
+    state: 'Pennsylvania',
+    content: 'Vivo en Pennsylvania, ¿qué tratamiento usó esa cliente?',
+  }), false)
+})
 
 test('unrecognized state answers clarify once and transfer on the second attempt', () => {
   assert.deepEqual(getUnrecognizedStateAttemptResult(0), { attempts: 1, shouldTransfer: false })

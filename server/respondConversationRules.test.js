@@ -2,10 +2,18 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   classifyBookingFailure,
+  isGeneratedBookingPromptLine,
   isGeneralZepboundQuestion,
   isInitialConsultationCostQuestion,
   isInsuranceQuestion,
 } from './respondConversationRules.js'
+
+test('recognizes a model-generated Spanish reservation question for removal', () => {
+  assert.equal(isGeneratedBookingPromptLine(
+    '¿Quieres reservar la llamada para el lunes 17 de agosto a las 5:00 p.m., horario de California?',
+  ), true)
+  assert.equal(isGeneratedBookingPromptLine('Estamos ubicados en Boca Raton, Florida.'), false)
+})
 import { splitCustomerFullName } from './newClientFlow.js'
 
 test('a general Zepbound question is never treated as a named-person question', () => {

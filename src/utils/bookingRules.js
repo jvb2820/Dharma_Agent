@@ -2,6 +2,17 @@ export function chooseConfirmedState({ latestState = '', activeState = '', profi
   return latestState || activeState || profileState || historicalState || ''
 }
 
+export function isRecognizedStateQualificationReply({ pendingField = '', state = '', content = '' } = {}) {
+  if (pendingField !== 'state' || !state || !looksLikeExplicitStateDeclaration(content)) return false
+
+  const normalized = normalizeRuleText(content)
+  const hasAnotherQuestionOrPolicySubject =
+    /\?/.test(String(content || '')) ||
+    /\b(what|which|who|how|why|que|cual|quien|como|por que|qual|quem|treatment|medication|medicine|client|patient|celebrity|tratamiento|medicamento|cliente|paciente|tratamento)\b/.test(normalized)
+
+  return !hasAnotherQuestionOrPolicySubject
+}
+
 export function resolveKansasLocationClarification(content = '', awaitingClarification = false) {
   const normalized = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
 
