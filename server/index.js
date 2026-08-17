@@ -125,6 +125,7 @@ import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '..
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
 import { createRespondMessageCoordinator } from './respondMessageCoordinator.js'
 import { withRespondContactLock } from './respondProcessingService.js'
+import { recheckRespondAssignment } from './respondAssignmentRecheckService.js'
 import { acquireSlotClaim, releaseSlotClaim } from './slotClaimService.js'
 import {
   classifyBookingFailure,
@@ -833,6 +834,29 @@ async function processRespondIncomingMessage(event) {
     phone: event.contactPhone,
   })
   respondContactProfile.contactId = event.contactId
+  const assignmentRecheck = await recheckRespondAssignment({
+    initialProfile: respondContactProfile,
+    isAssigned: isConversationAssigned,
+    loadProfile: (fallbackProfile) => getRespondContactProfile(event.contactId, fallbackProfile),
+    normalizeProfile: (profile) => mergeRespondContactProfileFallbacks(profile, {
+      phone: event.contactPhone,
+    }),
+  })
+  respondContactProfile = assignmentRecheck.profile
+  respondContactProfile.contactId = event.contactId
+
+  if (assignmentRecheck.rechecked) {
+    console.log(
+      assignmentRecheck.released
+        ? '[respond-workflow-unassigned-resume]'
+        : '[respond-human-ownership-confirmed]',
+      {
+        contactId: event.contactId,
+        attempts: assignmentRecheck.attempts,
+        assignee: getConversationAssignee(respondContactProfile),
+      },
+    )
+  }
   const postBookingLockEnabled = isPostBookingLockEnabled()
   const storedPostBookingLock = await getPostBookingLock(event.contactId, session.postBookingLock)
   const postBookingLock = postBookingLockEnabled ? storedPostBookingLock : null
