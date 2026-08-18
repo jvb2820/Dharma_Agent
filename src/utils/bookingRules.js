@@ -47,17 +47,21 @@ export function hasStrictRequestedDay(preferredTime = '') {
 
 export function rejectsOfferedCalendarDate(content = '') {
   const normalized = normalizeRuleText(content)
-  const negative = /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized)
-  const date = /\b(today|tomorrow|day after tomorrow|that day|this day|the offered day|monday|tuesday|wednesday|thursday|friday|saturday|sunday|hoy|manana|pasado manana|ese dia|este dia|el dia ofrecido|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoje|amanha|esse dia|este dia|o dia oferecido|segunda|terca|quarta|quinta|sexta)\b/.test(normalized)
+  const negative = hasNegativeAvailabilityLanguage(normalized)
+  const date = /\b(today|tomorrow|day after tomorrow|that day|this day|the offered day|this week|current week|rest of the week|remainder of the week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|hoy|manana|pasado manana|ese dia|este dia|el dia ofrecido|esta semana|semana actual|resto de la semana|lo que queda de la semana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hoje|amanha|esse dia|este dia|o dia oferecido|semana atual|resto da semana|restante da semana|segunda|terca|quarta|quinta|sexta)\b/.test(normalized)
 
   return negative && date
 }
 
 export function getNextPreferenceAfterRejectedRelativeDay(content = '') {
   const normalized = normalizeRuleText(content)
-  const negative = /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized)
+  const negative = hasNegativeAvailabilityLanguage(normalized)
 
   if (!negative) return ''
+
+  if (/\b(this week|current week|rest of the week|remainder of the week|esta semana|semana actual|resto de la semana|lo que queda de la semana|semana atual|resto da semana|restante da semana)\b/.test(normalized)) {
+    return 'next week'
+  }
 
   if (/\b(tomorrow|manana|amanha)\b/.test(normalized)) {
     return 'day after tomorrow'
@@ -345,4 +349,15 @@ function normalizeRuleText(value) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+}
+
+function hasNegativeAvailabilityLanguage(normalized) {
+  return [
+    /\b(can['’]?t|can t|cannot|cant|can not|won t|wont|not available|unavailable|doesn['’]?t work|doesn t work|will not be available|won t be available)\b/,
+    /\b(no puedo|no podre|no podria|no me funciona|no estoy disponible|no estare disponible|no voy a estar disponible)\b/,
+    /\b(nao posso|nao consigo|nao funciona|nao estou disponivel|nao estarei disponivel|nao vou estar disponivel)\b/,
+    /\b(this week|current week|rest of the week|remainder of the week)\b[\s\S]{0,50}\b(no|not|unavailable|can['’]?t|can t|cannot|won t|wont)\b/,
+    /\b(esta semana|semana actual|resto de la semana|lo que queda de la semana)\b[\s\S]{0,50}\b(no|tampoco|imposible)\b/,
+    /\b(esta semana|semana atual|resto da semana|restante da semana)\b[\s\S]{0,50}\b(nao|impossivel)\b/,
+  ].some((pattern) => pattern.test(normalized))
 }

@@ -6195,9 +6195,12 @@ function isNegativeAvailabilityReply(content) {
   const normalized = normalizeSearchText(content)
 
   return [
-    /\b(can t|cannot|cant|can not|won t|wont|unable|not available|doesn t work|doesnt work|does not work|not that)\b/,
-    /\b(no puedo|no podre|no podria|no me funciona|no estoy disponible|no puedo hacerlo|no me sirve)\b/,
-    /\b(nao posso|nao consigo|nao estou disponivel|nao funciona)\b/,
+    /\b(can t|cannot|cant|can not|won t|wont|unable|unavailable|not available|will not be available|doesn t work|doesnt work|does not work|not that)\b/,
+    /\b(no puedo|no podre|no podria|no me funciona|no estoy disponible|no estare disponible|no voy a estar disponible|no puedo hacerlo|no me sirve)\b/,
+    /\b(nao posso|nao consigo|nao estou disponivel|nao estarei disponivel|nao vou estar disponivel|nao funciona)\b/,
+    /\b(this week|current week|rest of the week|remainder of the week)\b[\s\S]{0,50}\b(no|not|unavailable|can t|cannot|won t|wont)\b/,
+    /\b(esta semana|semana actual|resto de la semana|lo que queda de la semana)\b[\s\S]{0,50}\b(no|tampoco|imposible)\b/,
+    /\b(esta semana|semana atual|resto da semana|restante da semana)\b[\s\S]{0,50}\b(nao|impossivel)\b/,
   ].some((pattern) => pattern.test(normalized))
 }
 
@@ -6408,6 +6411,12 @@ function isNegatedAvailabilityPreference(content) {
     /\b(can t|cannot|cant|can not|won t|wont|unable|not available|doesn t work|doesnt work)\b[\s\S]{0,40}\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|\d{1,2}(?::\d{2})?)\b/,
     /\b(no puedo|no podre|no podria|no me funciona|no estoy disponible)\b[\s\S]{0,40}\b(hoy|manana|dia siguiente|lunes|martes|miercoles|jueves|viernes|sabado|domingo|tarde|noche|\d{1,2}(?::\d{2})?)\b/,
     /\b(nao posso|nao consigo|nao estou disponivel|nao funciona)\b[\s\S]{0,40}\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo|tarde|noite|\d{1,2}(?::\d{2})?)\b/,
+    /\b(can t|cannot|cant|can not|won t|wont|not available|unavailable|will not be available)\b[\s\S]{0,60}\b(this week|current week|rest of the week|remainder of the week)\b/,
+    /\b(no puedo|no podre|no podria|no estoy disponible|no estare disponible|no voy a estar disponible)\b[\s\S]{0,60}\b(esta semana|semana actual|resto de la semana|lo que queda de la semana)\b/,
+    /\b(nao posso|nao consigo|nao estou disponivel|nao estarei disponivel|nao vou estar disponivel)\b[\s\S]{0,60}\b(esta semana|semana atual|resto da semana|restante da semana)\b/,
+    /\b(this week|current week|rest of the week|remainder of the week)\b[\s\S]{0,60}\b(no|not|unavailable|can t|cannot|won t|wont)\b/,
+    /\b(esta semana|semana actual|resto de la semana|lo que queda de la semana)\b[\s\S]{0,60}\b(no|tampoco|imposible)\b/,
+    /\b(esta semana|semana atual|resto da semana|restante da semana)\b[\s\S]{0,60}\b(nao|impossivel)\b/,
   ].some((pattern) => pattern.test(normalized))
 }
 

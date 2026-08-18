@@ -364,6 +364,25 @@ test('a rejected relative day advances scheduling instead of searching it again'
   assert.equal(getNextPreferenceAfterRejectedRelativeDay('Tomorrow works for me'), '')
 })
 
+test('rejecting the current week advances to next week in every supported language', () => {
+  const messages = [
+    "I can't this week",
+    'I will not be available for the rest of the week',
+    'This week I am not available',
+    'No, esta semana no estaré disponible',
+    'No puedo esta semana',
+    'No voy a estar disponible el resto de la semana',
+    'Não estarei disponível esta semana',
+    'Esta semana não posso',
+    'Não vou estar disponível no restante da semana',
+  ]
+
+  for (const message of messages) {
+    assert.equal(getNextPreferenceAfterRejectedRelativeDay(message), 'next week', message)
+    assert.equal(rejectsOfferedCalendarDate(message), true, message)
+  }
+})
+
 test('a rejected time moves the next offer at least three hours later', () => {
   const offeredStart = Date.UTC(2026, 6, 24, 16, 20)
 
