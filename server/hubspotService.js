@@ -3,6 +3,7 @@ const EASTERN_TIMEZONE = 'America/New_York'
 const DEFAULT_DEAL_PIPELINE = '693198644'
 const DEFAULT_DEAL_STAGE = '1013987700'
 const DEFAULT_DEAL_EVALUATION_DATE_PROPERTY = 'evaluation_date_and_hour_2'
+const DEFAULT_DEAL_CREATED_BY_AI_PROPERTY = 'created_by_ai_bot'
 const DEFAULT_CONTACT_BOOKED_TIME_PROPERTY = 'date_and_time_of_last_meeting_booked'
 const DEFAULT_DEAL_NAME_PREFIX = 'Sellers'
 const DEFAULT_DISABLED_SELLER_SLUGS = ['diana-giron']
@@ -868,6 +869,7 @@ export function buildBookingDealProperties({ customer, seller, option, meeting }
     pipeline: getDealPipeline(),
     dealstage: getDealStage(),
     [getDealEvaluationDateProperty()]: String(confirmedMeetingStartTime || option.startTime),
+    [getDealCreatedByAiProperty()]: 'true',
     agent_lead_management: seller.fieldValue,
     desired_treatment: treatment,
     phone: formatUsPhoneForHubSpot(customer.phone),
@@ -905,6 +907,10 @@ function getDealStage() {
 
 function getDealEvaluationDateProperty() {
   return process.env.HUBSPOT_DEAL_EVALUATION_DATE_PROPERTY || DEFAULT_DEAL_EVALUATION_DATE_PROPERTY
+}
+
+function getDealCreatedByAiProperty() {
+  return process.env.HUBSPOT_DEAL_CREATED_BY_AI_PROPERTY || DEFAULT_DEAL_CREATED_BY_AI_PROPERTY
 }
 
 function getDealNamePrefix() {

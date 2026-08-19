@@ -70,6 +70,15 @@ test('deal evaluation date uses the confirmed HubSpot meeting timestamp', () => 
   assert.notEqual(properties.evaluation_date_and_hour_2, String(bookingInput.option.startTime))
 })
 
+test('booking deals are marked as created by the AI bot', () => {
+  const properties = buildBookingDealProperties({
+    ...bookingInput,
+    customer: { firstName: 'Test', lastName: 'Customer' },
+  })
+
+  assert.equal(properties.created_by_ai_bot, 'true')
+})
+
 test('booking deals include the customer phone number', () => {
   const properties = buildBookingDealProperties({
     ...bookingInput,
