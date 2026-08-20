@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage, buildBookingPaymentInfoMessage } from './booked.js'
+import { getBookingReport, recordBookingReportEvent } from './bookingReportService.js'
 import { loadLocalEnv } from './env.js'
 import {
   formatCustomerStateSlot,
@@ -318,6 +319,11 @@ const server = http.createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'GET' && pathname === '/api/reports/bookings') {
+      await handleBookingReport(response, url)
+      return
+    }
+
     if (request.method === 'GET') {
       await serveStaticFile(pathname, response)
       return
@@ -592,6 +598,15 @@ async function handleRespondWebhook(request, response) {
     return
   }
 
+  if (event.contactId && Object.keys(event.attribution || {}).length) {
+    await hydrateRespondSession(event.contactId)
+    const session = getRespondSession(event.contactId)
+    setRespondSession(event.contactId, {
+      ...session,
+      attribution: mergeRespondAttribution(session.attribution, event.attribution),
+    })
+  }
+
   if (event.contactId && !event.text && !event.isVoiceMessage) {
     await handleRespondConversationStateEvent(event)
   }
@@ -632,6 +647,14 @@ async function handleRespondWebhook(request, response) {
   coordinatedMessage.promise.catch((error) => {
     console.error('Respond webhook processing failed:', error)
   })
+}
+
+async function handleBookingReport(response, url) {
+  const report = await getBookingReport({
+    from: url.searchParams.get('from') || '',
+    to: url.searchParams.get('to') || '',
+  })
+  sendJson(response, 200, report)
 }
 
 function isValidRespondWebhookRequest(request, rawBody) {
@@ -832,6 +855,7 @@ async function sendBookingConfirmationVideo({ contactId, channelId }) {
 async function processRespondIncomingMessage(event) {
   await hydrateRespondSession(event.contactId)
   let session = getRespondSession(event.contactId)
+  const attribution = mergeRespondAttribution(session.attribution, event.attribution)
   let respondContactProfile = await getRespondContactProfile(event.contactId, session.respondContactProfile)
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
     phone: event.contactPhone,
@@ -880,6 +904,7 @@ async function processRespondIncomingMessage(event) {
       ...session,
       postBookingLock,
       respondContactProfile,
+      attribution,
     })
     console.log('[respond-post-booking-locked]', {
       contactId: event.contactId,
@@ -1151,6 +1176,7 @@ async function processRespondIncomingMessage(event) {
         pendingField: 'state',
       },
       respondContactProfile,
+      attribution,
     })
     return
   }
@@ -1188,6 +1214,7 @@ async function processRespondIncomingMessage(event) {
         pendingField: 'state',
       },
       respondContactProfile,
+      attribution,
     })
     return
   }
@@ -1243,6 +1270,12 @@ async function processRespondIncomingMessage(event) {
     if (await shouldPauseRespondReplyForHumanTakeover(event.contactId, session)) return
 
     if (bookingResponse.postReplyRespondAction?.type === 'booked') {
+      await recordBookingReportEvent({
+        contactId: event.contactId,
+        attribution,
+        booked: bookingResponse.postReplyRespondAction.booked,
+        option: bookingResponse.postReplyRespondAction.option,
+      }).catch((error) => console.warn(error.message))
       await sendBookingConfirmationVideo({
         contactId: event.contactId,
         channelId: event.channelId,
@@ -1307,6 +1340,7 @@ async function processRespondIncomingMessage(event) {
       booking: bookingResponse.booking,
       postBookingLock: nextPostBookingLock,
       respondContactProfile,
+      attribution,
     })
     return
   }
@@ -1362,6 +1396,7 @@ async function processRespondIncomingMessage(event) {
     messages: [...messages, { role: 'agent', content: text }].slice(-12),
     booking: activeBooking || null,
     respondContactProfile,
+    attribution,
   })
 
   queueMemorySuggestion({
@@ -7005,6 +7040,7 @@ function normalizeRespondWebhookEvent(body) {
       conversation.channel?.id ||
       '',
     contactPhone: extractRespondContactPhone(contact, getRespondCustomFieldMap(contact)),
+    attribution: extractRespondAttribution(body),
     isIncoming: !isOutgoing,
     eventName,
     assignee,
@@ -7031,6 +7067,51 @@ function normalizeRespondWebhookEvent(body) {
     isVoiceMessage,
     text,
   }
+}
+
+function extractRespondAttribution(body = {}) {
+  const candidates = []
+  walkAttributionValues(body, candidates)
+  const field = (...patterns) => {
+    const match = candidates.find(({ key, value }) => patterns.some((pattern) => pattern.test(key)) && value)
+    return match?.value || ''
+  }
+  const serialized = JSON.stringify(body).slice(0, 50000)
+  const platform = /facebook|instagram|meta|fbclid/i.test(serialized)
+    ? 'meta'
+    : /tiktok|ttclid/i.test(serialized) ? 'tiktok' : field(/platform/, /channel_name/, /source/)
+  const adId = field(/(?:^|\.)ad_?id$/, /advertisement_?id/, /referral.*ad.*id/)
+  const adUrl = field(/ad_?url/, /referral_?url/, /source_?url/)
+  const type = adId || adUrl || /clicked.{0,40}(facebook|instagram|tiktok).{0,20}ad|through an ad/i.test(serialized)
+    ? 'paid_ad' : ''
+
+  return Object.fromEntries(Object.entries({
+    platform,
+    type,
+    adId,
+    adName: field(/ad_?name/, /advertisement_?name/),
+    adUrl,
+    campaignId: field(/campaign_?id/),
+    campaignName: field(/campaign_?name/),
+  }).filter(([, value]) => Boolean(value)))
+}
+
+function walkAttributionValues(value, output, path = '', depth = 0) {
+  if (!value || depth > 7 || output.length > 500) return
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => walkAttributionValues(item, output, `${path}.${index}`, depth + 1))
+    return
+  }
+  if (typeof value !== 'object') return
+  for (const [key, nested] of Object.entries(value)) {
+    const fullKey = `${path}.${key}`.toLowerCase()
+    if (['string', 'number'].includes(typeof nested)) output.push({ key: fullKey, value: String(nested) })
+    else walkAttributionValues(nested, output, fullKey, depth + 1)
+  }
+}
+
+function mergeRespondAttribution(existing = {}, incoming = {}) {
+  return Object.fromEntries(Object.entries({ ...existing, ...incoming }).filter(([, value]) => Boolean(value)))
 }
 
 function isRespondVoiceMessage(message = {}) {
