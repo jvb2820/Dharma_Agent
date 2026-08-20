@@ -589,11 +589,11 @@ async function handleRespondWebhook(request, response) {
     return
   }
 
-  if (event.contactId && !event.text) {
+  if (event.contactId && !event.text && !event.isVoiceMessage) {
     await handleRespondConversationStateEvent(event)
   }
 
-  if (!event.contactId || !event.text || !event.isIncoming) {
+  if (!event.contactId || (!event.text && !event.isVoiceMessage) || !event.isIncoming) {
     sendJson(response, 200, {
       ok: true,
       skipped: true,
@@ -1041,6 +1041,31 @@ async function processRespondIncomingMessage(event) {
     clearRespondTransferSessionMarkers(event.contactId, session, respondContactProfile)
     console.log('[respond-transfer-idle-resume]', formatRespondAutomationDecisionLog(automationDecision))
     await unassignRespondConversationAfterReply(event.contactId)
+  }
+
+  if (event.isVoiceMessage) {
+    const customerLanguage =
+      session.customerLanguage ||
+      respondContactProfile?.bookingDetails?.preferredLanguage ||
+      'Latin American Spanish'
+    const userMessage = {
+      role: 'user',
+      content: '[Customer sent a voice message]',
+    }
+
+    await transferRespondConversationToCustomerService({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      customerLanguage,
+      session,
+      respondContactProfile,
+      transferTrigger: {
+        type: 'unsupported_voice_message',
+        reason: 'Customer sent an inbound voice or audio message.',
+      },
+      userMessage,
+    })
+    return
   }
 
   const userMessage = {
@@ -1574,7 +1599,9 @@ async function resolveRespondTransferMessage({ customerLanguage, latestUserText,
         'Write one short customer-facing handoff message in the same language as the customer message.',
         'Return only the message text. Do not include JSON, labels, notes, or quotation marks.',
         'Use a kind, calm tone with one warm emoji at the start and one prayer/thanks emoji at the end.',
-        transferTrigger?.type === 'state_location_clarification'
+        transferTrigger?.type === 'unsupported_voice_message'
+          ? 'The customer sent a voice message, which the automated assistant does not process. Say you are transferring them to Customer Service for assistance. Do not claim the message was unclear and do not imply frustration.'
+          : transferTrigger?.type === 'state_location_clarification'
           ? 'The automated assistant could not confidently understand the customer state after one clarification. Say the Front Desk team will help confirm their location and continue assisting. Do not imply the customer is frustrated or did anything wrong.'
           : transferTrigger?.type === 'transfer_request'
           ? 'The customer explicitly asked to be transferred. Say we can connect them now and that Customer Service will help in more detail.'
@@ -6914,6 +6941,7 @@ function normalizeRespondWebhookEvent(body) {
     message.conversation ||
     {}
   const text = extractRespondWebhookText(message)
+  const isVoiceMessage = isRespondVoiceMessage(message)
   const traffic = message.traffic || body.traffic || body.data?.traffic || ''
   const direction = message.direction || body.direction || body.data?.direction || ''
   const eventName = body.event || body.eventName || body.type || body.data?.event || ''
@@ -6984,8 +7012,39 @@ function normalizeRespondWebhookEvent(body) {
       eventName,
     ),
     skipReason: isOutgoing ? 'Ignoring outbound Respond message.' : '',
+    isVoiceMessage,
     text,
   }
+}
+
+function isRespondVoiceMessage(message = {}) {
+  const typeCandidates = [
+    message.type,
+    message.messageType,
+    message.message_type,
+    message.contentType,
+    message.content_type,
+    message.message?.type,
+    message.attachment?.type,
+    message.attachments?.[0]?.type,
+    message.audio?.type,
+  ]
+  const mimeCandidates = [
+    message.mimeType,
+    message.mime_type,
+    message.attachment?.mimeType,
+    message.attachment?.mime_type,
+    message.attachments?.[0]?.mimeType,
+    message.attachments?.[0]?.mime_type,
+    message.audio?.mimeType,
+    message.audio?.mime_type,
+  ]
+
+  return (
+    typeCandidates.some((value) => /^(audio|voice|voice_message|ptt)$/i.test(String(value || '').trim())) ||
+    mimeCandidates.some((value) => /^audio\//i.test(String(value || '').trim())) ||
+    Boolean(message.audio && typeof message.audio === 'object')
+  )
 }
 
 function extractRespondWebhookAssignee({ body = {}, contact = {}, conversation = {}, message = {} } = {}) {

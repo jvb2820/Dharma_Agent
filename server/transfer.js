@@ -1,10 +1,12 @@
 const DEFAULT_TRANSFER_IDLE_HOURS = 24
 const IRATE_PATTERNS = [
   /\b(angry|upset|mad|furious|frustrated|annoyed|unhappy|disappointed|complaint|complain|ridiculous|terrible|horrible|awful|unacceptable|scam|fraud|lawsuit|lawyer|attorney|cancel|refund|chargeback|report you|bad service|worst)\b/,
-  /\b(enojad[oa]|molest[oa]|furios[oa]|frustrad[oa]|decepcionad[oa]|queja|reclamo|reclamar|ridiculo|terrible|horrible|pesimo|inaceptable|estafa|estafador(?:es|a|as)?|fraude|demanda|abogado|abogada|cancelar|refund|reembolso|devolucion|contracargo|reportar|mal servicio|peor)\b/,
+  /\b(enojad[oa]|molest[oa]|furios[oa]|frustrad[oa]|decepcionad[oa]|queja|reclamo|reclamar|ridiculo|terrible|horrible|pesimo|inaceptable|(?:e|w)staf[a-z]*|engan(?:o|aron|ado|ada)|rob(?:o|aron|ado|ada)|ladron(?:es|a|as)?|fraude|demanda|abogado|abogada|cancelar|refund|reembolso|devolucion|contracargo|reportar|mal servicio|peor)\b/,
   /\b(brav[oa]|irritad[oa]|furios[oa]|frustrad[oa]|chatead[oa]|decepcionad[oa]|reclamacao|reclamar|queixa|ridiculo|terrivel|horrivel|pessimo|inaceitavel|golpe|fraude|processo|advogado|advogada|cancelar|reembolso|estorno|denunciar|mau atendimento|pior)\b/,
   /\b(quiero|necesito|dame|devuelvan|devuelveme|exijo)\b[\s\S]{0,50}\b(refund|reembolso|devolucion|dinero|money)\b/,
   /\b(estafador(?:es|a|as)?|estafa|fraude|scam)\b[\s\S]{0,80}\b(refund|reembolso|devolucion|dinero|money)\b/,
+  /\b(pague|gaste|me cobraron|cobraron)\b[\s\S]{0,120}\b(no (?:vi|tuve|obtuve) resultados|no baje (?:de )?peso|sin resultados)\b/,
+  /\bme dieron\b[\s\S]{0,60}\bmas b12\b/,
 ]
 
 export function getRespondAutomationDecision({ contactProfile, session = {}, event = {}, now = Date.now() } = {}) {
@@ -345,6 +347,19 @@ function buildRespondTransferMessageForTrigger({ customerLanguage = 'English', t
   const language = String(customerLanguage || '').toLowerCase()
   const isRequestedTransfer = trigger?.type === 'transfer_request'
   const isStateLocationClarification = trigger?.type === 'state_location_clarification'
+  const isUnsupportedVoiceMessage = trigger?.type === 'unsupported_voice_message'
+
+  if (isUnsupportedVoiceMessage) {
+    if (language.includes('spanish') || /\bes\b/.test(language)) {
+      return 'Recibimos tu mensaje de voz. Voy a transferirte ahora con nuestro equipo de Customer Service para que puedan ayudarte. 🙏'
+    }
+
+    if (language.includes('portuguese') || /\bpt\b/.test(language)) {
+      return 'Recebemos sua mensagem de voz. Vou transferir você agora para nossa equipe de Customer Service para que possam ajudar. 🙏'
+    }
+
+    return 'We received your voice message. I’m transferring you to our Customer Service team now so they can assist you. 🙏'
+  }
 
   if (isStateLocationClarification) {
     if (language.includes('spanish') || /\bes\b/.test(language)) {

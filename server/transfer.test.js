@@ -52,6 +52,28 @@ test('still transfers irate complaints', () => {
   assert.equal(detectRespondTransferTrigger('Esto es una estafa, quiero mi reembolso')?.type, 'irate_customer')
 })
 
+test('transfers Spanish scam accusations across conjugations and common typos', () => {
+  for (const message of [
+    'Ustedes me estafaron porque yo no baje peso',
+    'O no quieren saber la verdad que lo wstafan a uno',
+    'Me engañaron con este tratamiento',
+    'Son unos ladrones',
+  ]) {
+    assert.equal(detectRespondTransferTrigger(message)?.type, 'irate_customer')
+  }
+})
+
+test('transfers serious treatment and payment complaints without requiring the word scam', () => {
+  for (const message of [
+    'Pague mas de $3000 con ustedes y no vi resultados',
+    'Gaste mucho dinero y no baje de peso',
+    'Me cobraron $3000 y no obtuve resultados',
+    'Me dieron mas B12 que GLP1',
+  ]) {
+    assert.equal(detectRespondTransferTrigger(message)?.type, 'irate_customer')
+  }
+})
+
 test('does not transfer general medication questions or product clarifications', () => {
   for (const message of [
     'No, wuiero saber cual es el medicamento',
