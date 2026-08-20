@@ -244,6 +244,19 @@ const server = http.createServer(async (request, response) => {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
     const pathname = url.pathname
 
+    if (pathname === '/api/reports/bookings') {
+      const corsAllowed = applyReportCors(request, response)
+      if (!corsAllowed) {
+        sendJson(response, 403, { error: 'This origin is not allowed to access booking reports.' })
+        return
+      }
+      if (request.method === 'OPTIONS') {
+        response.writeHead(204)
+        response.end()
+        return
+      }
+    }
+
     if (request.method === 'GET' && (pathname === '/api/health' || pathname === '/health')) {
       sendJson(response, 200, {
         ok: true,
@@ -8150,4 +8163,22 @@ function sendJson(response, statusCode, payload) {
   })
 
   response.end(JSON.stringify(payload))
+}
+
+function applyReportCors(request, response) {
+  const origin = String(request.headers.origin || '').trim()
+  if (!origin) return true
+
+  const allowedOrigins = String(process.env.REPORTS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+
+  if (!allowedOrigins.includes(origin.replace(/\/$/, ''))) return false
+
+  response.setHeader('Access-Control-Allow-Origin', origin)
+  response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  response.setHeader('Vary', 'Origin')
+  return true
 }
