@@ -42,6 +42,7 @@ function Reports() {
     ['Booked from ads', summary.fromAds || 0],
     ['Meta ads', summary.byPlatform?.meta || 0],
     ['TikTok ads', summary.byPlatform?.tiktok || 0],
+    ['Other ads', summary.byPlatform?.other || 0],
     ['Organic', summary.byPlatform?.organic || 0],
   ]
 
@@ -69,11 +70,11 @@ function Reports() {
         {error && <p className="status-message error">{error}</p>}
         {status === 'ready' && report.rows.length === 0 && <p className="report-state">No confirmed bookings were recorded in this date range.</p>}
         {report.rows.length > 0 && (
-          <div className="report-table-wrap"><table className="report-table"><thead><tr><th>Booked</th><th>Appointment</th><th>Source</th><th>Campaign / ad</th><th>Respond contact</th></tr></thead>
+          <div className="report-table-wrap"><table className="report-table"><thead><tr><th>Booked</th><th>Appointment</th><th>Source</th><th>Campaign / ad</th><th>Phone</th><th>Respond contact</th></tr></thead>
             <tbody>{report.rows.map((row) => <tr key={row.id}>
               <td>{formatDate(row.booked_at)}</td><td>{formatDate(row.meeting_start_at)}</td>
               <td><span className={`source-badge source-${row.source_platform}`}>{sourceLabel(row)}</span></td>
-              <td>{row.campaign_name || row.ad_name || row.ad_id || '—'}</td><td>{row.respond_contact_id}</td>
+              <td>{row.campaign_name || row.ad_name || row.ad_id || '—'}</td><td>{row.contact_phone || '—'}</td><td>{row.respond_contact_id}</td>
             </tr>)}</tbody></table></div>
         )}
       </section>

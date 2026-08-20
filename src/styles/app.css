@@ -94,7 +94,7 @@
 .report-filters { align-items: end; display: flex; flex-wrap: wrap; gap: 10px; }
 .report-filters label { color: #475467; display: grid; font-size: 12px; font-weight: 700; gap: 5px; }
 .report-filters input { border: 1px solid #cdd5df; border-radius: 6px; color: #172033; font: inherit; padding: 9px 10px; }
-.report-cards { display: grid; gap: 16px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.report-cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .report-card { display: grid; gap: 8px; }
 .report-card span { color: #667085; font-size: 14px; }
 .report-card strong { font-size: 30px; }

@@ -1,6 +1,6 @@
 import { createSupabaseServerClient } from './supabaseClient.js'
 
-export async function recordBookingReportEvent({ contactId, attribution = {}, booked = {}, option = {} }) {
+export async function recordBookingReportEvent({ contactId, contactPhone, attribution = {}, booked = {}, option = {} }) {
   const supabase = createSupabaseServerClient()
   if (!supabase || !contactId) return null
 
@@ -24,7 +24,10 @@ export async function recordBookingReportEvent({ contactId, attribution = {}, bo
       ad_id: clean(attribution.adId),
       ad_name: clean(attribution.adName),
       ad_url: clean(attribution.adUrl),
-      attribution_data: attribution,
+      attribution_data: {
+        ...attribution,
+        contactPhone: normalizePhoneDigits(contactPhone),
+      },
     }, { onConflict: 'booking_key' })
     .select()
     .single()
@@ -48,9 +51,12 @@ export async function getBookingReport({ from, to } = {}) {
 
   const { data, error } = await query
   if (error) throw new Error(`Unable to load booking report: ${error.message}`)
-  const rows = (data || []).map((row) => row.source_type === 'paid_ad'
-    ? row
-    : { ...row, source_platform: 'organic', source_type: 'organic' })
+  const rows = (data || []).map((row) => ({
+    ...(row.source_type === 'paid_ad'
+      ? row
+      : { ...row, source_platform: 'organic', source_type: 'organic' }),
+    contact_phone: normalizePhoneDigits(row.attribution_data?.contactPhone),
+  }))
   const summary = emptySummary()
 
   for (const row of rows) {
@@ -75,15 +81,25 @@ export async function updateContactBookingAttribution({ contactId, attribution =
     ad_id: clean(attribution.adId),
     ad_name: clean(attribution.adName),
     ad_url: clean(attribution.adUrl),
-    attribution_data: attribution,
   }
-  const { data, error } = await supabase
+  const { data: existingRows, error: readError } = await supabase
     .from('booking_attribution_events')
-    .update(update)
+    .select('id, attribution_data')
     .eq('respond_contact_id', String(contactId))
-    .select('id')
-  if (error) throw new Error(`Unable to update booking attribution: ${error.message}`)
-  return data || []
+  if (readError) throw new Error(`Unable to load booking attribution: ${readError.message}`)
+
+  const updated = []
+  for (const row of existingRows || []) {
+    const { data, error } = await supabase
+      .from('booking_attribution_events')
+      .update({ ...update, attribution_data: { ...(row.attribution_data || {}), ...attribution } })
+      .eq('id', row.id)
+      .select('id')
+      .single()
+    if (error) throw new Error(`Unable to update booking attribution: ${error.message}`)
+    updated.push(data)
+  }
+  return updated
 }
 
 function normalizeSource(value = {}) {
@@ -112,4 +128,8 @@ function toIso(value) {
   if (!value) return null
   const date = new Date(Number(value) || value)
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
+function normalizePhoneDigits(value) {
+  return String(value || '').replace(/\D/g, '')
 }

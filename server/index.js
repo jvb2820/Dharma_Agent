@@ -1337,6 +1337,7 @@ async function processRespondIncomingMessage(event) {
     if (bookingResponse.postReplyRespondAction?.type === 'booked') {
       await recordBookingReportEvent({
         contactId: event.contactId,
+        contactPhone: respondContactProfile?.bookingDetails?.phone || event.contactPhone,
         attribution,
         booked: bookingResponse.postReplyRespondAction.booked,
         option: bookingResponse.postReplyRespondAction.option,
@@ -7142,7 +7143,7 @@ function extractRespondAttribution(body = {}) {
     return match?.value || ''
   }
   const serialized = JSON.stringify(body).slice(0, 50000)
-  const platform = /facebook|instagram|meta|fbclid/i.test(serialized)
+  const platform = /facebook|instagram|fbclid|["':\s]meta(?:["',}\s]|$)/i.test(serialized)
     ? 'meta'
     : /tiktok|ttclid/i.test(serialized) ? 'tiktok' : field(/platform/, /channel_name/, /source/)
   const adId = field(/(?:^|\.)ad_?id$/, /advertisement_?id/, /referral.*ad.*id/)
