@@ -41,7 +41,10 @@ test('unrecognized state answers clarify once and transfer on the second attempt
 })
 import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
-import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
+import {
+  applyDefaultAvailabilityRule,
+  extractPositiveDayPartConstraint,
+} from '../src/utils/availabilityRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import {
@@ -671,6 +674,21 @@ test('availability defaults to 9 AM but explicit early requests override it', ()
   assert.equal(applyDefaultAvailabilityRule({}, '').earliestHour, 9)
   assert.equal(applyDefaultAvailabilityRule({}, '7:00 AM').earliestHour, 7)
   assert.equal(applyDefaultAvailabilityRule({}, '12:00 PM').earliestHour, 12)
+})
+
+test('availability explanations preserve the requested morning window', () => {
+  for (const message of [
+    'Puedo en la ma\u00f1ana porque de tarde trabajo',
+    'I am available in the morning because I work in the afternoon',
+    'Posso de manh\u00e3 porque trabalho \u00e0 tarde',
+  ]) {
+    assert.deepEqual(extractPositiveDayPartConstraint(message), {
+      preferredTime: 'morning',
+      earliestHour: 9,
+      latestHour: 12,
+      dayPart: 'morning',
+    })
+  }
 })
 
 test('an earlier request removes the default 9 AM lower bound', () => {

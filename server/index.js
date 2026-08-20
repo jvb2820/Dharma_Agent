@@ -46,7 +46,10 @@ import {
   rejectsOfferedCalendarDate,
   resolveKansasLocationClarification,
 } from '../src/utils/bookingRules.js'
-import { applyDefaultAvailabilityRule } from '../src/utils/availabilityRules.js'
+import {
+  applyDefaultAvailabilityRule,
+  extractPositiveDayPartConstraint,
+} from '../src/utils/availabilityRules.js'
 import {
   buildPostBookingLock,
   expirePostBookingLock,
@@ -5079,6 +5082,7 @@ function extractRespondBookingDetails(messages) {
       desiredTreatment: latestTreatment,
       preferredTime: latestAvailabilityPreference?.preferredTime || latestPreferredTime,
       earliestHour: latestAvailabilityPreference?.earliestHour,
+      latestHour: latestAvailabilityPreference?.latestHour,
       dayPart: latestAvailabilityPreference?.dayPart,
       direction: latestAvailabilityPreference?.direction,
       allowBeforeDefaultStart: latestAvailabilityPreference?.allowBeforeDefaultStart,
@@ -5096,6 +5100,7 @@ function extractRespondBookingDetailsFromText(content) {
       desiredTreatment: extractDesiredTreatmentName(content),
       preferredTime: availabilityPreference.preferredTime || extractPreferredTimeText(content),
       earliestHour: availabilityPreference.earliestHour,
+      latestHour: availabilityPreference.latestHour,
       dayPart: availabilityPreference.dayPart,
       direction: availabilityPreference.direction,
       allowBeforeDefaultStart: availabilityPreference.allowBeforeDefaultStart,
@@ -6460,6 +6465,12 @@ function extractAvailabilityPreference(content) {
     return { hasPreference: false }
   }
 
+  const positiveDayPart = extractPositiveDayPartConstraint(content)
+
+  if (positiveDayPart) {
+    return { hasPreference: true, ...positiveDayPart }
+  }
+
   if (/\b(next week|following week|proxima semana|semana que viene|semana siguiente|semana seguinte)\b/.test(normalized)) {
     return {
       hasPreference: true,
@@ -6549,6 +6560,7 @@ function extractAvailabilityPreference(content) {
       hasPreference: true,
       preferredTime: 'morning',
       earliestHour: 9,
+      latestHour: 12,
       dayPart: 'morning',
     }
   }
@@ -6639,6 +6651,10 @@ function applyAvailabilityConstraintFromPreferredTime(details = {}) {
 
   if (/\b(afternoon|tarde)\b/.test(normalized)) {
     return { ...details, earliestHour: 12, dayPart: 'afternoon' }
+  }
+
+  if (/\b(morning|manana|manha)\b/.test(normalized)) {
+    return { ...details, earliestHour: 9, latestHour: 12, dayPart: 'morning' }
   }
 
   return details

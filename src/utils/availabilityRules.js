@@ -24,3 +24,24 @@ export function extractClockHour(value = '') {
   if (match[2] === 'am' && hour === 12) hour = 0
   return hour
 }
+
+export function extractPositiveDayPartConstraint(value = '') {
+  const normalized = String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+  const lead = '(?:only|just|available|free|can do|need|prefer|works for me|puedo|disponible|necesito|prefiero|solo|solamente|posso|disponivel|preciso|prefiro|apenas)'
+
+  if (new RegExp(`\\b${lead}\\b[\\s\\S]{0,45}\\b(?:morning|manana|manha)\\b`).test(normalized)) {
+    return { preferredTime: 'morning', earliestHour: 9, latestHour: 12, dayPart: 'morning' }
+  }
+  if (new RegExp(`\\b${lead}\\b[\\s\\S]{0,45}\\b(?:afternoon|tarde)\\b`).test(normalized)) {
+    return { preferredTime: 'afternoon', earliestHour: 12, dayPart: 'afternoon' }
+  }
+  if (new RegExp(`\\b${lead}\\b[\\s\\S]{0,45}\\b(?:evening|night|noche|noite)\\b`).test(normalized)) {
+    return { preferredTime: 'evening', earliestHour: 17, dayPart: 'evening' }
+  }
+  return null
+}
