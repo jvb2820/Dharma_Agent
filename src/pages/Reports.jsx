@@ -42,7 +42,7 @@ function Reports() {
     ['Booked from ads', summary.fromAds || 0],
     ['Meta ads', summary.byPlatform?.meta || 0],
     ['TikTok ads', summary.byPlatform?.tiktok || 0],
-    ['Other ads', summary.byPlatform?.other || 0],
+    ['Platform unverified', summary.byPlatform?.other || 0],
     ['Organic', summary.byPlatform?.organic || 0],
   ]
 
@@ -85,7 +85,7 @@ function Reports() {
 function sourceLabel(row) {
   if (row.source_platform === 'meta') return 'Meta ad'
   if (row.source_platform === 'tiktok') return 'TikTok ad'
-  if (row.source_type === 'paid_ad') return 'Other ad'
+  if (row.source_type === 'paid_ad') return 'Ad · platform unverified'
   return 'Organic'
 }
 
