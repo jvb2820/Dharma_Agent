@@ -63,6 +63,29 @@ export async function getBookingReport({ from, to } = {}) {
   return { summary, rows }
 }
 
+export async function updateContactBookingAttribution({ contactId, attribution = {} }) {
+  const supabase = createSupabaseServerClient()
+  if (!supabase || !contactId) return []
+  const source = normalizeSource(attribution)
+  const update = {
+    source_platform: source.platform,
+    source_type: source.type,
+    campaign_id: clean(attribution.campaignId),
+    campaign_name: clean(attribution.campaignName),
+    ad_id: clean(attribution.adId),
+    ad_name: clean(attribution.adName),
+    ad_url: clean(attribution.adUrl),
+    attribution_data: attribution,
+  }
+  const { data, error } = await supabase
+    .from('booking_attribution_events')
+    .update(update)
+    .eq('respond_contact_id', String(contactId))
+    .select('id')
+  if (error) throw new Error(`Unable to update booking attribution: ${error.message}`)
+  return data || []
+}
+
 function normalizeSource(value = {}) {
   const text = [value.platform, value.source, value.type, value.adUrl].filter(Boolean).join(' ').toLowerCase()
   const isPaidAd = Boolean(value.adId || value.adUrl || /\bpaid_ad\b|\bad\b|paid|sponsored|click.to.chat/.test(text))

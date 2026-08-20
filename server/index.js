@@ -3,7 +3,11 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage, buildBookingPaymentInfoMessage } from './booked.js'
-import { getBookingReport, recordBookingReportEvent } from './bookingReportService.js'
+import {
+  getBookingReport,
+  recordBookingReportEvent,
+  updateContactBookingAttribution,
+} from './bookingReportService.js'
 import { loadLocalEnv } from './env.js'
 import {
   formatCustomerStateSlot,
@@ -329,6 +333,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === 'POST' && pathname === '/api/respond/webhook') {
       await handleRespondWebhook(request, response, url)
+      return
+    }
+
+    if (request.method === 'POST' && pathname === '/api/respond/attribution') {
+      await handleRespondAttribution(request, response)
       return
     }
 
@@ -668,6 +677,49 @@ async function handleBookingReport(response, url) {
     to: url.searchParams.get('to') || '',
   })
   sendJson(response, 200, report)
+}
+
+async function handleRespondAttribution(request, response) {
+  const configuredKey = String(process.env.RESPOND_ATTRIBUTION_WEBHOOK_KEY || '').trim()
+  const providedKey = String(
+    request.headers['x-api-key'] || String(request.headers.authorization || '').replace(/^Bearer\s+/i, ''),
+  ).trim()
+  if (configuredKey && providedKey !== configuredKey) {
+    sendJson(response, 401, { error: 'Invalid attribution webhook key.' })
+    return
+  }
+
+  const body = await readJsonBody(request)
+  const contactId = String(
+    body.contactId || body.contact_id || body.respondContactId || body.respond_contact_id || '',
+  ).trim()
+  if (!contactId) {
+    sendJson(response, 400, { error: 'contactId is required.' })
+    return
+  }
+
+  const attribution = extractRespondAttribution(body)
+  if (!attribution.type) {
+    sendJson(response, 400, { error: 'No Meta or TikTok ad attribution was found in the payload.' })
+    return
+  }
+
+  await hydrateRespondSession(contactId)
+  const session = getRespondSession(contactId)
+  const mergedAttribution = mergeRespondAttribution(session.attribution, attribution)
+  setRespondSession(contactId, { ...session, attribution: mergedAttribution })
+  await waitForRespondSessionPersistence(contactId)
+  const updatedBookings = await updateContactBookingAttribution({
+    contactId,
+    attribution: mergedAttribution,
+  })
+
+  sendJson(response, 200, {
+    ok: true,
+    contactId,
+    attribution: mergedAttribution,
+    updatedBookings: updatedBookings.length,
+  })
 }
 
 function isValidRespondWebhookRequest(request, rawBody) {
