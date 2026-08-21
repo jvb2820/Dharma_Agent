@@ -44,6 +44,7 @@ import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import {
   applyDefaultAvailabilityRule,
   extractAvailabilityMonth,
+  extractAvailabilityMonthDay,
   extractPositiveDayPartConstraint,
 } from '../src/utils/availabilityRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
@@ -83,6 +84,37 @@ test('all calendar months are recognized as availability constraints', () => {
 
 test('month parser leaves explicit month-and-day requests to the date parser', () => {
   assert.equal(extractAvailabilityMonth('September 12'), null)
+  assert.equal(extractAvailabilityMonth('lunes 24 de agosto en la mañana'), null)
+  assert.deepEqual(extractAvailabilityMonthDay('lunes 24 de agosto en la mañana'), {
+    month: 8,
+    day: 24,
+    name: 'august',
+  })
+})
+
+test('natural morning preferences create a strict morning window', () => {
+  for (const message of [
+    'En la mañana es mejor para mi',
+    'Lunes 24 de agosto en la mañana',
+    'In the morning is better for me',
+    'De manhã é melhor para mim',
+    'am?',
+  ]) {
+    assert.deepEqual(extractPositiveDayPartConstraint(message), {
+      preferredTime: 'morning',
+      earliestHour: 9,
+      latestHour: 12,
+      dayPart: 'morning',
+    })
+  }
+})
+
+test('a bare slot rejection advances at least three hours', () => {
+  const offered = Date.UTC(2026, 7, 21, 20, 40)
+
+  for (const reply of ['No', 'Noo', 'Nope']) {
+    assert.equal(getMinimumStartAfterSlotRejection(reply, offered), offered + 3 * 60 * 60 * 1000)
+  }
 })
 
 test('declining GLP-1 or Zepbound is treated as a general preference, not privacy', () => {
@@ -343,6 +375,11 @@ test('Saturday and explicit dates are hard availability constraints', () => {
   assert.equal(hasStrictRequestedDay('Saturday'), true)
   assert.equal(hasStrictRequestedDay('Jul 25'), true)
   assert.equal(hasStrictRequestedDay('later'), false)
+})
+
+test('Spanish day-month dates are hard availability constraints', () => {
+  assert.equal(hasStrictRequestedDay('24 de agosto'), true)
+  assert.equal(hasStrictRequestedDay('lunes 24 de agosto en la mañana'), true)
 })
 
 test('next-week requests are strict availability constraints', () => {

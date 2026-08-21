@@ -1,4 +1,4 @@
-import { extractAvailabilityMonth } from '../src/utils/availabilityRules.js'
+import { extractAvailabilityMonth, extractAvailabilityMonthDay } from '../src/utils/availabilityRules.js'
 
 const HUBSPOT_API_BASE_URL = 'https://api.hubapi.com'
 const EASTERN_TIMEZONE = 'America/New_York'
@@ -86,7 +86,8 @@ export async function getNewClientAvailability({
 async function getTeamAvailability({ members, limit = 6, preferredTime = '', timezone = EASTERN_TIMEZONE, language = '' }) {
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
-  const weekday = parsePreferredWeekday(preferredTime)
+  const weekdays = parsePreferredWeekdays(preferredTime)
+  const weekday = weekdays[0] ?? null
   const monthOffsets = getAvailabilityMonthOffsets(preference, weekday, timezone)
 
   for (const [sellerIndex, seller] of members.entries()) {
@@ -136,7 +137,7 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
         return false
       }
 
-      if (weekday === null) {
+      if (weekdays.length === 0) {
         return true
       }
       const slotDate = new Date(slot.startMillisUtc)
@@ -146,7 +147,7 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
       }).format(slotDate).toLowerCase()
 
       const weekdaysEnglish = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-      return weekdaysEnglish.indexOf(slotWeekdayStr) === weekday
+      return weekdays.includes(weekdaysEnglish.indexOf(slotWeekdayStr))
     })
     let candidateSlots = filterCandidateSlots(slots)
 
@@ -171,7 +172,7 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
       )
       candidateSlots = filterCandidateSlots(slots)
     }
-    const maxSlotsPerSeller = preference.dateKey || preference.hour != null || weekday !== null ? 100 : 6
+    const maxSlotsPerSeller = preference.dateKey || preference.hour != null || weekdays.length > 0 ? 100 : 6
 
     for (const slot of candidateSlots.slice(0, maxSlotsPerSeller)) {
       options.push({
@@ -351,6 +352,12 @@ function getWeekdayIndex(timestamp, timezone) {
 }
 
 function parsePreferredDateKey(value, timezone) {
+  const localizedMonthDay = extractAvailabilityMonthDay(value)
+
+  if (localizedMonthDay) {
+    return buildDateKeyFromMonthDay(localizedMonthDay.name, localizedMonthDay.day, timezone)
+  }
+
   const relativeDateKey = parseRelativePreferredDateKey(value, timezone)
 
   if (relativeDateKey) {
@@ -382,6 +389,7 @@ function parsePreferredDateKey(value, timezone) {
 
 function parseRelativePreferredDateKey(value, timezone) {
   const normalized = normalizeTreatmentSearchText(value)
+  const usesMananaAsMorning = /\b(?:en|por) la manana\b|\bmanana (?:es|me)\b/.test(normalized)
 
   if (/\b(today|hoy|hoje)\b/.test(normalized)) {
     return getDateKey(Date.now(), timezone)
@@ -392,9 +400,8 @@ function parseRelativePreferredDateKey(value, timezone) {
   }
 
   if (
-    /\b(tomorrow|next day|the next day|next available day|manana|maÃ±ana|dia siguiente|proximo dia|pr[oÃ³]ximo dia|amanha|amanh[aÃ£])\b/.test(
-      normalized,
-    )
+    /\b(tomorrow|next day|the next day|next available day|dia siguiente|proximo dia|pr[oÃ³]ximo dia|amanha|amanh[aÃ£])\b/.test(normalized) ||
+    (!usesMananaAsMorning && /\b(manana|maÃ±ana)\b/.test(normalized))
   ) {
     return buildRelativeDateKey(1, timezone)
   }
@@ -1435,7 +1442,7 @@ function resolveLocale(language) {
   return 'en-us'
 }
 
-function parsePreferredWeekday(value) {
+export function parsePreferredWeekdays(value) {
   const normalized = String(value || '')
     .toLowerCase()
     .normalize('NFD')
@@ -1445,15 +1452,16 @@ function parsePreferredWeekday(value) {
   const weekdaysSpanish = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado']
   const weekdaysPortuguese = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
 
+  const matches = []
   for (let i = 0; i < 7; i++) {
     if (
       normalized.includes(weekdaysEnglish[i]) ||
       normalized.includes(weekdaysSpanish[i]) ||
       normalized.includes(weekdaysPortuguese[i])
     ) {
-      return i // 0 for Sunday, 1 for Monday, etc.
+      matches.push(i)
     }
   }
 
-  return null
+  return matches
 }

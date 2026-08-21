@@ -55,6 +55,7 @@ import {
 import {
   applyDefaultAvailabilityRule,
   extractAvailabilityMonth,
+  extractAvailabilityMonthDay,
   extractPositiveDayPartConstraint,
 } from '../src/utils/availabilityRules.js'
 import {
@@ -6595,8 +6596,18 @@ function extractAvailabilityPreference(content) {
     return { hasPreference: false }
   }
 
+  const requestedMonthDay = extractAvailabilityMonthDay(preferenceText)
   const requestedMonth = extractAvailabilityMonth(preferenceText)
   const positiveDayPart = extractPositiveDayPartConstraint(content)
+
+  if (requestedMonthDay) {
+    return {
+      hasPreference: true,
+      ...(positiveDayPart || { dayPart: '' }),
+      preferredTime: `${requestedMonthDay.name} ${requestedMonthDay.day}${positiveDayPart?.preferredTime ? ` ${positiveDayPart.preferredTime}` : ''}`,
+      direction: 'date',
+    }
+  }
 
   if (requestedMonth) {
     return {
@@ -6837,6 +6848,11 @@ function isUnavailableTodayReply(content) {
 
 function extractPreferredDatePhrase(content) {
   const normalized = normalizeSearchText(content)
+  const requestedMonthDay = extractAvailabilityMonthDay(content)
+
+  if (requestedMonthDay) {
+    return `${requestedMonthDay.name} ${requestedMonthDay.day}`
+  }
   const requestedMonth = extractAvailabilityMonth(content)
 
   if (requestedMonth) {
@@ -6853,6 +6869,12 @@ function extractPreferredDatePhrase(content) {
 
   if (/\b(today|hoy|hoje)\b/.test(normalized)) {
     return 'today'
+  }
+
+  const weekdayPreference = extractWeekdayPreferenceText(content)
+
+  if (weekdayPreference) {
+    return weekdayPreference
   }
 
   const weekday = String(content || '').match(
@@ -7817,6 +7839,13 @@ function extractPreferredTimeText(content) {
     return ''
   }
 
+  const requestedMonthDay = extractAvailabilityMonthDay(preferenceText)
+
+  if (requestedMonthDay) {
+    const dayPart = extractPreferredClockOrDayPart(preferenceText)
+    return `${requestedMonthDay.name} ${requestedMonthDay.day}${dayPart ? ` ${dayPart}` : ''}`
+  }
+
   const requestedMonth = extractAvailabilityMonth(preferenceText)
 
   if (requestedMonth) {
@@ -7843,6 +7872,13 @@ function extractPreferredTimeText(content) {
     return ordinalDayMatch[0]
   }
 
+  const weekdayPreference = extractWeekdayPreferenceText(preferenceText)
+  const weekdayDayPart = extractPreferredClockOrDayPart(preferenceText)
+
+  if (weekdayPreference) {
+    return `${weekdayPreference}${weekdayDayPart ? ` ${weekdayDayPart}` : ''}`
+  }
+
   const pluralWeekendMatch = preferenceText.match(/\b(saturdays?|sabados?|sábados?)\b/iu)
 
   if (pluralWeekendMatch) {
@@ -7866,6 +7902,20 @@ function extractPreferredTimeText(content) {
   }
 
   return ''
+}
+
+function extractWeekdayPreferenceText(content = '') {
+  const normalized = normalizeSearchText(content)
+  const pattern = /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|domingo|lunes|martes|miercoles|jueves|viernes|sabado|segunda|terca|quarta|quinta|sexta)\b/g
+  const matches = [...normalized.matchAll(pattern)]
+    .filter((match) => {
+      const nearby = normalized.slice(Math.max(0, match.index - 18), match.index + match[0].length + 18)
+      return !/\b(work|working|trabajo|trabajar|trabalho|trabalhar)\b/.test(nearby)
+    })
+    .map((match) => match[0])
+  const unique = [...new Set(matches)]
+
+  return unique.join(' or ')
 }
 
 function extractPhoneNumber(content) {

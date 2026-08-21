@@ -1,4 +1,4 @@
-import { extractAvailabilityMonth } from './availabilityRules.js'
+import { extractAvailabilityMonth, extractAvailabilityMonthDay } from './availabilityRules.js'
 
 export function chooseConfirmedState({ latestState = '', activeState = '', profileState = '', historicalState = '' } = {}) {
   return latestState || activeState || profileState || historicalState || ''
@@ -41,7 +41,7 @@ export function resolveKansasLocationClarification(content = '', awaitingClarifi
 
 export function hasStrictRequestedDay(preferredTime = '') {
   const normalized = normalizeRuleText(preferredTime)
-  return Boolean(extractAvailabilityMonth(preferredTime)) ||
+  return Boolean(extractAvailabilityMonth(preferredTime) || extractAvailabilityMonthDay(preferredTime)) ||
     /\b(next week|following week|proxima semana|semana que viene|semana siguiente|semana seguinte)\b/.test(normalized) ||
     /\b(sundays?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|domingos?|lunes|martes|miercoles|jueves|viernes|sabados?|segundas?|tercas?|quartas?|quintas?|sextas?)\b/.test(normalized) ||
     /\b(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}\b/.test(normalized) ||
@@ -90,7 +90,8 @@ export function getMinimumStartAfterSlotRejection(
 
   const normalized = normalizeRuleText(content)
   const rejectsSlot =
-    /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized)
+    /\b(can['’]?t|can t|cannot|cant|can not|not available|doesn['’]?t work|doesn t work|no puedo|no podre|no podria|no me funciona|no estoy disponible|nao posso|nao consigo|nao funciona)\b/.test(normalized) ||
+    /^(?:no|nope|nah|noo)\b/.test(normalized)
 
   const rejectsConversationalSlot =
     /\bno\b[\s\S]{0,50}\b(?:that|this|esa|ese|esta|este)?\s*(?:time|hour|hora|horario)\b/.test(normalized) ||
