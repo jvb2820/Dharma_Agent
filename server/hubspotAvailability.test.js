@@ -57,3 +57,21 @@ test('next week creates a strict minimum date and searches across month boundari
   assert.ok(preference.minimumDateKey > new Date().toISOString().slice(0, 10))
   assert.equal(getAvailabilityMonthOffsets(preference, null, 'America/New_York').length, 2)
 })
+
+test('month-only availability is a strict range on one HubSpot month page', () => {
+  const preference = parsePreferredTime('for September', 'America/New_York')
+
+  assert.match(preference.monthStartKey, /^\d{4}-09-01$/)
+  assert.equal(preference.minimumDateKey, preference.monthStartKey)
+  assert.match(preference.maximumDateKey, /^\d{4}-09-30$/)
+  assert.equal(getAvailabilityMonthOffsets(preference, null, 'America/New_York').length, 1)
+})
+
+test('past month names roll into the following calendar year', () => {
+  const preference = parsePreferredTime('January', 'UTC')
+  const now = new Date()
+  const expectedYear = now.getUTCMonth() + 1 > 1 ? now.getUTCFullYear() + 1 : now.getUTCFullYear()
+
+  assert.equal(preference.monthStartKey, `${expectedYear}-01-01`)
+  assert.equal(preference.maximumDateKey, `${expectedYear}-01-31`)
+})

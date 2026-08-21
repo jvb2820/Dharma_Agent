@@ -43,6 +43,7 @@ import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../sr
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import {
   applyDefaultAvailabilityRule,
+  extractAvailabilityMonth,
   extractPositiveDayPartConstraint,
 } from '../src/utils/availabilityRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
@@ -66,6 +67,22 @@ test('general package inclusion questions are recognized as commercial questions
   ]) {
     assert.equal(isTreatmentPackageInclusionsQuestion(message), true)
   }
+})
+
+test('all calendar months are recognized as availability constraints', () => {
+  const english = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+  english.forEach((month, index) => {
+    assert.equal(extractAvailabilityMonth(`show availability for ${month}`)?.month, index + 1)
+  })
+
+  assert.deepEqual(extractAvailabilityMonth('Para septiembre'), { month: 9, name: 'september' })
+  assert.deepEqual(extractAvailabilityMonth('disponibilidade para setembro'), { month: 9, name: 'september' })
+  assert.equal(hasStrictRequestedDay('september'), true)
+})
+
+test('month parser leaves explicit month-and-day requests to the date parser', () => {
+  assert.equal(extractAvailabilityMonth('September 12'), null)
 })
 
 test('declining GLP-1 or Zepbound is treated as a general preference, not privacy', () => {

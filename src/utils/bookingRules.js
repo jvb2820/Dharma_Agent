@@ -1,3 +1,5 @@
+import { extractAvailabilityMonth } from './availabilityRules.js'
+
 export function chooseConfirmedState({ latestState = '', activeState = '', profileState = '', historicalState = '' } = {}) {
   return latestState || activeState || profileState || historicalState || ''
 }
@@ -39,7 +41,8 @@ export function resolveKansasLocationClarification(content = '', awaitingClarifi
 
 export function hasStrictRequestedDay(preferredTime = '') {
   const normalized = normalizeRuleText(preferredTime)
-  return /\b(next week|following week|proxima semana|semana que viene|semana siguiente|semana seguinte)\b/.test(normalized) ||
+  return Boolean(extractAvailabilityMonth(preferredTime)) ||
+    /\b(next week|following week|proxima semana|semana que viene|semana siguiente|semana seguinte)\b/.test(normalized) ||
     /\b(sundays?|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|domingos?|lunes|martes|miercoles|jueves|viernes|sabados?|segundas?|tercas?|quartas?|quintas?|sextas?)\b/.test(normalized) ||
     /\b(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}\b/.test(normalized) ||
     /\b\d{1,2}[/-]\d{1,2}\b/.test(normalized)

@@ -1,3 +1,5 @@
+import { extractAvailabilityMonth } from '../src/utils/availabilityRules.js'
+
 const HUBSPOT_API_BASE_URL = 'https://api.hubapi.com'
 const EASTERN_TIMEZONE = 'America/New_York'
 const DEFAULT_DEAL_PIPELINE = '693198644'
@@ -130,6 +132,10 @@ async function getTeamAvailability({ members, limit = 6, preferredTime = '', tim
         return false
       }
 
+      if (preference.maximumDateKey && slotDateKey > preference.maximumDateKey) {
+        return false
+      }
+
       if (weekday === null) {
         return true
       }
@@ -228,7 +234,7 @@ function compareAvailabilityOptions(left, right, preference, timezone) {
 }
 
 function getMonthOffsetForPreference(preference, timezone) {
-  const targetDateKey = preference.dateKey || preference.minimumDateKey
+  const targetDateKey = preference.dateKey || preference.monthStartKey || preference.minimumDateKey
 
   if (!targetDateKey) {
     return 0
@@ -253,6 +259,10 @@ export function getAvailabilityMonthOffsets(preference, weekday, timezone) {
     return [monthOffset]
   }
 
+  if (preference.monthStartKey) {
+    return [monthOffset]
+  }
+
   if (preference.minimumDateKey) {
     return [monthOffset, monthOffset + 1]
   }
@@ -265,9 +275,11 @@ export function getAvailabilityMonthOffsets(preference, weekday, timezone) {
 
 export function parsePreferredTime(value, timezone) {
   const normalized = String(value || '').toLowerCase()
+  const monthRange = parsePreferredMonthRange(normalized, timezone)
   const minimumDateKey = parsePreferredMinimumDateKey(normalized, timezone)
   const preference = {
     dateKey: parsePreferredDateKey(normalized, timezone),
+    ...(monthRange || {}),
     ...(minimumDateKey ? { minimumDateKey } : {}),
   }
   const timeText = normalized
@@ -297,6 +309,24 @@ export function parsePreferredTime(value, timezone) {
   }
 
   return { ...preference, hour, minute }
+}
+
+function parsePreferredMonthRange(value, timezone) {
+  const requestedMonth = extractAvailabilityMonth(value)
+  if (!requestedMonth) return null
+
+  const current = getDateParts(Date.now(), timezone)
+  let year = current.year
+  if (requestedMonth.month < current.month) year += 1
+
+  const lastDay = new Date(Date.UTC(year, requestedMonth.month, 0)).getUTCDate()
+  const month = pad2(requestedMonth.month)
+
+  return {
+    monthStartKey: `${year}-${month}-01`,
+    minimumDateKey: `${year}-${month}-01`,
+    maximumDateKey: `${year}-${month}-${pad2(lastDay)}`,
+  }
 }
 
 function parsePreferredMinimumDateKey(value, timezone) {

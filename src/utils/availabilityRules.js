@@ -25,6 +25,42 @@ export function extractClockHour(value = '') {
   return hour
 }
 
+const AVAILABILITY_MONTH_ALIASES = [
+  ['january', 'jan', 'enero', 'janeiro'],
+  ['february', 'feb', 'febrero', 'fevereiro'],
+  ['march', 'mar', 'marzo', 'marco'],
+  ['april', 'apr', 'abril'],
+  ['may', 'mayo', 'maio'],
+  ['june', 'jun', 'junio', 'junho'],
+  ['july', 'jul', 'julio', 'julho'],
+  ['august', 'aug', 'agosto'],
+  ['september', 'sep', 'sept', 'septiembre', 'setembro'],
+  ['october', 'oct', 'octubre', 'outubro'],
+  ['november', 'nov', 'noviembre', 'novembro'],
+  ['december', 'dec', 'diciembre', 'dezembro'],
+]
+
+export function extractAvailabilityMonth(value = '') {
+  const normalized = String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+  if (!normalized) return null
+
+  for (const [monthIndex, aliases] of AVAILABILITY_MONTH_ALIASES.entries()) {
+    for (const alias of aliases) {
+      if (!new RegExp(`\\b${alias}\\b`).test(normalized)) continue
+      if (new RegExp(`\\b${alias}\\b\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`).test(normalized)) return null
+      return { month: monthIndex + 1, name: AVAILABILITY_MONTH_ALIASES[monthIndex][0] }
+    }
+  }
+
+  return null
+}
+
 export function extractPositiveDayPartConstraint(value = '') {
   const normalized = String(value)
     .normalize('NFD')

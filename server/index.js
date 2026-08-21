@@ -53,6 +53,7 @@ import {
 } from '../src/utils/bookingRules.js'
 import {
   applyDefaultAvailabilityRule,
+  extractAvailabilityMonth,
   extractPositiveDayPartConstraint,
 } from '../src/utils/availabilityRules.js'
 import {
@@ -6529,6 +6530,7 @@ function hasAvailabilityDateOrTimeSignal(content) {
   const normalized = normalizeSearchText(content)
 
   return [
+    /\b(january|jan|enero|janeiro|february|feb|febrero|fevereiro|march|mar|marzo|marco|april|apr|abril|may|mayo|maio|june|jun|junio|junho|july|jul|julio|julho|august|aug|agosto|september|sep|sept|septiembre|setembro|october|oct|octubre|outubro|november|nov|noviembre|novembro|december|dec|diciembre|dezembro)\b/,
     /\b(next week|following week|proxima semana|semana que viene|semana siguiente|semana seguinte)\b/,
     /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|am|pm)\b/,
     /\b(hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|tarde|noche)\b/,
@@ -6566,7 +6568,17 @@ function extractAvailabilityPreference(content) {
     return { hasPreference: false }
   }
 
+  const requestedMonth = extractAvailabilityMonth(preferenceText)
   const positiveDayPart = extractPositiveDayPartConstraint(content)
+
+  if (requestedMonth) {
+    return {
+      hasPreference: true,
+      ...(positiveDayPart || { dayPart: '' }),
+      preferredTime: `${requestedMonth.name}${positiveDayPart?.preferredTime ? ` ${positiveDayPart.preferredTime}` : ''}`,
+      direction: 'month',
+    }
+  }
 
   if (positiveDayPart) {
     return { hasPreference: true, ...positiveDayPart }
@@ -6798,6 +6810,11 @@ function isUnavailableTodayReply(content) {
 
 function extractPreferredDatePhrase(content) {
   const normalized = normalizeSearchText(content)
+  const requestedMonth = extractAvailabilityMonth(content)
+
+  if (requestedMonth) {
+    return requestedMonth.name
+  }
 
   if (/\b(day after tomorrow|pasado manana|pasado manana|depois de amanha)\b/.test(normalized)) {
     return 'day after tomorrow'
@@ -7769,6 +7786,12 @@ function extractPreferredTimeText(content) {
 
   if (!preferenceText) {
     return ''
+  }
+
+  const requestedMonth = extractAvailabilityMonth(preferenceText)
+
+  if (requestedMonth) {
+    return requestedMonth.name
   }
 
   const dateTimeMatch = preferenceText.match(
