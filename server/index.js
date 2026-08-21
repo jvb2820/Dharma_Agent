@@ -112,6 +112,7 @@ import {
   isConversationClosed,
   isDoctorOrProviderQuestion,
   isGeneralProductOrMedicationClarification,
+  isRespondImageMessage,
 } from './transfer.js'
 import {
   createDummyEmailFromProvidedPhone,
@@ -630,11 +631,11 @@ async function handleRespondWebhook(request, response) {
     })
   }
 
-  if (event.contactId && !event.text && !event.isVoiceMessage) {
+  if (event.contactId && !event.text && !event.isVoiceMessage && !event.isImageMessage) {
     await handleRespondConversationStateEvent(event)
   }
 
-  if (!event.contactId || (!event.text && !event.isVoiceMessage) || !event.isIncoming) {
+  if (!event.contactId || (!event.text && !event.isVoiceMessage && !event.isImageMessage) || !event.isIncoming) {
     sendJson(response, 200, {
       ok: true,
       skipped: true,
@@ -1156,6 +1157,31 @@ async function processRespondIncomingMessage(event) {
       transferTrigger: {
         type: 'unsupported_voice_message',
         reason: 'Customer sent an inbound voice or audio message.',
+      },
+      userMessage,
+    })
+    return
+  }
+
+  if (event.isImageMessage) {
+    const customerLanguage =
+      session.customerLanguage ||
+      respondContactProfile?.bookingDetails?.preferredLanguage ||
+      'Latin American Spanish'
+    const userMessage = {
+      role: 'user',
+      content: event.text || '[Customer sent an image]',
+    }
+
+    await transferRespondConversationToCustomerService({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      customerLanguage,
+      session,
+      respondContactProfile,
+      transferTrigger: {
+        type: 'unsupported_image_message',
+        reason: 'Customer sent an inbound image that the automated assistant cannot review.',
       },
       userMessage,
     })
@@ -1704,7 +1730,9 @@ async function resolveRespondTransferMessage({ customerLanguage, latestUserText,
         'Write one short customer-facing handoff message in the same language as the customer message.',
         'Return only the message text. Do not include JSON, labels, notes, or quotation marks.',
         'Use a kind, calm tone with one warm emoji at the start and one prayer/thanks emoji at the end.',
-        transferTrigger?.type === 'unsupported_voice_message'
+        transferTrigger?.type === 'unsupported_image_message'
+          ? 'The customer sent an image, which the automated assistant does not process. Say you received the image and are transferring them to Front Desk for assistance. Do not describe or make assumptions about the image.'
+          : transferTrigger?.type === 'unsupported_voice_message'
           ? 'The customer sent a voice message, which the automated assistant does not process. Say you are transferring them to Customer Service for assistance. Do not claim the message was unclear and do not imply frustration.'
           : transferTrigger?.type === 'state_location_clarification'
           ? 'The automated assistant could not confidently understand the customer state after one clarification. Say the Front Desk team will help confirm their location and continue assisting. Do not imply the customer is frustrated or did anything wrong.'
@@ -7076,6 +7104,7 @@ function normalizeRespondWebhookEvent(body) {
     {}
   const text = extractRespondWebhookText(message)
   const isVoiceMessage = isRespondVoiceMessage(message)
+  const isImageMessage = isRespondImageMessage(message)
   const traffic = message.traffic || body.traffic || body.data?.traffic || ''
   const direction = message.direction || body.direction || body.data?.direction || ''
   const eventName = body.event || body.eventName || body.type || body.data?.event || ''
@@ -7148,6 +7177,7 @@ function normalizeRespondWebhookEvent(body) {
     ),
     skipReason: isOutgoing ? 'Ignoring outbound Respond message.' : '',
     isVoiceMessage,
+    isImageMessage,
     text,
   }
 }

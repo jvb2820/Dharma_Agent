@@ -284,6 +284,25 @@ export function detectRespondTransferTrigger(text = '') {
   return null
 }
 
+export function isRespondImageMessage(message = {}) {
+  const typeCandidates = [
+    message.type, message.messageType, message.message_type, message.contentType,
+    message.content_type, message.message?.type, message.attachment?.type,
+    message.attachments?.[0]?.type, message.image?.type,
+  ]
+  const mimeCandidates = [
+    message.mimeType, message.mime_type, message.attachment?.mimeType,
+    message.attachment?.mime_type, message.attachments?.[0]?.mimeType,
+    message.attachments?.[0]?.mime_type, message.image?.mimeType, message.image?.mime_type,
+  ]
+
+  return (
+    typeCandidates.some((value) => /^(image|photo|picture)$/i.test(String(value || '').trim())) ||
+    mimeCandidates.some((value) => /^image\//i.test(String(value || '').trim())) ||
+    Boolean(message.image && typeof message.image === 'object')
+  )
+}
+
 export function isDoctorOrProviderQuestion(text = '') {
   const normalized = normalizeTriggerText(text)
 
@@ -348,6 +367,17 @@ function buildRespondTransferMessageForTrigger({ customerLanguage = 'English', t
   const isRequestedTransfer = trigger?.type === 'transfer_request'
   const isStateLocationClarification = trigger?.type === 'state_location_clarification'
   const isUnsupportedVoiceMessage = trigger?.type === 'unsupported_voice_message'
+  const isUnsupportedImageMessage = trigger?.type === 'unsupported_image_message'
+
+  if (isUnsupportedImageMessage) {
+    if (language.includes('spanish') || /\bes\b/.test(language)) {
+      return 'Recibimos tu imagen. Nuestro asistente automático todavía no puede revisarla, así que voy a conectarte con nuestro equipo de Front Desk para que puedan ayudarte. 🙏'
+    }
+    if (language.includes('portuguese') || /\bpt\b/.test(language)) {
+      return 'Recebemos sua imagem. Nosso assistente automático ainda não consegue analisá-la, então vou conectar você à nossa equipe de Front Desk para que possam ajudar. 🙏'
+    }
+    return 'We received your image. Our automated assistant cannot review it yet, so I’m connecting you with our Front Desk team for help. 🙏'
+  }
 
   if (isUnsupportedVoiceMessage) {
     if (language.includes('spanish') || /\bes\b/.test(language)) {

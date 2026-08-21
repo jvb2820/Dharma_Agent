@@ -6,6 +6,7 @@ import {
   detectRespondTransferTrigger,
   isDoctorOrProviderQuestion,
   isGeneralProductOrMedicationClarification,
+  isRespondImageMessage,
 } from './transfer.js'
 
 test('state clarification handoffs use neutral Front Desk wording', () => {
@@ -22,6 +23,38 @@ test('state clarification handoffs use neutral Front Desk wording', () => {
     assert.match(message, expected)
     assert.doesNotMatch(message, /frustrat|complaint|queja/i)
   }
+})
+
+test('image handoffs use neutral Front Desk wording', () => {
+  for (const [language, expected] of [
+    ['English', /received your image.*Front Desk/i],
+    ['Latin American Spanish', /Recibimos tu imagen.*Front Desk/i],
+    ['Portuguese', /Recebemos sua imagem.*Front Desk/i],
+  ]) {
+    const message = buildRespondTransferMessage({
+      customerLanguage: language,
+      trigger: { type: 'unsupported_image_message' },
+    })
+
+    assert.match(message, expected)
+    assert.doesNotMatch(message, /frustrat|complaint|queja/i)
+  }
+})
+
+test('recognizes common Respond image attachment shapes', () => {
+  for (const message of [
+    { type: 'image' },
+    { messageType: 'photo' },
+    { attachment: { type: 'image' } },
+    { attachments: [{ mimeType: 'image/jpeg' }] },
+    { mime_type: 'image/png' },
+    { image: { url: 'https://example.com/image.webp' } },
+  ]) {
+    assert.equal(isRespondImageMessage(message), true)
+  }
+
+  assert.equal(isRespondImageMessage({ attachment: { type: 'video' } }), false)
+  assert.equal(isRespondImageMessage({ mimeType: 'audio/ogg' }), false)
 })
 
 test('does not transfer Spanish questions about speaking with a doctor', () => {
