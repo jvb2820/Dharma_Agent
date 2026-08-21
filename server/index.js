@@ -22,6 +22,7 @@ import {
   isPrescribedTreatmentDeliveryState,
 } from '../src/data/states.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
+import { buildGlp1PricingAnswer } from '../src/data/glp1Pricing.js'
 import { detectLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
 import {
   isGhkProductQuestion,
@@ -4650,9 +4651,7 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (hasPriceOrPaymentQuestion(normalized)) {
-    if (spanish) return 'El paquete personalizado GLP-1 para perdida de peso empieza en $499 por hasta 4 semanas, y el acceso a prescripcion de Zepbound cuesta $299. Los tratamientos mas largos dependen de tu meta.'
-    if (portuguese) return 'O pacote personalizado GLP-1 para perda de peso comeca em $499 por ate 4 semanas, e o acesso a prescricao de Zepbound custa $299. Tratamentos mais longos dependem do seu objetivo.'
-    return 'The personalized GLP-1 weight-loss package starts at $499 for up to 4 weeks, and Zepbound prescription access is $299. Longer treatments depend on your goal.'
+    return buildGlp1PricingAnswer(content, customerLanguage)
   }
 
   if (/\b(doctor|doctors|provider|providers|doctor name|medico|medicos|doctor|doctores|nombre del doctor|proveedor|proveedores|doutor|medico)\b/.test(normalized)) {
@@ -4758,14 +4757,14 @@ function getTreatmentPackageInclusionsAnswer(customerLanguage) {
   const language = normalizeLanguageName(customerLanguage)
 
   if (language === 'Latin American Spanish') {
-    return 'Entiendo. Tenemos varias opciones de paquetes; algunos incluyen citas nutricionales y suplementos dentro del precio. Por ejemplo, los $499 corresponden a un paquete personalizado de GLP-1 de hasta 4 semanas que ya incluye el apoyo médico y el acompañamiento de nuestra clínica. El contenido y el precio pueden variar según el paquete y tu meta. Durante la llamada gratuita de análisis, nuestro especialista podrá explicarte todas las opciones.'
+    return 'Entiendo. Tenemos planes personalizados de GLP-1 desde $235/mes, con distintas duraciones para Semaglutide y Tirzepatide. Lo que incluye cada plan puede variar. Durante la llamada gratuita de análisis, nuestro especialista te explicará los productos, las diferencias entre los planes y las opciones que pueden ajustarse a tu meta.'
   }
 
   if (language === 'Portuguese') {
-    return 'Entendo. Temos várias opções de pacotes; alguns incluem consultas nutricionais e suplementos no preço. Por exemplo, os $499 correspondem a um pacote personalizado de GLP-1 de até 4 semanas que já inclui suporte médico e acompanhamento da nossa clínica. O conteúdo e o preço podem variar conforme o pacote e seu objetivo. Durante a chamada gratuita de análise, nosso especialista poderá explicar todas as opções.'
+    return 'Entendo. Temos planos personalizados de GLP-1 a partir de $235/mês, com diferentes durações de Semaglutide e Tirzepatide. O conteúdo de cada plano pode variar. Durante a chamada gratuita de análise, nosso especialista explicará os produtos, as diferenças entre os planos e as opções que podem se adequar ao seu objetivo.'
   }
 
-  return 'I understand. We have several package options, and some include nutrition appointments and supplements in the price. For example, the $499 personalized GLP-1 package for up to 4 weeks already includes medical support and support from our clinic. The contents and price may vary depending on the package and your goal. During the free discovery call, our specialist can explain all the options.'
+  return 'I understand. We have personalized GLP-1 plans starting at $235/month, with different Semaglutide and Tirzepatide durations. What is included can vary by plan. During the free discovery call, our specialist will explain the products, the differences between the plans, and the options that may fit your goal.'
 }
 
 function getGhkProductAnswer(customerLanguage) {
@@ -7429,7 +7428,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names. If asked about FDA approval, do not say compounded Semaglutide or compounded Tirzepatide are FDA-approved. Explain that FDA-approved branded medications include Wegovy and Zepbound, and Dharma uses the same active compounds with licensed medical oversight when appropriate.',
     'Dharma works with GHK-Cu. If a customer asks whether we carry or work with GHK-Cu, answer yes, then explain that during the free discovery call our specialist can explain the available options, how they work, and whether they fit the customer goals. Do not invent a format, price, benefit, dosage, shipping rule, or eligibility claim.',
-    'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. Share that the personalized GLP-1 package starts at $499 for up to 4 weeks, Zepbound prescription access is $299, and longer treatments depend on the goal. Never ask for state if the booking context already shows a Known state. If a real slot is already active, briefly return to that slot after answering. If state is known but no slot is active, let the application append real availability for the following day. Ask for state only when the booking context has no Known state.',
+    'Price follow-up rule: if the customer asks about price or cost again, answer directly without a greeting. For a general question, say personalized GLP-1 plans start at $235/month. If the customer names Semaglutide or Tirzepatide, provide only that product approved plan prices from application knowledge. Provide both lists only when explicitly asked for all options or a comparison. Explain that the specialist covers the products, plan differences, and options that may fit the customer goal during the free discovery call. Never invent monthly financing amounts, dosage advice, or recommend one product. Never ask for state if the booking context already shows a Known state. If a real slot is already active, briefly return to that slot after answering. If state is known but no slot is active, let the application append real availability for the following day. Ask for state only when the booking context has no Known state.',
     'If the customer says the treatment is expensive, explain that the price is for the complete treatment, payment plans may be available with biweekly or monthly payments, accepted payment methods may include debit card, credit card, Venmo, Zelle, Afterpay, Klarna, Affirm, and CareCredit, and the treatment includes personalized attention, dose adjustments when appropriate, and nutrition/activity guidance. Keep it concise and offer a concrete discovery-call slot.',
     `State and product qualification rule: use company knowledge for which products are deliverable in each state. If the customer is out of state for weight-loss injections, do not offer or book a prescribed-treatment appointment and do not claim injections can ship there. If they ask a general question, answer it normally in their language using company knowledge and then gently guide them toward supplements or nutrition support. Only send the exact out-of-state supplement alternative script when the customer is trying to qualify, book, buy, or ship weight-loss injections in a non-serviceable state.
 

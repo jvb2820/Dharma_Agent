@@ -64,9 +64,8 @@ const INITIAL_GREETING_BY_LANGUAGE = {
 
 📍 We are a telemedicine company located in the U.S. and our consultations are online.
 
-💰 *BEST-SELLING PRICES:*
-- *$499* - Up to 4-week personalized GLP-1 package
-- *$299* - Zepbound prescription access
+💰 *BEST-SELLING PRICE:*
+- *$235* - Personalized GLP-1 plans starting at $235/month
 
 We also offer longer treatments depending on your goal.
 
@@ -79,9 +78,8 @@ We also offer longer treatments depending on your goal.
 
 📍 Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
 
-💰 *PRECIOS DE LOS MAS VENDIDOS:*
-- *$499* - Paquete de hasta 4 semanas de GLP-1 personalizado
-- *$299* - Acceso a prescripcion de Zepbound
+💰 *PRECIO DE LO MAS VENDIDO:*
+- *$235* - Planes personalizados de GLP-1 desde $235/mes
 
 Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
 
