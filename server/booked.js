@@ -27,6 +27,8 @@ const BOOKING_SPECIALIST_NAMES = {
     'diana villalobos': 'DIANA',
   },
   customer_service: {
+    aline: 'ALINE',
+    'aline strelow': 'ALINE',
     alice: 'ALICE',
     'alice f': 'ALICE',
     brayam: 'BRAYAM',

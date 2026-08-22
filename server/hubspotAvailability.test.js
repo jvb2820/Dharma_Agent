@@ -25,6 +25,20 @@ test('new-client booking pool includes sellers and Customer Service specialists'
   )
 })
 
+test('Aline Strelow uses her 20-minute Customer Service meeting page', () => {
+  const aline = getConfiguredCustomerServiceTeam().find((member) => member.fieldValue === 'Alice F')
+
+  assert.deepEqual(aline, {
+    slug: 'aline-strelow',
+    name: 'Aline',
+    fieldValue: 'Alice F',
+  })
+  assert.equal(
+    getConfiguredNewClientBookingTeam().find((member) => member.slug === 'aline-strelow')?.bookingTeam,
+    'customer_service',
+  )
+})
+
 test('weekday availability searches current and following HubSpot month pages', () => {
   assert.deepEqual(getAvailabilityMonthOffsets({ dateKey: '' }, 6, 'UTC'), [0, 1])
 })
