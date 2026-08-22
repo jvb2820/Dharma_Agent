@@ -66,6 +66,7 @@ import {
   isPostBookingLockEnabled,
   isPostBookingLockExpired,
   savePostBookingLock,
+  shouldRestorePostBookingAssignee,
 } from './postBookingLockService.js'
 import {
   buildHumanTakeoverLock,
@@ -816,14 +817,6 @@ async function handleRespondConversationStateEvent(event) {
   await hydrateRespondSession(event.contactId)
   const session = getRespondSession(event.contactId)
 
-  if (event.isConversationUnassignedEvent) {
-    await expireHumanTakeoverLock(event.contactId, 'cancelled').catch((error) => {
-      console.warn(error.message)
-    })
-    console.log('[respond-human-takeover-unassigned]', { contactId: event.contactId })
-    return
-  }
-
   const pendingBookingAssignment = pendingPostBookingAssignments.get(event.contactId)
   if (pendingBookingAssignment && pendingBookingAssignment > Date.now()) {
     console.log('[respond-human-takeover-skipped-booking-assignment]', {
@@ -833,7 +826,31 @@ async function handleRespondConversationStateEvent(event) {
   }
 
   const postBookingLock = await getPostBookingLock(event.contactId, session.postBookingLock)
+  if (isPostBookingLockActive(postBookingLock)) {
+    const currentAssignee = event.isConversationUnassignedEvent ? '' : event.assignee
+    if (shouldRestorePostBookingAssignee({
+      lock: postBookingLock,
+      currentAssignee,
+      conversationClosed: event.isConversationClosedEvent,
+    })) {
+      await assignRespondConversationToPostBookingHolder({
+        contactId: event.contactId,
+        assignee: postBookingLock.assignee,
+      }).catch((error) => {
+        console.warn(`Unable to restore Respond post-booking assignment: ${error.message}`)
+      })
+    }
+    return
+  }
   if (postBookingLock) return
+
+  if (event.isConversationUnassignedEvent) {
+    await expireHumanTakeoverLock(event.contactId, 'cancelled').catch((error) => {
+      console.warn(error.message)
+    })
+    console.log('[respond-human-takeover-unassigned]', { contactId: event.contactId })
+    return
+  }
 
   let humanLock = await getHumanTakeoverLock(event.contactId, session.humanTakeoverLock)
 
@@ -969,6 +986,19 @@ async function processRespondIncomingMessage(event) {
   }
 
   if (isPostBookingLockActive(postBookingLock)) {
+    const currentAssignee = getConversationAssignee(respondContactProfile)
+    if (shouldRestorePostBookingAssignee({
+      lock: postBookingLock,
+      currentAssignee,
+      conversationClosed: isConversationClosed(respondContactProfile),
+    })) {
+      await assignRespondConversationToPostBookingHolder({
+        contactId: event.contactId,
+        assignee: postBookingLock.assignee,
+      }).catch((error) => {
+        console.warn(`Unable to restore Respond post-booking assignment: ${error.message}`)
+      })
+    }
     setRespondSession(event.contactId, {
       ...session,
       postBookingLock,
@@ -1852,18 +1882,7 @@ async function assignRespondConversationAfterBooking({ contactId, booked, option
     return { assigned: false, assignee: '' }
   }
 
-  pendingPostBookingAssignments.set(contactId, Date.now() + 60 * 1000)
-  setTimeout(() => {
-    if (Number(pendingPostBookingAssignments.get(contactId)) <= Date.now()) {
-      pendingPostBookingAssignments.delete(contactId)
-    }
-  }, 60 * 1000)
-  try {
-    await assignRespondConversation({ contactId, assignee })
-  } catch (error) {
-    pendingPostBookingAssignments.delete(contactId)
-    throw error
-  }
+  await assignRespondConversationToPostBookingHolder({ contactId, assignee })
 
   console.log('[respond-booking-assigned]', {
     contactId,
@@ -1872,6 +1891,24 @@ async function assignRespondConversationAfterBooking({ contactId, booked, option
   })
 
   return { assigned: true, assignee }
+}
+
+async function assignRespondConversationToPostBookingHolder({ contactId, assignee }) {
+  pendingPostBookingAssignments.set(contactId, Date.now() + 60 * 1000)
+  setTimeout(() => {
+    if (Number(pendingPostBookingAssignments.get(contactId)) <= Date.now()) {
+      pendingPostBookingAssignments.delete(contactId)
+    }
+  }, 60 * 1000)
+
+  try {
+    await assignRespondConversation({ contactId, assignee })
+  } catch (error) {
+    pendingPostBookingAssignments.delete(contactId)
+    throw error
+  }
+
+  console.log('[respond-post-booking-assignment-restored]', { contactId, assignee })
 }
 
 function buildRespondTransferFailureMessage(customerLanguage) {

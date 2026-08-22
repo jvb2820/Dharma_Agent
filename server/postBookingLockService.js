@@ -37,6 +37,12 @@ export function isPostBookingLockExpired(lock, now = Date.now()) {
   return Boolean(lock && lock.status === 'active' && Number(lock.lockedUntil) <= now)
 }
 
+export function shouldRestorePostBookingAssignee({ lock, currentAssignee = '', conversationClosed = false } = {}) {
+  if (!lock?.assignee || conversationClosed) return false
+
+  return normalizeAssignee(currentAssignee) !== normalizeAssignee(lock.assignee)
+}
+
 export async function savePostBookingLock(lock) {
   if (!lock) return null
   const supabase = createSupabaseServerClient()
@@ -113,4 +119,8 @@ function normalizeTimestamp(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   const timestamp = Date.parse(String(value || ''))
   return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function normalizeAssignee(value) {
+  return String(value || '').trim().toLowerCase()
 }

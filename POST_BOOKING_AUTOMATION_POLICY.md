@@ -18,6 +18,7 @@ After an appointment is confirmed and the Respond conversation is successfully a
 - The default grace period is 60 minutes and can be changed with `RESPOND_POST_BOOKING_GRACE_MINUTES`.
 - While locked, inbound messages are acknowledged by the webhook but no automated reply, classification, RAG lookup, transfer, or booking flow is run.
 - The assigned specialist remains responsible for the conversation during the lock.
+- If a Respond workflow reopens, unassigns, or routes the conversation to someone else during the lock, the webhook automatically restores the booked specialist without sending a customer message.
 
 ## Expiration and restart
 
