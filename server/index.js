@@ -1364,6 +1364,7 @@ async function processRespondIncomingMessage(event) {
     if (await shouldPauseRespondReplyForHumanTakeover(event.contactId, session)) return
 
     if (bookingResponse.postReplyRespondAction?.type === 'booked') {
+      await updateRespondContactStatusAfterBooking(event.contactId)
       await recordBookingReportEvent({
         contactId: event.contactId,
         contactPhone: respondContactProfile?.bookingDetails?.phone || event.contactPhone,
@@ -7094,6 +7095,19 @@ async function updateRespondContactState(contactId, state) {
     },
   }).catch((error) => {
     console.warn(`Unable to update Respond state field: ${error.message}`)
+  })
+}
+
+async function updateRespondContactStatusAfterBooking(contactId) {
+  await updateRespondContact({
+    contactId,
+    fields: {
+      customFields: {
+        'Contact Status': 'Evaluation Scheduled',
+      },
+    },
+  }).catch((error) => {
+    console.warn(`Unable to update Respond Contact Status after booking: ${error.message}`)
   })
 }
 
