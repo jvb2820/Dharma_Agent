@@ -4,6 +4,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { extname, join, resolve } from 'node:path'
 import { buildBookedMessage, buildBookingPaymentInfoMessage } from './booked.js'
 import {
+  applyContactLeadSourceAttribution,
   getBookingReport,
   recordBookingReportEvent,
   updateContactBookingAttribution,
@@ -941,7 +942,6 @@ async function sendBookingConfirmationVideo({ contactId, channelId }) {
 async function processRespondIncomingMessage(event) {
   await hydrateRespondSession(event.contactId)
   let session = getRespondSession(event.contactId)
-  const attribution = mergeRespondAttribution(session.attribution, event.attribution)
   let respondContactProfile = await getRespondContactProfile(event.contactId, session.respondContactProfile)
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
     phone: event.contactPhone,
@@ -957,6 +957,10 @@ async function processRespondIncomingMessage(event) {
   })
   respondContactProfile = assignmentRecheck.profile
   respondContactProfile.contactId = event.contactId
+  const attribution = applyContactLeadSourceAttribution(
+    mergeRespondAttribution(session.attribution, event.attribution),
+    respondContactProfile.leadSource,
+  )
 
   if (assignmentRecheck.rechecked) {
     console.log(
@@ -2070,6 +2074,7 @@ function classifyRespondContact(contact) {
   const tags = getRespondTagNames(contact)
   const bookingDetails = buildRespondContactBookingDetails({ contact, customFields })
   const leadStatus = customFields.lead_status || ''
+  const leadSource = getRespondLeadSource(customFields)
   const classification = customFields.classification || ''
   const contactStatus = getRespondContactStatus(customFields, contact)
   const hubspotId = customFields.hubspot_id || ''
@@ -2093,6 +2098,7 @@ function classifyRespondContact(contact) {
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
       bookingDetails,
       conversation,
+      leadSource,
     }
   }
 
@@ -2105,6 +2111,7 @@ function classifyRespondContact(contact) {
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
       bookingDetails,
       conversation,
+      leadSource,
     }
   }
 
@@ -2117,6 +2124,7 @@ function classifyRespondContact(contact) {
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
       bookingDetails,
       conversation,
+      leadSource,
     }
   }
 
@@ -2129,6 +2137,7 @@ function classifyRespondContact(contact) {
       fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
       bookingDetails,
       conversation,
+      leadSource,
     }
   }
 
@@ -2140,7 +2149,17 @@ function classifyRespondContact(contact) {
     fields: buildRespondContactSignalSummary({ customFields, tags, contact }),
     bookingDetails,
     conversation,
+    leadSource,
   }
+}
+
+function getRespondLeadSource(customFields = {}) {
+  return String(
+    customFields.lead_source ||
+    customFields.leadsource ||
+    customFields['Lead Source'] ||
+    '',
+  ).trim()
 }
 
 function buildRespondConversationSummary(contact = {}) {

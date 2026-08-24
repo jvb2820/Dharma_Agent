@@ -102,6 +102,26 @@ export async function updateContactBookingAttribution({ contactId, attribution =
   return updated
 }
 
+export function applyContactLeadSourceAttribution(attribution = {}, leadSource = '') {
+  const normalized = String(leadSource || '').trim().toLowerCase()
+  const platform = /\b(meta|facebook|instagram|fb)\b/.test(normalized)
+    ? 'meta'
+    : /\b(tiktok|tik[ -]?tok)\b/.test(normalized)
+      ? 'tiktok'
+      : 'organic'
+
+  if (platform === 'organic') {
+    return { platform: 'organic', type: 'organic', source: leadSource || 'Organic' }
+  }
+
+  return {
+    ...attribution,
+    platform,
+    type: 'paid_ad',
+    source: leadSource,
+  }
+}
+
 function normalizeSource(value = {}) {
   const text = [value.platform, value.source, value.type, value.adUrl].filter(Boolean).join(' ').toLowerCase()
   const isPaidAd = Boolean(value.adId || value.adUrl || /\bpaid_ad\b|\bad\b|paid|sponsored|click.to.chat/.test(text))
