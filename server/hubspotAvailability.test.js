@@ -26,12 +26,14 @@ test('new-client booking pool includes sellers and Customer Service specialists'
 })
 
 test('Aline Strelow uses her 20-minute Customer Service meeting page', () => {
-  const aline = getConfiguredCustomerServiceTeam().find((member) => member.fieldValue === 'Alice F')
+  const aline = getConfiguredCustomerServiceTeam().find(
+    (member) => member.fieldValue === 'Aline Strelow',
+  )
 
   assert.deepEqual(aline, {
     slug: 'aline-strelow',
     name: 'Aline',
-    fieldValue: 'Alice F',
+    fieldValue: 'Aline Strelow',
   })
   assert.equal(
     getConfiguredNewClientBookingTeam().find((member) => member.slug === 'aline-strelow')?.bookingTeam,

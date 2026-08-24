@@ -23,7 +23,7 @@ const PRIORITY_SELLERS = [
 ]
 
 const CUSTOMER_SERVICE_TEAM = [
-  { slug: 'aline-strelow', name: 'Aline', fieldValue: 'Alice F' },
+  { slug: 'aline-strelow', name: 'Aline', fieldValue: 'Aline Strelow' },
   { slug: 'brayam-zuluaga', name: 'Brayam', fieldValue: 'Brayam Zuluaga' },
   { slug: 'arles-martinez', name: 'Arles', fieldValue: 'Arles Martinez' },
   { slug: 'edmilson-morales', name: 'Edmilson', fieldValue: 'Edmilson Morales' },
@@ -1340,7 +1340,7 @@ export function getConfiguredPrioritySellers() {
 
 export function getConfiguredCustomerServiceTeam() {
   const defaultTeam = CUSTOMER_SERVICE_TEAM.map((member) =>
-    member.fieldValue === 'Alice F' && (process.env.HUBSPOT_ALINE_MEETING_SLUG || process.env.HUBSPOT_ALICE_MEETING_SLUG)
+    member.slug === 'aline-strelow' && (process.env.HUBSPOT_ALINE_MEETING_SLUG || process.env.HUBSPOT_ALICE_MEETING_SLUG)
       ? { ...member, slug: process.env.HUBSPOT_ALINE_MEETING_SLUG || process.env.HUBSPOT_ALICE_MEETING_SLUG }
       : member,
   ).filter((member) => member.slug)
