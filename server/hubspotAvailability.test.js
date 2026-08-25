@@ -25,6 +25,22 @@ test('new-client booking pool includes sellers and Customer Service specialists'
   )
 })
 
+test('Ailin Isabel is configured as a seller', () => {
+  const ailin = getConfiguredPrioritySellers().find(
+    (member) => member.fieldValue === 'Ailin Isabel',
+  )
+
+  assert.deepEqual(ailin, {
+    slug: 'ailin-isabel',
+    name: 'Ailin',
+    fieldValue: 'Ailin Isabel',
+  })
+  assert.equal(
+    getConfiguredNewClientBookingTeam().find((member) => member.slug === 'ailin-isabel')?.bookingTeam,
+    'sales',
+  )
+})
+
 test('Aline Strelow uses her 20-minute Customer Service meeting page', () => {
   const aline = getConfiguredCustomerServiceTeam().find(
     (member) => member.fieldValue === 'Aline Strelow',

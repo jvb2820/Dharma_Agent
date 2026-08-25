@@ -20,6 +20,7 @@ const PRIORITY_SELLERS = [
   { slug: 'mclaudia', name: 'Maria Claudia', fieldValue: 'Maria Claudia' },
   { slug: 'acastro29', name: 'Andres', fieldValue: 'Andres Castro' },
   { slug: 'alejandro667', name: 'Alejandro', fieldValue: 'Alejandro Rivera' },
+  { slug: 'ailin-isabel', name: 'Ailin', fieldValue: 'Ailin Isabel' },
 ]
 
 const CUSTOMER_SERVICE_TEAM = [
