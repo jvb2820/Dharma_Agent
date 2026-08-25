@@ -2,7 +2,7 @@
 
 ## Purpose
 
-After an appointment is confirmed and the Respond conversation is successfully assigned to the booked specialist, the automated agent must not respond until the meeting has ended.
+After an appointment is confirmed, the automated agent must not respond until the meeting has ended. Respond assignment is retried independently when necessary.
 
 ## HubSpot confirmation workflow
 
@@ -13,7 +13,7 @@ After an appointment is confirmed and the Respond conversation is successfully a
 
 ## Lock rule
 
-- The lock starts only after both HubSpot booking confirmation and Respond assignment succeed.
+- The lock starts immediately after HubSpot booking confirmation. Respond assignment is attempted separately; if that request fails, the active lock suppresses automation and retries restoration on later conversation events or inbound messages. A missing specialist mapping prevents ownership restoration but does not disable reply suppression.
 - `locked_until` is the confirmed meeting end in UTC plus the configured grace period.
 - The default grace period is 60 minutes and can be changed with `RESPOND_POST_BOOKING_GRACE_MINUTES`.
 - While locked, inbound messages are acknowledged by the webhook but no automated reply, classification, RAG lookup, transfer, or booking flow is run.
@@ -28,7 +28,7 @@ After an appointment is confirmed and the Respond conversation is successfully a
 
 ## Failure and lifecycle rules
 
-- A failed booking or failed Respond assignment must not create a lock.
+- A failed booking must not create a lock. A failed Respond assignment must leave the confirmed booking lock active so automation stays suppressed and assignment restoration can be retried.
 - Meeting timestamps are stored and compared as UTC instants; customer timezone affects display only.
 - Rescheduling must replace the active lock with the newly confirmed meeting timestamps.
 - Cancellation must expire the active lock when cancellation integration is available.

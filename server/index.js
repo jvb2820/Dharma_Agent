@@ -1398,6 +1398,31 @@ async function processRespondIncomingMessage(event) {
     if (await shouldPauseRespondReplyForHumanTakeover(event.contactId, session)) return
 
     if (bookingResponse.postReplyRespondAction?.type === 'booked') {
+      const bookedAction = bookingResponse.postReplyRespondAction
+      const postBookingAssignment = isPostBookingLockEnabled()
+        ? getRespondAssigneeForBookedSpecialist(bookedAction.booked, bookedAction.option)
+        : { assignee: '' }
+
+      // Persist the lock as soon as HubSpot confirms the meeting. Respond
+      // assignment is recoverable: an active lock will retry/restore the
+      // booked specialist on conversation-state events and inbound messages.
+      // Do not leave the contact unlocked merely because the first assignment
+      // request fails after the customer has already been told they are booked.
+      nextPostBookingLock = buildPostBookingLock({
+        contactId: event.contactId,
+        assignee: postBookingAssignment.assignee,
+        booked: bookedAction.booked,
+        option: bookedAction.option,
+      })
+      await savePostBookingLock(nextPostBookingLock).catch((error) => {
+        console.warn(error.message)
+      })
+      if (nextPostBookingLock && !postBookingAssignment.assignee) {
+        console.warn(
+          `Post-booking automation is locked for contact ${event.contactId}, but no Respond assignee is mapped for the booked specialist.`,
+        )
+      }
+
       await updateRespondContactStatusAfterBooking(event.contactId)
       await recordBookingReportEvent({
         contactId: event.contactId,
@@ -1438,16 +1463,10 @@ async function processRespondIncomingMessage(event) {
         await unassignRespondConversationAfterReply(event.contactId)
       }
 
-      if (assignment?.assigned) {
-        nextPostBookingLock = buildPostBookingLock({
-          contactId: event.contactId,
-          assignee: assignment.assignee,
-          booked: bookingResponse.postReplyRespondAction.booked,
-          option: bookingResponse.postReplyRespondAction.option,
-        })
-        await savePostBookingLock(nextPostBookingLock).catch((error) => {
-          console.warn(error.message)
-        })
+      if (!assignment?.assigned && nextPostBookingLock) {
+        console.warn(
+          `Respond assignment failed after booking; post-booking lock remains active for contact ${event.contactId} and restoration will be retried.`,
+        )
       }
     } else {
       await sendRespondTextMessage({

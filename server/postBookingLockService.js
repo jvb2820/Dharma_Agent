@@ -14,13 +14,16 @@ export function buildPostBookingLock({ contactId, assignee, booked = {}, option 
     option.endTime || booked.endTime || (meetingStartAt ? meetingStartAt + Number(option.duration || 20 * 60 * 1000) : 0),
   )
 
-  if (!contactId || !assignee || !meetingStartAt || !meetingEndAt) return null
+  // Suppressing automation depends on a confirmed meeting, not on Respond
+  // assignment configuration. An empty assignee still produces a valid lock;
+  // ownership restoration is simply unavailable until a mapping is fixed.
+  if (!contactId || !meetingStartAt || !meetingEndAt) return null
 
   const graceMinutes = getPostBookingGraceMinutes()
   return {
     contactId: String(contactId),
     bookingId: String(booked.calendarEventId || booked.id || ''),
-    assignee: String(assignee),
+    assignee: String(assignee || ''),
     meetingStartAt,
     meetingEndAt,
     lockedUntil: meetingEndAt + graceMinutes * 60 * 1000,

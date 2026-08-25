@@ -45,8 +45,13 @@ test('post-booking lock lasts until the meeting end plus grace period', () => {
   else process.env.RESPOND_POST_BOOKING_GRACE_MINUTES = previousGrace
 })
 
-test('a lock is not created without successful assignment data or meeting time', () => {
-  assert.equal(buildPostBookingLock({ contactId: '1', option: { startTime: Date.now() } }), null)
+test('a confirmed meeting is locked even when Respond assignment data is unavailable', () => {
+  const lock = buildPostBookingLock({
+    contactId: '1',
+    option: { startTime: Date.now() + 60_000, duration: 20 * 60_000 },
+  })
+
+  assert.equal(lock.assignee, '')
   assert.equal(buildPostBookingLock({ contactId: '1', assignee: 'agent' }), null)
 })
 
