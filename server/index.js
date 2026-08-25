@@ -118,6 +118,7 @@ import {
   isDoctorOrProviderQuestion,
   isGeneralProductOrMedicationClarification,
   isRespondImageMessage,
+  isRespondUnsupportedMessage,
 } from './transfer.js'
 import {
   createDummyEmailFromProvidedPhone,
@@ -636,11 +637,11 @@ async function handleRespondWebhook(request, response) {
     })
   }
 
-  if (event.contactId && !event.text && !event.isVoiceMessage && !event.isImageMessage) {
+  if (event.contactId && !event.text && !event.isVoiceMessage && !event.isImageMessage && !event.isUnsupportedMessage) {
     await handleRespondConversationStateEvent(event)
   }
 
-  if (!event.contactId || (!event.text && !event.isVoiceMessage && !event.isImageMessage) || !event.isIncoming) {
+  if (!event.contactId || (!event.text && !event.isVoiceMessage && !event.isImageMessage && !event.isUnsupportedMessage) || !event.isIncoming) {
     sendJson(response, 200, {
       ok: true,
       skipped: true,
@@ -1225,6 +1226,31 @@ async function processRespondIncomingMessage(event) {
     return
   }
 
+  if (event.isUnsupportedMessage) {
+    const customerLanguage =
+      session.customerLanguage ||
+      respondContactProfile?.bookingDetails?.preferredLanguage ||
+      'Latin American Spanish'
+    const userMessage = {
+      role: 'user',
+      content: '[Customer sent an unsupported message]',
+    }
+
+    await transferRespondConversationToCustomerService({
+      contactId: event.contactId,
+      channelId: event.channelId,
+      customerLanguage,
+      session,
+      respondContactProfile,
+      transferTrigger: {
+        type: 'unsupported_message',
+        reason: 'Respond delivered an inbound message type the automated assistant cannot process.',
+      },
+      userMessage,
+    })
+    return
+  }
+
   const userMessage = {
     role: 'user',
     content: event.text,
@@ -1693,19 +1719,24 @@ async function transferRespondConversationToCustomerService({
   transferTrigger,
   userMessage,
 }) {
-  const assignee = getRespondFrontDeskAssignee()
+  const frontDeskAssignees = getRespondFrontDeskAssignees()
+  let assignee = ''
   let assigned = false
 
-  if (!assignee) {
+  if (!frontDeskAssignees.length) {
     console.warn(
       `Unable to transfer Respond conversation to Customer Service: no configured Front Desk team member has a Respond assignee in RESPOND_BOOKING_ASSIGNEES.`,
     )
   } else {
-    try {
-      await assignRespondConversation({ contactId, assignee })
-      assigned = true
-    } catch (error) {
-      console.warn(`Unable to transfer Respond conversation to Customer Service via Front Desk: ${error.message}`)
+    for (const candidate of shuffleItems(frontDeskAssignees)) {
+      try {
+        await assignRespondConversation({ contactId, assignee: candidate })
+        assignee = candidate
+        assigned = true
+        break
+      } catch (error) {
+        console.warn(`Unable to transfer Respond conversation to Front Desk assignee ${candidate}: ${error.message}`)
+      }
     }
   }
 
@@ -1748,7 +1779,7 @@ async function transferRespondConversationToCustomerService({
   )
 }
 
-function getRespondFrontDeskAssignee() {
+function getRespondFrontDeskAssignees() {
   const assignees = parseRespondAssigneeMap(process.env.RESPOND_BOOKING_ASSIGNEES)
   const frontDeskAssignees = getConfiguredFrontDeskTeam()
     .flatMap((member) => [
@@ -1760,11 +1791,11 @@ function getRespondFrontDeskAssignee() {
     .filter(Boolean)
   const uniqueAssignees = [...new Set(frontDeskAssignees)]
 
-  if (uniqueAssignees.length) {
-    return pickRandomItem(uniqueAssignees)
-  }
+  return uniqueAssignees
+}
 
-  return ''
+function shuffleItems(items = []) {
+  return [...items].sort(() => Math.random() - 0.5)
 }
 
 function pickRandomItem(items = []) {
@@ -1791,6 +1822,10 @@ async function resolveRespondTransferMessage({ customerLanguage, latestUserText,
           ? 'The customer sent an image, which the automated assistant does not process. Say you received the image and are transferring them to Front Desk for assistance. Do not describe or make assumptions about the image.'
           : transferTrigger?.type === 'unsupported_voice_message'
           ? 'The customer sent a voice message, which the automated assistant does not process. Say you are transferring them to Customer Service for assistance. Do not claim the message was unclear and do not imply frustration.'
+          : transferTrigger?.type === 'unsupported_message'
+          ? 'Respond delivered a message type the automated assistant cannot process. Say it was received and that you are transferring them to Front Desk. Do not imply frustration or blame the customer.'
+          : transferTrigger?.type === 'unrecognized_message'
+          ? 'The automated assistant could not confidently understand the message. Say you are transferring them to Front Desk for personal assistance. Do not imply frustration or blame the customer.'
           : transferTrigger?.type === 'state_location_clarification'
           ? 'The automated assistant could not confidently understand the customer state after one clarification. Say the Front Desk team will help confirm their location and continue assisting. Do not imply the customer is frustrated or did anything wrong.'
           : transferTrigger?.type === 'transfer_request'
@@ -1842,6 +1877,7 @@ async function resolveRespondTransferTrigger(text) {
         'Return only compact JSON with keys: shouldTransfer boolean, type string, reason string.',
         'Transfer if the customer is irate, angry, threatening legal/report/chargeback action, strongly complaining, asking for a manager/human/customer service/support/specialist, or explicitly requesting transfer/escalation.',
         'Transfer if the customer asks for a refund while expressing fraud/scam/frustration language, including Spanglish such as "quiero mi refund" or Spanish accusations such as "estafadores".',
+        'Transfer with type "unrecognized_message" when the message is genuinely unintelligible, corrupted, or has no interpretable meaning. Do not use this for misspellings, short booking answers, names, locations, another language, or mild ambiguity.',
         'Classify messages in any language. Do not transfer for normal product questions, normal booking answers, or mild confusion.',
         'A question about speaking with a doctor, physician, medical provider, or licensed provider is a normal booking question. Never transfer it to Customer Service; it must remain in the booking flow.',
         'A customer clarifying that they want general medication, treatment, product, or offering information is not complaining and is not requesting a human. Never transfer that clarification to Customer Service.',
@@ -1852,7 +1888,11 @@ async function resolveRespondTransferTrigger(text) {
 
     if (parsed?.shouldTransfer === true) {
       return {
-        type: parsed.type === 'transfer_request' ? 'transfer_request' : 'irate_customer',
+        type: parsed.type === 'transfer_request'
+          ? 'transfer_request'
+          : parsed.type === 'unrecognized_message'
+            ? 'unrecognized_message'
+            : 'irate_customer',
         reason: String(parsed.reason || 'Model classified this message as requiring Customer Service transfer.'),
       }
     }
@@ -7260,6 +7300,7 @@ function normalizeRespondWebhookEvent(body) {
   const text = extractRespondWebhookText(message)
   const isVoiceMessage = isRespondVoiceMessage(message)
   const isImageMessage = isRespondImageMessage(message)
+  const isUnsupportedMessage = isRespondUnsupportedMessage(message, text)
   const traffic = message.traffic || body.traffic || body.data?.traffic || ''
   const direction = message.direction || body.direction || body.data?.direction || ''
   const eventName = body.event || body.eventName || body.type || body.data?.event || ''
@@ -7333,6 +7374,7 @@ function normalizeRespondWebhookEvent(body) {
     skipReason: isOutgoing ? 'Ignoring outbound Respond message.' : '',
     isVoiceMessage,
     isImageMessage,
+    isUnsupportedMessage,
     text,
   }
 }
@@ -7393,6 +7435,12 @@ function isRespondVoiceMessage(message = {}) {
     message.attachment?.type,
     message.attachments?.[0]?.type,
     message.audio?.type,
+    message.media?.type,
+    message.file?.type,
+    message.message?.contentType,
+    message.message?.content_type,
+    message.message?.attachment?.type,
+    message.message?.attachments?.[0]?.type,
   ]
   const mimeCandidates = [
     message.mimeType,
@@ -7403,11 +7451,39 @@ function isRespondVoiceMessage(message = {}) {
     message.attachments?.[0]?.mime_type,
     message.audio?.mimeType,
     message.audio?.mime_type,
+    message.media?.mimeType,
+    message.media?.mime_type,
+    message.file?.mimeType,
+    message.file?.mime_type,
+    message.message?.mimeType,
+    message.message?.mime_type,
+    message.message?.attachment?.mimeType,
+    message.message?.attachment?.mime_type,
+    message.message?.attachments?.[0]?.mimeType,
+    message.message?.attachments?.[0]?.mime_type,
+  ]
+  const fileCandidates = [
+    message.url,
+    message.fileName,
+    message.file_name,
+    message.attachment?.url,
+    message.attachment?.fileName,
+    message.attachment?.file_name,
+    message.attachments?.[0]?.url,
+    message.attachments?.[0]?.fileName,
+    message.attachments?.[0]?.file_name,
+    message.audio?.url,
+    message.media?.url,
+    message.file?.url,
+    message.file?.name,
+    message.message?.attachment?.url,
+    message.message?.attachments?.[0]?.url,
   ]
 
   return (
-    typeCandidates.some((value) => /^(audio|voice|voice_message|ptt)$/i.test(String(value || '').trim())) ||
+    typeCandidates.some((value) => /^(audio|voice|voice_message|voice_note|audio_message|ptt)$/i.test(String(value || '').trim())) ||
     mimeCandidates.some((value) => /^audio\//i.test(String(value || '').trim())) ||
+    fileCandidates.some((value) => /\.(?:aac|amr|m4a|mp3|oga|ogg|opus|wav|webm)(?:\?|#|$)/i.test(String(value || '').trim())) ||
     Boolean(message.audio && typeof message.audio === 'object')
   )
 }

@@ -7,7 +7,15 @@ import {
   isDoctorOrProviderQuestion,
   isGeneralProductOrMedicationClarification,
   isRespondImageMessage,
+  isRespondUnsupportedMessage,
 } from './transfer.js'
+
+test('Respond unsupported placeholders and message types require a Front Desk handoff', () => {
+  assert.equal(isRespondUnsupportedMessage({}, 'Unsupported Message'), true)
+  assert.equal(isRespondUnsupportedMessage({ type: 'unsupported' }), true)
+  assert.equal(isRespondUnsupportedMessage({ message_type: 'unknown' }), true)
+  assert.equal(isRespondUnsupportedMessage({}, 'I do not understand the price'), false)
+})
 
 test('state clarification handoffs use neutral Front Desk wording', () => {
   for (const [language, expected] of [

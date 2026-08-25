@@ -303,6 +303,23 @@ export function isRespondImageMessage(message = {}) {
   )
 }
 
+export function isRespondUnsupportedMessage(message = {}, extractedText = '') {
+  const typeCandidates = [
+    message.type, message.messageType, message.message_type, message.contentType,
+    message.content_type, message.message?.type, message.attachment?.type,
+    message.attachments?.[0]?.type,
+  ]
+  const textCandidates = [
+    extractedText, message.text, message.body, message.content,
+    message.message?.text, message.message?.body,
+  ]
+
+  return (
+    typeCandidates.some((value) => /^(unsupported|unknown|unsupported_message|document|file|video|sticker|location|contact)$/i.test(String(value || '').trim())) ||
+    textCandidates.some((value) => /^(unsupported message|message not supported|unsupported content)$/i.test(String(value || '').trim()))
+  )
+}
+
 export function isDoctorOrProviderQuestion(text = '') {
   const normalized = normalizeTriggerText(text)
 
@@ -368,6 +385,24 @@ function buildRespondTransferMessageForTrigger({ customerLanguage = 'English', t
   const isStateLocationClarification = trigger?.type === 'state_location_clarification'
   const isUnsupportedVoiceMessage = trigger?.type === 'unsupported_voice_message'
   const isUnsupportedImageMessage = trigger?.type === 'unsupported_image_message'
+  const isUnsupportedMessage = trigger?.type === 'unsupported_message'
+  const isUnrecognizedMessage = trigger?.type === 'unrecognized_message'
+
+  if (isUnsupportedMessage || isUnrecognizedMessage) {
+    if (language.includes('spanish') || /\bes\b/.test(language)) {
+      return isUnrecognizedMessage
+        ? 'No pude entender tu mensaje con suficiente claridad. Voy a conectarte con nuestro equipo de Front Desk para que puedan ayudarte personalmente. 🙏'
+        : 'Recibimos un mensaje que nuestro asistente automatico no puede procesar. Voy a conectarte con nuestro equipo de Front Desk para que puedan ayudarte. 🙏'
+    }
+    if (language.includes('portuguese') || /\bpt\b/.test(language)) {
+      return isUnrecognizedMessage
+        ? 'Nao consegui entender sua mensagem com clareza suficiente. Vou conectar voce a nossa equipe de Front Desk para que possam ajudar pessoalmente. 🙏'
+        : 'Recebemos uma mensagem que nosso assistente automatico nao consegue processar. Vou conectar voce a nossa equipe de Front Desk para que possam ajudar. 🙏'
+    }
+    return isUnrecognizedMessage
+      ? 'I could not understand your message confidently. I am connecting you with our Front Desk team for personal assistance. 🙏'
+      : 'We received a message our automated assistant cannot process. I am connecting you with our Front Desk team for help. 🙏'
+  }
 
   if (isUnsupportedImageMessage) {
     if (language.includes('spanish') || /\bes\b/.test(language)) {
