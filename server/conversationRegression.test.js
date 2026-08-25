@@ -43,10 +43,26 @@ import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../sr
 import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
 import {
   applyDefaultAvailabilityRule,
+  extractAfterWorkConstraint,
   extractAvailabilityMonth,
   extractAvailabilityMonthDay,
   extractPositiveDayPartConstraint,
 } from '../src/utils/availabilityRules.js'
+
+test('work schedules become after-work availability constraints', () => {
+  for (const message of [
+    'Trabajo de 9-5:30pm',
+    'I work from 9 to 5:30pm',
+    'Trabalho de 9 ate 5:30pm',
+  ]) {
+    assert.deepEqual(extractAfterWorkConstraint(message), {
+      preferredTime: 'after 5:30pm',
+      earliestHour: 17,
+      earliestMinuteOfDay: 1050,
+      dayPart: 'evening',
+    })
+  }
+})
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'
 import {

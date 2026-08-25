@@ -55,6 +55,7 @@ import {
 } from '../src/utils/bookingRules.js'
 import {
   applyDefaultAvailabilityRule,
+  extractAfterWorkConstraint,
   extractAvailabilityMonth,
   extractAvailabilityMonthDay,
   extractPositiveDayPartConstraint,
@@ -3070,6 +3071,20 @@ async function handleRespondBookingAutomation({
     content: latestUserText,
   })
 
+  if (
+    existingBooking.pendingField === 'name' &&
+    /^domingo[?.!]*$/i.test(String(latestUserText || '').trim())
+  ) {
+    return {
+      text: bookingCopy(customerLanguage, 'clarifySundayOrName'),
+      booking: { ...existingBooking, bookingTeam, details, pendingField: 'name' },
+    }
+  }
+  const afterWorkConstraint = extractAfterWorkConstraint(latestUserText)
+  if (afterWorkConstraint) {
+    details = { ...details, ...afterWorkConstraint }
+  }
+
   if (hasUnresolvedExplicitState) {
     return buildUnrecognizedStateAttemptResponse({
       existingBooking,
@@ -4161,6 +4176,11 @@ async function offerSoonestRespondSlot({
   closest = false,
   offerCopyKey = '',
 }) {
+  const requestedSunday = isSundayAvailabilityPreference(preferredTime)
+  if (requestedSunday) {
+    preferredTime = replaceSundayWithSaturday(preferredTime)
+    details = { ...details, preferredTime }
+  }
   details = applyDefaultAvailabilityWindow(details, preferredTime)
   logRespondRoutingDecision('offer-slot', {
     bookingTeam: booking.bookingTeam,
@@ -4188,7 +4208,7 @@ async function offerSoonestRespondSlot({
   })
   const strictRequestedDay = hasStrictRequestedDay(preferredTime)
   const fallbackOptions =
-    closest && options.length === 0 && !strictRequestedDay
+    closest && options.length === 0
       ? await getAvailability({ limit: 100, timezone: getStateTimeZone(details.state) })
       : []
   let availableOptions = filterOptionsByAvailabilityPreference(
@@ -4235,14 +4255,18 @@ async function offerSoonestRespondSlot({
     usedFallback: options.length === 0 && fallbackOptions.length > 0,
   })
 
-  return {
-    text: nextOptions.length === 1 && !afterHoursFallback
+  const offerText = nextOptions.length === 1 && !afterHoursFallback
       ? bookingCopy(customerLanguage, offerKey, {
         slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone, customerLanguage),
       })
       : bookingCopy(customerLanguage, afterHoursFallback ? offerKey : closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
         slots: formatNumberedSlots(nextOptions, details.state, customerLanguage),
-      }),
+      })
+
+  return {
+    text: requestedSunday
+      ? `${bookingCopy(customerLanguage, 'sundayClosed')}\n\n${offerText}`
+      : offerText,
     booking: {
       details,
       bookingTeam: booking.bookingTeam || 'sales',
@@ -5543,6 +5567,16 @@ function bookingCopy(language, key, values = {}) {
       'Cual opcion te funciona mejor? Responde con el numero para agendarla.',
       'Qual opção funciona melhor? Responda com o número para que eu possa agendar.',
     ),
+    clarifySundayOrName: tri(
+      'Just to clarify: is Domingo your name, or are you requesting an appointment on Sunday?',
+      'Solo para confirmar: Domingo es tu nombre, o estas solicitando una cita el domingo?',
+      'So para confirmar: Domingo e seu nome, ou voce esta pedindo uma consulta no domingo?',
+    ),
+    sundayClosed: tri(
+      'We do not have appointments on Sundays, so I checked Saturday instead.',
+      'No tenemos citas los domingos, asi que revise el sabado como alternativa.',
+      'Nao temos consultas aos domingos, entao verifiquei o sabado como alternativa.',
+    ),
     booked: tri(
       `All set, your call is booked for ${values.slot}. The appointment details will be sent to you.`,
       `Listo, tu llamada quedo agendada para ${values.slot}. Te enviaran los detalles de la cita.`,
@@ -6565,8 +6599,19 @@ function isConversationDeferralReply(content) {
   return [
     /\b(no thank you|no thanks|thanks but no|talk to you later|talk later|another time|some other time|not now|later maybe|i ll contact|i will contact)\b/,
     /\b(no gracias|hablamos luego|te contacto luego|otro dia|otra ocasion|en otro momento|ahora no|luego veo|despues veo)\b/,
+    /\b(voy a (?:ver|revisar|checar)|reviso|checo)\b[\s\S]{0,80}\b(te aviso|te digo|les aviso|les digo)\b/,
     /\b(nao obrigada|nao obrigado|falo depois|volto a contactar|volto a contatar|outro dia|outra hora|outro momento|agora nao)\b/,
   ].some((pattern) => pattern.test(normalized))
+}
+
+function isSundayAvailabilityPreference(value = '') {
+  return /\b(sunday|domingo)\b/.test(normalizeSearchText(value))
+}
+
+function replaceSundayWithSaturday(value = '') {
+  return String(value || 'saturday')
+    .replace(/\bsunday\b/gi, 'saturday')
+    .replace(/\bdomingo\b/gi, 'sabado')
 }
 
 function getPositiveAvailabilityPreferenceText(content) {

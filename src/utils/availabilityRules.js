@@ -108,3 +108,27 @@ export function extractPositiveDayPartConstraint(value = '') {
   }
   return null
 }
+
+export function extractAfterWorkConstraint(value = '') {
+  const normalized = String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  const match = normalized.match(
+    /\b(?:work|working|trabajo|trabajando|trabalho|trabalhando)\b[\s\S]{0,30}?\b(?:to|until|hasta|ate|a|-)\s*(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)\b/,
+  )
+
+  if (!match) return null
+
+  let hour = Number(match[1])
+  const minute = Number(match[2] || 0)
+  if (match[3] === 'pm' && hour < 12) hour += 12
+  if (match[3] === 'am' && hour === 12) hour = 0
+
+  return {
+    preferredTime: `after ${hour > 12 ? hour - 12 : hour || 12}:${String(minute).padStart(2, '0')}${hour >= 12 ? 'pm' : 'am'}`,
+    earliestHour: hour,
+    earliestMinuteOfDay: hour * 60 + minute,
+    dayPart: hour >= 17 ? 'evening' : 'afternoon',
+  }
+}
