@@ -92,6 +92,9 @@ export function isGeneratedBookingPromptLine(line = '') {
     .trim()
 
   return /\b(quieres|deseas|puedo|podemos)\b[\s\S]{0,50}\b(reservar|agendar)\b/.test(normalized) ||
+    /\b(agendo|agendamos|agendare|agendaremos|reservamos|reservare|reservaremos|confirmo|confirmamos|confirmare|confirmaremos)\b[\s\S]{0,80}\b(cita|llamada|consulta|horario)\b/.test(normalized) ||
+    /\b(para|a fin de)\b[\s\S]{0,35}\b(completar|terminar|confirmar)\b[\s\S]{0,50}\b(cita|reserva|agenda)\b[\s\S]{0,80}\b(nombre|telefono|numero)\b/.test(normalized) ||
+    /\b(para|a fin de)\b[\s\S]{0,35}\b(completar|terminar)\b[\s\S]{0,50}\b(cita|reserva|agenda)\b/.test(normalized) ||
     /\b(would you like|do you want|can i|can we)\b[\s\S]{0,50}\b(reserve|book|schedule)\b/.test(normalized) ||
     /\b(quer|gostaria|posso|podemos)\b[\s\S]{0,50}\b(reservar|agendar)\b/.test(normalized)
 }

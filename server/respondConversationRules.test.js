@@ -14,6 +14,21 @@ test('recognizes a model-generated Spanish reservation question for removal', ()
   ), true)
   assert.equal(isGeneratedBookingPromptLine('Estamos ubicados en Boca Raton, Florida.'), false)
 })
+
+test('blocks generated Spanish copy that restarts detail collection without an active slot', () => {
+  for (const message of [
+    'Perfecto, entonces agendamos tu llamada gratuita de análisis para el miércoles 26 de agosto a las 4:20 p.m. hora de Florida. Para completar la cita, ¿me podrías confirmar tu nombre completo?',
+    'Para terminar de agendar la cita, comparte tu número de teléfono.',
+    'Confirmamos la cita y ahora necesito tu nombre.',
+  ]) {
+    assert.equal(isGeneratedBookingPromptLine(message), true)
+  }
+
+  assert.equal(
+    isGeneratedBookingPromptLine('No encontré disponibilidad para ese horario. ¿Qué otro día prefieres?'),
+    false,
+  )
+})
 import { splitCustomerFullName } from './newClientFlow.js'
 
 test('a general Zepbound question is never treated as a named-person question', () => {

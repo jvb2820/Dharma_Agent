@@ -75,6 +75,13 @@ test('new-client phone accepts US numbers with an optional country code', () => 
   assert.equal(isUsCountryCodePhone(''), false)
 })
 
+test('accepts every phone format used in the Tania booking conversation', () => {
+  for (const reply of ['+1 (386) 585-9447', '+1(386)585-9447', '3865859447']) {
+    assert.equal(extractUsPhoneNumber(reply), reply)
+    assert.equal(normalizeUsPhoneNumber(reply), '13865859447')
+  }
+})
+
 test('extracts a US phone number when its final digits are unusually spaced', () => {
   assert.equal(extractUsPhoneNumber('323 975 52 92'), '323 975 52 92')
   assert.equal(normalizeUsPhoneNumber(extractUsPhoneNumber('Mi numero es 323 975 52 92')), '13239755292')
