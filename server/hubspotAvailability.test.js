@@ -57,6 +57,17 @@ test('Erika Vargas is configured as a seller', () => {
   )
 })
 
+test('Alejandro Rivera is not in the active seller pool', () => {
+  assert.equal(
+    getConfiguredPrioritySellers().some((member) => member.slug === 'alejandro667'),
+    false,
+  )
+  assert.equal(
+    getConfiguredNewClientBookingTeam().some((member) => member.slug === 'alejandro667'),
+    false,
+  )
+})
+
 test('Aline Strelow uses her 20-minute Customer Service meeting page', () => {
   const aline = getConfiguredCustomerServiceTeam().find(
     (member) => member.fieldValue === 'Aline Strelow',
