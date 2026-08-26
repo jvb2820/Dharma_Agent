@@ -35,6 +35,12 @@ test('a recognized state-only reply bypasses unrelated policy routing', () => {
   }), false)
 })
 
+test('natural positive replies accept an active offered slot', () => {
+  for (const reply of ["It's very good", 'It is very good', 'Esta muy bien', 'Muy bien', 'Muito bom']) {
+    assert.equal(isExactCasualAffirmative(reply), true, reply)
+  }
+})
+
 test('unrecognized state answers clarify once and transfer on the second attempt', () => {
   assert.deepEqual(getUnrecognizedStateAttemptResult(0), { attempts: 1, shouldTransfer: false })
   assert.deepEqual(getUnrecognizedStateAttemptResult(1), { attempts: 2, shouldTransfer: true })

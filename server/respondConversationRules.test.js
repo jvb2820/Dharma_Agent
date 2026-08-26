@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   classifyBookingFailure,
+  hasKnownRespondBookingPhone,
   isGeneratedBookingPromptLine,
   isGeneralZepboundQuestion,
   isInitialConsultationCostQuestion,
   isInsuranceQuestion,
+  resolveRespondContactStatus,
 } from './respondConversationRules.js'
 
 test('recognizes a model-generated Spanish reservation question for removal', () => {
@@ -52,6 +54,22 @@ test('classifies booking errors without treating every failure as a lost slot', 
   assert.equal(classifyBookingFailure({ status: 429, message: 'Too many requests' }), 'temporary')
   assert.equal(classifyBookingFailure(new Error('This slot is no longer available')), 'slot_unavailable')
   assert.equal(classifyBookingFailure(new Error('Unexpected HubSpot response')), 'unknown')
+})
+
+test('uses Respond lead_status as the canonical contact status fallback', () => {
+  assert.equal(resolveRespondContactStatus({ lead_status: 'Client' }), 'Client')
+  assert.equal(
+    resolveRespondContactStatus({ contact_status: 'Evaluation Scheduled', lead_status: 'Client' }),
+    'Evaluation Scheduled',
+  )
+  assert.equal(resolveRespondContactStatus({}, { status: 'closed' }), '')
+})
+
+test('known profile or active-booking phones prevent redundant collection', () => {
+  assert.equal(hasKnownRespondBookingPhone({ profilePhone: '14243032151' }), true)
+  assert.equal(hasKnownRespondBookingPhone({ bookingPhone: '17135948815' }), true)
+  assert.equal(hasKnownRespondBookingPhone({ conversationPhone: '17135948815' }), true)
+  assert.equal(hasKnownRespondBookingPhone({}), false)
 })
 
 test('extracts a name from a message that also changes the requested time', () => {

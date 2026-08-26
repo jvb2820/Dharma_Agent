@@ -185,7 +185,17 @@ export function hasCallFormatQuestion(content = '') {
 export function isExactCasualAffirmative(content = '') {
   const normalized = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
 
-  return normalized === 'sip'
+  return [
+    'sip',
+    'very good',
+    'it s very good',
+    'its very good',
+    'it is very good',
+    'muy bien',
+    'esta muy bien',
+    'muito bom',
+    'esta muito bom',
+  ].includes(normalized)
 }
 
 export function shouldTreatOkAsAffirmative({

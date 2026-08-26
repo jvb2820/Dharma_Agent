@@ -83,6 +83,30 @@ export function classifyBookingFailure(error) {
   return 'unknown'
 }
 
+export function resolveRespondContactStatus(customFields = {}, contact = {}) {
+  return (
+    customFields.contact_status ||
+    customFields.contactstatus ||
+    customFields.ContactStatus ||
+    customFields['Contact Status'] ||
+    customFields.lead_status ||
+    customFields.leadstatus ||
+    customFields['Lead Status'] ||
+    customFields.status ||
+    contact?.contactStatus ||
+    contact?.contact_status ||
+    ''
+  )
+}
+
+export function hasKnownRespondBookingPhone({
+  conversationPhone = '',
+  bookingPhone = '',
+  profilePhone = '',
+} = {}) {
+  return Boolean(conversationPhone || bookingPhone || profilePhone)
+}
+
 export function isGeneratedBookingPromptLine(line = '') {
   const normalized = String(line || '')
     .normalize('NFD')

@@ -151,6 +151,8 @@ import {
   isInitialConsultationCostQuestion,
   isInsuranceQuestion,
   isGeneratedBookingPromptLine,
+  hasKnownRespondBookingPhone,
+  resolveRespondContactStatus,
 } from './respondConversationRules.js'
 import {
   clearRespondSessions as clearStoredRespondSessions,
@@ -2342,15 +2344,7 @@ function buildRespondContactSignalSummary({ customFields, tags, contact }) {
 }
 
 function getRespondContactStatus(customFields = {}, contact = {}) {
-  return (
-    customFields.contact_status ||
-    customFields.contactstatus ||
-    customFields.ContactStatus ||
-    customFields['Contact Status'] ||
-    customFields.status ||
-    contact?.status ||
-    ''
-  )
+  return resolveRespondContactStatus(customFields, contact)
 }
 
 function normalizeRespondFieldKey(name) {
@@ -5633,9 +5627,9 @@ function bookingCopy(language, key, values = {}) {
       'Não consegui confirmar esse agendamento agora. Sua preferência de horário continua salva e posso verificar outra vaga confirmada.',
     ),
     slotTaken: tri(
-      'That time was just reserved by another customer, so I checked the calendar again.',
-      'Ese horario acaba de ser reservado por otro cliente, asi que revise el calendario nuevamente.',
-      'Esse horario acabou de ser reservado por outro cliente, entao consultei o calendario novamente.',
+      'That time is no longer available, so I checked the calendar again.',
+      'Ese horario ya no esta disponible, asi que revise el calendario nuevamente.',
+      'Esse horario nao esta mais disponivel, entao consultei o calendario novamente.',
     ),
     checking: tri(
       'Give me a moment and I will help with the next available time.',
@@ -7561,8 +7555,13 @@ function preventUnconfirmedBookingReply(text, customerLanguage, messages = [], s
   }
 
   const details = extractRespondBookingDetails(messages)
+  const phoneIsKnown = hasKnownRespondBookingPhone({
+    conversationPhone: details.phone,
+    bookingPhone: session?.booking?.details?.phone,
+    profilePhone: session?.respondContactProfile?.bookingDetails?.phone,
+  })
 
-  if (details.phone) {
+  if (phoneIsKnown) {
     // Phone is known; slot will be offered by the booking automation — show checking copy
     return bookingCopy(customerLanguage, 'checking')
   }
