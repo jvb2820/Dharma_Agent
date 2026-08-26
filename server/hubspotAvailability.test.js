@@ -109,15 +109,10 @@ test('past month names roll into the following calendar year', () => {
   assert.equal(preference.maximumDateKey, `${expectedYear}-01-31`)
 })
 
-test('Spanish day-month phrases become exact requested dates', () => {
+test('Spanish day-month phrases become exact requested dates', (testContext) => {
+  testContext.mock.method(Date, 'now', () => Date.UTC(2026, 7, 20, 12))
   const preference = parsePreferredTime('lunes 24 de agosto en la mañana', 'America/New_York')
-  const currentYear = Number(new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    timeZone: 'America/New_York',
-  }).format(new Date()))
-  const expectedYear = new Date().getMonth() + 1 > 8 ? currentYear + 1 : currentYear
-
-  assert.equal(preference.dateKey, `${expectedYear}-08-24`)
+  assert.equal(preference.dateKey, '2026-08-24')
   assert.equal(preference.monthStartKey, undefined)
 })
 
