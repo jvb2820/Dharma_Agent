@@ -41,6 +41,22 @@ test('Ailin Isabel is configured as a seller', () => {
   )
 })
 
+test('Erika Vargas is configured as a seller', () => {
+  const erika = getConfiguredPrioritySellers().find(
+    (member) => member.slug === 'evargas22',
+  )
+
+  assert.deepEqual(erika, {
+    slug: 'evargas22',
+    name: 'Erika',
+    fieldValue: 'Erika Vargas',
+  })
+  assert.equal(
+    getConfiguredNewClientBookingTeam().find((member) => member.slug === 'evargas22')?.bookingTeam,
+    'sales',
+  )
+})
+
 test('Aline Strelow uses her 20-minute Customer Service meeting page', () => {
   const aline = getConfiguredCustomerServiceTeam().find(
     (member) => member.fieldValue === 'Aline Strelow',
