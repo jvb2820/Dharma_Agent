@@ -638,8 +638,20 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
     )
   }
 
+  let confirmedMeeting = null
+
   if (!data.calendarEventId) {
-    throw new Error('HubSpot did not return a calendar event ID, so the appointment was not confirmed.')
+    // HubSpot can create the CRM meeting before the scheduler response exposes
+    // its calendar event ID. Reconcile the exact contact and requested start
+    // before treating the booking as failed or attempting a replacement slot.
+    confirmedMeeting = await findBookedMeetingForContactWithRetry({
+      contactId: contact?.id,
+      startTime: option.startTime,
+    })
+
+    if (!confirmedMeeting?.id) {
+      throw new Error('HubSpot did not return a calendar event ID, so the appointment was not confirmed.')
+    }
   }
 
   contact = await upsertBookingContactProperties(customer).catch((error) => {
@@ -647,9 +659,13 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
     return contact
   })
 
-  const confirmedMeeting = await findRecentlyCreatedScheduledMeetingWithRetry({
+  confirmedMeeting = confirmedMeeting || await findRecentlyCreatedScheduledMeetingWithRetry({
     contactId: contact?.id,
     createdAfter: bookingRequestedAt - 10_000,
+  })
+  confirmedMeeting = confirmedMeeting || await findBookedMeetingForContactWithRetry({
+    contactId: contact?.id,
+    startTime: option.startTime,
   })
   const confirmedStartTime = new Date(
     confirmedMeeting?.properties?.hs_meeting_start_time || 0,

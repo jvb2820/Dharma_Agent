@@ -69,18 +69,30 @@ export function classifyBookingFailure(error) {
   const status = Number(error?.status || error?.statusCode || 0)
 
   if (status === 429 || /\b(rate limit|too many requests|temporar|timeout|timed out|fetch failed|econnreset|service unavailable)\b/.test(message)) {
-    return 'temporary'
+    return 'hubspot_temporary'
   }
 
   if (status === 409 || /\b(slot|time)\b[\s\S]{0,40}\b(no longer|unavailable|not available|already booked|conflict|taken)\b/.test(message)) {
-    return 'slot_unavailable'
+    return status === 409 && /already being booked|claim/.test(message)
+      ? 'slot_claim_conflict'
+      : 'slot_unavailable'
   }
 
   if (/\b(phone|first name|last name|email|required field|invalid customer)\b/.test(message)) {
-    return 'invalid_details'
+    return 'form_validation_rejected'
   }
 
-  return 'unknown'
+  if (/calendar event id|confirmed meeting timestamp|could not be found/.test(message)) {
+    return 'hubspot_confirmation_timeout'
+  }
+
+  if (/different appointment time|expected.*received/.test(message)) {
+    return 'confirmed_time_mismatch'
+  }
+
+  if (status >= 400 || /hubspot/.test(message)) return 'hubspot_submission_rejected'
+
+  return 'booking_state_conflict'
 }
 
 export function resolveRespondContactStatus(customFields = {}, contact = {}) {

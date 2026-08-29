@@ -9,6 +9,7 @@ import {
   recordBookingReportEvent,
   updateContactBookingAttribution,
 } from './bookingReportService.js'
+import { recordBookingFailureEvent } from './bookingFailureService.js'
 import { loadLocalEnv } from './env.js'
 import {
   formatCustomerStateSlot,
@@ -1459,7 +1460,17 @@ async function processRespondIncomingMessage(event) {
         attribution,
         booked: bookingResponse.postReplyRespondAction.booked,
         option: bookingResponse.postReplyRespondAction.option,
-      }).catch((error) => console.warn(error.message))
+      }).catch(async (error) => {
+        console.warn(error.message)
+        await recordBookingFailureEvent({
+          contactId: event.contactId,
+          failureType: 'tracking_write_failed',
+          phase: 'booking_attribution',
+          option: bookingResponse.postReplyRespondAction.option,
+          booking: { bookingTeam: bookingResponse.postReplyRespondAction.option?.bookingTeam },
+          error,
+        }).catch((recordError) => console.warn(recordError.message))
+      })
       await sendBookingConfirmationVideo({
         contactId: event.contactId,
         channelId: event.channelId,
@@ -3040,7 +3051,10 @@ async function handleRespondBookingAutomation({
   customerLanguage,
   respondContactProfile,
 }) {
-  const existingBooking = session.booking || {}
+  const existingBooking = {
+    ...(session.booking || {}),
+    contactId: respondContactProfile?.contactId || session.booking?.contactId || '',
+  }
   const bookingTeam = getCurrentRespondBookingTeam(existingBooking, respondContactProfile)
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
   const conversationSignals = extractRespondBookingDetails(messages)
@@ -4276,6 +4290,16 @@ async function offerSoonestRespondSlot({
   const offeredOption = availableOptions[0]
 
   if (!offeredOption) {
+    await recordBookingFailureEvent({
+      contactId: booking.contactId,
+      failureType: 'availability_empty',
+      phase: 'availability_search',
+      booking,
+      metadata: {
+        preferredTime: String(preferredTime || ''),
+        state: String(details.state || ''),
+      },
+    }).catch((error) => console.warn(error.message))
     return {
       text: bookingCopy(customerLanguage, 'noAvailability'),
       booking: { ...booking, details },
@@ -5197,9 +5221,17 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
 async function buildRespondBookingFailure(booking, details, customerLanguage, error) {
   console.warn(`Unable to book Respond HubSpot appointment: ${error.message}`)
   const failureType = classifyBookingFailure(error)
-  const slotUnavailable = failureType === 'slot_unavailable'
+  await recordBookingFailureEvent({
+    contactId: booking.contactId,
+    failureType,
+    phase: 'booking_submission',
+    option: booking.offeredOption || booking.options?.[0],
+    booking,
+    error,
+  }).catch((recordError) => console.warn(recordError.message))
+  const slotUnavailable = failureType === 'slot_unavailable' || failureType === 'slot_claim_conflict'
   const invalidPhone =
-    failureType === 'invalid_details' &&
+    failureType === 'form_validation_rejected' &&
     /(?:invalid_phone_number|\bphone\b|\btelefono\b|\btelefone\b)/i.test(String(error?.message || error))
 
   if (invalidPhone) {
@@ -5388,7 +5420,12 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
     (existingBooking.details?.phoneConfirmed && isUsCountryCodePhone(existingBooking.details?.phone)) ||
     (nextDetails.phoneConfirmed && isUsCountryCodePhone(nextDetails.phone)),
   )
-  const userProvidedFullName = Boolean(nextDetails.nameConfirmed && nextDetails.firstName && nextDetails.lastName)
+  const storedNameCanBeTrusted = shouldTrustStoredRespondName(respondContactProfile)
+  const userProvidedFullName = Boolean(
+    (nextDetails.nameConfirmed || storedNameCanBeTrusted) &&
+    nextDetails.firstName &&
+    (nextDetails.lastName || nextDetails.nameConfirmed),
+  )
 
   if (!userProvidedPhone) {
     delete nextDetails.phone
@@ -5406,9 +5443,15 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
     delete nextDetails.firstName
     delete nextDetails.lastName
     delete nextDetails.nameConfirmed
+  } else if (storedNameCanBeTrusted && nextDetails.firstName && nextDetails.lastName) {
+    nextDetails.nameConfirmed = true
   }
 
   return nextDetails
+}
+
+function shouldTrustStoredRespondName(profile = {}) {
+  return Boolean(profile.status && profile.status !== 'new_or_no_record')
 }
 
 function buildRespondBookingCustomer(details, customerLanguage) {

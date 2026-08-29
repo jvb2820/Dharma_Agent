@@ -51,9 +51,13 @@ test('recognizes the active discovery-call cost question', () => {
 })
 
 test('classifies booking errors without treating every failure as a lost slot', () => {
-  assert.equal(classifyBookingFailure({ status: 429, message: 'Too many requests' }), 'temporary')
+  assert.equal(classifyBookingFailure({ status: 429, message: 'Too many requests' }), 'hubspot_temporary')
   assert.equal(classifyBookingFailure(new Error('This slot is no longer available')), 'slot_unavailable')
-  assert.equal(classifyBookingFailure(new Error('Unexpected HubSpot response')), 'unknown')
+  assert.equal(classifyBookingFailure(new Error('Unexpected HubSpot response')), 'hubspot_submission_rejected')
+  assert.equal(
+    classifyBookingFailure(new Error('HubSpot did not return a calendar event ID, so the appointment was not confirmed.')),
+    'hubspot_confirmation_timeout',
+  )
 })
 
 test('uses Respond lead_status as the canonical contact status fallback', () => {

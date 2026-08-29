@@ -60,6 +60,16 @@ test('full names are accepted after a conversational affirmation', () => {
   }
 })
 
+test('a single explicit customer name can finish the existing name step', () => {
+  assert.deepEqual(splitCustomerFullName('Alexandra'), {
+    firstName: 'Alexandra',
+    lastName: '',
+    nameConfirmed: true,
+  })
+  assert.equal(hasConfirmedFullName({ firstName: 'Alexandra', nameConfirmed: true }), true)
+  assert.equal(hasConfirmedFullName({ firstName: 'Yes', nameConfirmed: true }), false)
+})
+
 test('a resend reminder is never accepted as a customer name', () => {
   for (const reply of ['Ya se lo mande', 'Ya se lo envié', 'I already sent it']) {
     assert.deepEqual(splitCustomerFullName(reply), {})

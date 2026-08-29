@@ -77,10 +77,17 @@ export function splitCustomerFullName(content = '') {
 export function hasConfirmedFullName(details = {}) {
   return Boolean(
     details.nameConfirmed &&
-      details.firstName &&
-      details.lastName &&
-      isFullNameCandidate([details.firstName, details.lastName].filter(Boolean).join(' ')),
+      details.firstName && (
+        isFullNameCandidate([details.firstName, details.lastName].filter(Boolean).join(' ')) ||
+        isSingleNameCandidate(details.firstName)
+      ),
   )
+}
+
+function isSingleNameCandidate(value) {
+  const normalized = normalizeStatus(value)
+  return /^[\p{L}][\p{L}'-]{1,49}$/u.test(String(value || '').trim()) &&
+    !/\b(yes|yeah|yep|ok|okay|sure|no|si|claro|hola|hello|price|cost|appointment|call|cita|llamada)\b/.test(normalized)
 }
 
 function extractExplicitName(content) {
@@ -111,7 +118,7 @@ function cleanFullNameCandidate(value) {
     .replace(/\s+/g, ' ')
     .trim()
 
-  if (!isFullNameCandidate(cleaned)) {
+  if (!isFullNameCandidate(cleaned) && !isSingleNameCandidate(cleaned)) {
     return ''
   }
 
