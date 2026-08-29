@@ -1,5 +1,7 @@
 import { createSupabaseServerClient } from './supabaseClient.js'
 
+const REPORT_TIMEZONE = 'America/New_York'
+
 export async function recordBookingReportEvent({ contactId, contactPhone, attribution = {}, booked = {}, option = {} }) {
   const supabase = createSupabaseServerClient()
   if (!supabase || !contactId) return null
@@ -46,8 +48,8 @@ export async function getBookingReport({ from, to } = {}) {
     .order('booked_at', { ascending: false })
     .limit(1000)
 
-  if (from) query = query.gte('booked_at', `${from}T00:00:00.000Z`)
-  if (to) query = query.lte('booked_at', `${to}T23:59:59.999Z`)
+  if (from) query = query.gte('booked_at', getEasternDayStart(from))
+  if (to) query = query.lt('booked_at', getEasternDayStart(addCalendarDays(to, 1)))
 
   const { data, error } = await query
   if (error) throw new Error(`Unable to load booking report: ${error.message}`)
@@ -120,6 +122,58 @@ export function applyContactLeadSourceAttribution(attribution = {}, leadSource =
     type: 'paid_ad',
     source: leadSource,
   }
+}
+
+export function getEasternReportRange({ from = '', to = '' } = {}) {
+  return {
+    from: from ? getEasternDayStart(from) : '',
+    toExclusive: to ? getEasternDayStart(addCalendarDays(to, 1)) : '',
+  }
+}
+
+function getEasternDayStart(dateKey) {
+  const { year, month, day } = parseDateKey(dateKey)
+  const localMidnightAsUtc = Date.UTC(year, month - 1, day)
+  let timestamp = localMidnightAsUtc
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    timestamp = localMidnightAsUtc - getTimezoneOffsetMs(timestamp, REPORT_TIMEZONE)
+  }
+
+  return new Date(timestamp).toISOString()
+}
+
+function getTimezoneOffsetMs(timestamp, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(timestamp))
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second),
+  ) - timestamp
+}
+
+function addCalendarDays(dateKey, days) {
+  const { year, month, day } = parseDateKey(dateKey)
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
+}
+
+function parseDateKey(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) throw new Error('Report dates must use YYYY-MM-DD format.')
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) }
 }
 
 function normalizeSource(value = {}) {

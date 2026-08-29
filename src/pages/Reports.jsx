@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { reportService } from '../services/reportService'
 
-const today = new Date().toISOString().slice(0, 10)
+const REPORT_TIMEZONE = 'America/New_York'
+const today = formatEasternDateKey(new Date())
 const monthStart = `${today.slice(0, 8)}01`
 
 function Reports() {
@@ -51,7 +52,7 @@ function Reports() {
       <header className="page-header report-header">
         <div>
           <h1>Reports</h1>
-          <p>Confirmed appointments attributed to the channel that started the Respond.io chat.</p>
+          <p>Confirmed appointments attributed to the channel that started the Respond.io chat. Dates use Eastern Time.</p>
         </div>
         <div className="report-filters">
           <label>From<input type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} /></label>
@@ -91,7 +92,22 @@ function sourceLabel(row) {
 
 function formatDate(value) {
   if (!value) return '—'
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: REPORT_TIMEZONE,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
+function formatEasternDateKey(value) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: REPORT_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
 }
 
 export default Reports
