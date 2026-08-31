@@ -2001,7 +2001,7 @@ function buildRespondTransferFailureMessage(customerLanguage) {
 
 function getRespondAssigneeForBookedSpecialist(booked = {}, option = {}) {
   const assignees = parseRespondAssigneeMap(process.env.RESPOND_BOOKING_ASSIGNEES)
-  const keys = [
+  const specialistKeys = [
     booked.sellerSlug,
     option.sellerSlug,
     booked.sellerFieldValue,
@@ -2011,12 +2011,22 @@ function getRespondAssigneeForBookedSpecialist(booked = {}, option = {}) {
   ]
     .map((value) => normalizeRespondAssigneeKey(value))
     .filter(Boolean)
+  const keys = [...new Set(specialistKeys.flatMap(getRespondSpecialistAssigneeAliases))]
 
   return {
     assignee: keys.map((key) => assignees[key]).find(Boolean) || '',
     keys,
     configuredKeys: Object.keys(assignees),
   }
+}
+
+function getRespondSpecialistAssigneeAliases(key) {
+  // Aline Strelow in HubSpot/Aircall is the same person as Alice F in Respond.
+  if (key === 'aline' || key === 'aline-strelow') {
+    return [key, 'alice-f', 'alice']
+  }
+
+  return [key]
 }
 
 function parseRespondAssigneeMap(value) {
@@ -3188,6 +3198,45 @@ async function handleRespondBookingAutomation({
           pendingField: '',
           prescribedTreatmentDeclined: true,
         },
+      }
+    }
+
+    if (existingBooking.pendingField === 'state' && details.state) {
+      const nextDetails = withDefaultRespondDesiredTreatment(details)
+
+      if (shouldUseOutOfStatePrescribedTemplate(nextDetails)) {
+        const qualification = shouldUseRepeatOutOfStateTemplate(existingBooking, nextDetails)
+          ? outOfStatePrescribedRepeatTemplate(customerLanguage)
+          : outOfStatePrescribedTemplate(customerLanguage)
+
+        return {
+          text: [deterministicPolicyAnswer, qualification].filter(Boolean).join('\n\n'),
+          booking: {
+            ...existingBooking,
+            bookingTeam,
+            details: nextDetails,
+            pendingField: 'state',
+            outOfStateNotified: true,
+          },
+        }
+      }
+
+      if (!nextDetails.phone && !shouldUseNewClientBookingFlow(respondContactProfile)) {
+        return {
+          text: [deterministicPolicyAnswer, bookingCopy(customerLanguage, 'askPhone')].join('\n\n'),
+          booking: { ...existingBooking, bookingTeam, details: nextDetails, pendingField: 'phone' },
+        }
+      }
+
+      const offer = await offerSoonestRespondSlot({
+        booking: { ...existingBooking, bookingTeam, pendingField: '' },
+        details: nextDetails,
+        customerLanguage,
+      })
+
+      return {
+        ...offer,
+        text: [deterministicPolicyAnswer, offer.text].filter(Boolean).join('\n\n'),
       }
     }
 

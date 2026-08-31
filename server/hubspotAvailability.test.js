@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  compareNewClientBookingTeamPriority,
   getAvailabilityMonthOffsets,
   getConfiguredCustomerServiceTeam,
   getConfiguredNewClientBookingTeam,
@@ -9,6 +10,22 @@ import {
   parsePreferredWeekdays,
   parsePreferredTime,
 } from './hubspotService.js'
+
+test('new-client availability prioritizes sellers while retaining Customer Service fallback', () => {
+  const options = [
+    { sellerName: 'CS first', bookingTeam: 'customer_service' },
+    { sellerName: 'Seller', bookingTeam: 'sales' },
+    { sellerName: 'CS fallback', bookingTeam: 'customer_service' },
+  ]
+
+  options.sort(compareNewClientBookingTeamPriority)
+
+  assert.equal(options[0].sellerName, 'Seller')
+  assert.deepEqual(
+    options.filter((option) => option.bookingTeam === 'customer_service').map((option) => option.sellerName),
+    ['CS first', 'CS fallback'],
+  )
+})
 
 test('new-client booking pool includes sellers and Customer Service specialists', () => {
   const pool = getConfiguredNewClientBookingTeam()
