@@ -87,6 +87,7 @@ export function hasConfirmedFullName(details = {}) {
 function isSingleNameCandidate(value) {
   const normalized = normalizeStatus(value)
   return /^[\p{L}][\p{L}'-]{1,49}$/u.test(String(value || '').trim()) &&
+    !isAcknowledgmentPhrase(normalized) &&
     !/\b(yes|yeah|yep|ok|okay|sure|no|si|claro|hola|hello|price|cost|appointment|call|cita|llamada)\b/.test(normalized)
 }
 
@@ -140,6 +141,10 @@ function isFullNameCandidate(value) {
   const parts = String(value || '').split(/\s+/).filter(Boolean)
   const normalized = normalizeStatus(value)
 
+  if (isAcknowledgmentPhrase(normalized)) {
+    return false
+  }
+
   if (parts.length < 2 || parts.length > 5) {
     return false
   }
@@ -154,6 +159,12 @@ function isFullNameCandidate(value) {
 
   return !/\b(yes|yeah|yep|ok|okay|sure|no|not|only|available|availability|later|tomorrow|today|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|si|claro|dale|hola|hello|hi|price|cost|weight|loss|injection|state|florida|california|client|medication|medicine|treatment|appointment|call|y|para|hoy|manana|ahora|tarde|quiero|precios|e|para|hoje|amanha|agora)\b/.test(
     normalized,
+  )
+}
+
+function isAcknowledgmentPhrase(normalized) {
+  return /^(?:esta\s*bien|de\s*acuerdo|todo\s*bien|muy\s*bien|perfecto|correcto|vale|bueno)$/.test(
+    String(normalized || '').replace(/\s+/g, ' ').trim(),
   )
 }
 

@@ -40,8 +40,16 @@ export function isPostBookingLockExpired(lock, now = Date.now()) {
   return Boolean(lock && lock.status === 'active' && Number(lock.lockedUntil) <= now)
 }
 
-export function shouldRestorePostBookingAssignee({ lock, currentAssignee = '', conversationClosed = false } = {}) {
-  if (!lock?.assignee || conversationClosed) return false
+export function shouldRestorePostBookingAssignee({
+  lock,
+  currentAssignee = '',
+  conversationClosed = false,
+  inboundMessage = false,
+} = {}) {
+  // A close event should remain closed. An inbound message, however, means the
+  // customer has reopened the conversation even when Respond's contact profile
+  // still carries a stale closed status while its workflows are running.
+  if (!lock?.assignee || (conversationClosed && !inboundMessage)) return false
 
   return normalizeAssignee(currentAssignee) !== normalizeAssignee(lock.assignee)
 }

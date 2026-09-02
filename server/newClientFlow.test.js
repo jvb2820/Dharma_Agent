@@ -50,6 +50,12 @@ test('booking phrases are never accepted as customer names', () => {
   }
 })
 
+test('Spanish acknowledgments are never accepted as customer names', () => {
+  for (const phrase of ['Esta bien', 'Está bien', 'Estabien', 'De acuerdo', 'Todo bien', 'Perfecto']) {
+    assert.deepEqual(splitCustomerFullName(phrase), {})
+  }
+})
+
 test('full names are accepted after a conversational affirmation', () => {
   for (const reply of ['Si Sandra Zertuche', 'Sí, Sandra Zertuche', 'Yes Sandra Zertuche']) {
     assert.deepEqual(splitCustomerFullName(reply), {

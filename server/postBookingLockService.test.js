@@ -62,4 +62,10 @@ test('active post-booking ownership is restored when a workflow unassigns or cha
   assert.equal(shouldRestorePostBookingAssignee({ lock, currentAssignee: 'laura@dharmanutritionclinic.com' }), true)
   assert.equal(shouldRestorePostBookingAssignee({ lock, currentAssignee: 'EMORALES@dharmanutritionclinic.com' }), false)
   assert.equal(shouldRestorePostBookingAssignee({ lock, currentAssignee: '', conversationClosed: true }), false)
+  assert.equal(shouldRestorePostBookingAssignee({
+    lock,
+    currentAssignee: '',
+    conversationClosed: true,
+    inboundMessage: true,
+  }), true)
 })

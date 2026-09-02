@@ -1000,6 +1000,7 @@ async function processRespondIncomingMessage(event) {
       lock: postBookingLock,
       currentAssignee,
       conversationClosed: isConversationClosed(respondContactProfile),
+      inboundMessage: true,
     })) {
       await assignRespondConversationToPostBookingHolder({
         contactId: event.contactId,
