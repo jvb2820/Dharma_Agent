@@ -129,6 +129,7 @@ import {
   isExactRespondClientStatus,
   isUsCountryCodePhone,
   normalizeUsPhoneNumber,
+  removeAvailabilitySignalsFromNameReply,
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
 } from './newClientFlow.js'
@@ -3189,8 +3190,14 @@ async function handleRespondBookingAutomation({
   }
   const bookingTeam = getCurrentRespondBookingTeam(existingBooking, respondContactProfile)
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
-  const conversationSignals = extractRespondBookingDetails(messages)
-  const latestSignals = extractRespondBookingDetailsFromText(latestUserText)
+  const collectingName = existingBooking.pendingField === 'name'
+  const conversationSignals = extractRespondBookingDetails(
+    collectingName ? messages.slice(0, -1) : messages,
+  )
+  const latestSignals = removeAvailabilitySignalsFromNameReply(
+    extractRespondBookingDetailsFromText(latestUserText),
+    existingBooking.pendingField,
+  )
   const okMeansAffirmative = shouldTreatOkAsAffirmative({
     content: latestUserText,
     activeState: existingBooking.details?.state,

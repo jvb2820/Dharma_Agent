@@ -10,6 +10,19 @@ export function shouldUseNewClientBookingFlow(profile = {}) {
   return !isExactRespondClientStatus(profile)
 }
 
+export function removeAvailabilitySignalsFromNameReply(signals = {}, pendingField = '') {
+  if (pendingField !== 'name') return signals
+
+  const nextSignals = { ...signals }
+  delete nextSignals.preferredTime
+  delete nextSignals.earliestHour
+  delete nextSignals.latestHour
+  delete nextSignals.dayPart
+  delete nextSignals.direction
+  delete nextSignals.allowBeforeDefaultStart
+  return nextSignals
+}
+
 export function isUsCountryCodePhone(phone) {
   const digits = String(phone || '').replace(/\D/g, '')
 

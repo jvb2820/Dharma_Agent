@@ -8,9 +8,25 @@ import {
   isExactRespondClientStatus,
   isUsCountryCodePhone,
   normalizeUsPhoneNumber,
+  removeAvailabilitySignalsFromNameReply,
   shouldUseNewClientBookingFlow,
   splitCustomerFullName,
 } from './newClientFlow.js'
+
+test('a customer name that is also a month cannot replace the accepted appointment date', () => {
+  assert.deepEqual(
+    removeAvailabilitySignalsFromNameReply({
+      preferredTime: 'Julio',
+      dayPart: 'morning',
+      phone: '17042934539',
+    }, 'name'),
+    { phone: '17042934539' },
+  )
+  assert.deepEqual(
+    removeAvailabilitySignalsFromNameReply({ preferredTime: 'July' }, 'preferredTime'),
+    { preferredTime: 'July' },
+  )
+})
 
 test('exact Client status uses the recurring-client flow', () => {
   const profile = { fields: { contactStatus: 'Client' } }
