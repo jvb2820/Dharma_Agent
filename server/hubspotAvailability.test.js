@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  compareNewClientBookingTeamPriority,
+  compareAvailabilityOptions,
   getAvailabilityMonthOffsets,
   getConfiguredCustomerServiceTeam,
   getConfiguredNewClientBookingTeam,
@@ -11,20 +11,27 @@ import {
   parsePreferredTime,
 } from './hubspotService.js'
 
-test('new-client availability prioritizes sellers while retaining Customer Service fallback', () => {
+test('combined booking pool chooses the earliest slot regardless of team', () => {
   const options = [
-    { sellerName: 'CS first', bookingTeam: 'customer_service' },
-    { sellerName: 'Seller', bookingTeam: 'sales' },
-    { sellerName: 'CS fallback', bookingTeam: 'customer_service' },
+    { sellerName: 'Seller', bookingTeam: 'sales', startTime: 2000, sellerPriority: 0 },
+    { sellerName: 'CS', bookingTeam: 'customer_service', startTime: 1000, sellerPriority: 5 },
   ]
 
-  options.sort(compareNewClientBookingTeamPriority)
+  options.sort((left, right) => compareAvailabilityOptions(left, right, {}, 'UTC'))
 
-  assert.equal(options[0].sellerName, 'Seller')
-  assert.deepEqual(
-    options.filter((option) => option.bookingTeam === 'customer_service').map((option) => option.sellerName),
-    ['CS first', 'CS fallback'],
-  )
+  assert.equal(options[0].sellerName, 'CS')
+})
+
+test('requested time proximity ranks both booking teams equally', () => {
+  const options = [
+    { sellerName: 'Seller', bookingTeam: 'sales', startTime: Date.UTC(2026, 0, 1, 16), sellerPriority: 0 },
+    { sellerName: 'CS', bookingTeam: 'customer_service', startTime: Date.UTC(2026, 0, 1, 15), sellerPriority: 5 },
+  ]
+  const preference = { hour: 10, minute: 0 }
+
+  options.sort((left, right) => compareAvailabilityOptions(left, right, preference, 'America/New_York'))
+
+  assert.equal(options[0].sellerName, 'CS')
 })
 
 test('new-client booking pool includes sellers and Customer Service specialists', () => {

@@ -84,6 +84,7 @@ import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
   findHubSpotContactByEmail,
+  getConfiguredCustomerServiceTeam,
   getConfiguredFrontDeskTeam,
   getCustomerServiceAvailability,
   getNewClientAvailability,
@@ -175,6 +176,10 @@ const RESPOND_AGENT = {
 }
 const SESSION_RESTART_WINDOW_MS =
   Number(process.env.RESPOND_SESSION_RESTART_WINDOW_HOURS || 24) * 60 * 60 * 1000
+const EXISTING_CLIENT_NO_RESPONSE_MS =
+  Number(process.env.RESPOND_EXISTING_CLIENT_NO_RESPONSE_MINUTES || 10) * 60 * 1000
+const EXISTING_CLIENT_AUTOMATION_LOCK_MS =
+  Number(process.env.RESPOND_EXISTING_CLIENT_AUTOMATION_LOCK_HOURS || 24) * 60 * 60 * 1000
 const INITIAL_IMAGE_URL = process.env.RESPOND_INITIAL_IMAGE_URL || getDefaultInitialImageUrl()
 const BOOKING_CONFIRMATION_VIDEO_URL =
   process.env.RESPOND_BOOKING_CONFIRMATION_VIDEO_URL ||
@@ -235,6 +240,7 @@ const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
     '📍Por favor, me informe em que estado você mora para saber se fazemos entregas para o seu Estado?',
 }
 const respondSessions = new Map()
+const existingClientNoResponseTimers = new Map()
 const respondSessionPersistenceQueues = new Map()
 const pendingPostBookingAssignments = new Map()
 const respondMessageCoordinator = createRespondMessageCoordinator()
@@ -947,6 +953,28 @@ async function sendBookingConfirmationVideo({ contactId, channelId }) {
 async function processRespondIncomingMessage(event) {
   await hydrateRespondSession(event.contactId)
   let session = getRespondSession(event.contactId)
+
+  if (Number(session.existingClientAutomationLockedUntil) > Date.now()) {
+    console.log('[respond-existing-client-automation-locked]', {
+      contactId: event.contactId,
+      lockedUntil: new Date(session.existingClientAutomationLockedUntil).toISOString(),
+    })
+    return
+  }
+
+  if (Number(session.existingClientNoResponseDueAt) > 0) {
+    if (Number(session.existingClientNoResponseDueAt) <= Date.now()) {
+      await finalizeExistingClientNoResponseHandoff(event.contactId)
+      return
+    }
+
+    cancelExistingClientNoResponseHandoff(event.contactId)
+    session = setRespondSession(event.contactId, {
+      ...session,
+      existingClientNoResponseDueAt: null,
+    })
+  }
+
   let respondContactProfile = await getRespondContactProfile(event.contactId, session.respondContactProfile)
   respondContactProfile = mergeRespondContactProfileFallbacks(respondContactProfile, {
     phone: event.contactPhone,
@@ -1518,7 +1546,7 @@ async function processRespondIncomingMessage(event) {
       await unassignRespondConversationAfterReply(event.contactId)
     }
 
-    setRespondSession(event.contactId, {
+    const nextSession = setRespondSession(event.contactId, {
       customerLanguage,
       languageAsked: false,
       lastInteractionAt: Date.now(),
@@ -1532,6 +1560,7 @@ async function processRespondIncomingMessage(event) {
       respondContactProfile,
       attribution,
     })
+    scheduleExistingClientNoResponseHandoff(event.contactId, nextSession)
     return
   }
 
@@ -1806,6 +1835,98 @@ function getRespondFrontDeskAssignees() {
   const uniqueAssignees = [...new Set(frontDeskAssignees)]
 
   return uniqueAssignees
+}
+
+function getRespondCustomerServiceAssignees() {
+  const assignees = parseRespondAssigneeMap(process.env.RESPOND_BOOKING_ASSIGNEES)
+  return [...new Set(
+    getConfiguredCustomerServiceTeam()
+      .flatMap((member) => [member.slug, member.name, member.fieldValue])
+      .map((value) => assignees[normalizeRespondAssigneeKey(value)])
+      .filter(Boolean),
+  )]
+}
+
+function cancelExistingClientNoResponseHandoff(contactId) {
+  const timer = existingClientNoResponseTimers.get(contactId)
+  if (timer) clearTimeout(timer)
+  existingClientNoResponseTimers.delete(contactId)
+}
+
+function scheduleExistingClientNoResponseHandoff(contactId, session = {}) {
+  cancelExistingClientNoResponseHandoff(contactId)
+
+  if (
+    session.respondContactProfile?.status !== 'returning_client' ||
+    session.postBookingLock ||
+    !Number.isFinite(EXISTING_CLIENT_NO_RESPONSE_MS) ||
+    EXISTING_CLIENT_NO_RESPONSE_MS < 0
+  ) return
+
+  const dueAt = Date.now() + EXISTING_CLIENT_NO_RESPONSE_MS
+  const nextSession = { ...session, existingClientNoResponseDueAt: dueAt }
+  setRespondSession(contactId, nextSession)
+
+  const timer = setTimeout(() => {
+    existingClientNoResponseTimers.delete(contactId)
+    finalizeExistingClientNoResponseHandoff(contactId).catch((error) => {
+      console.warn(`Unable to complete existing-client no-response handoff: ${error.message}`)
+    })
+  }, EXISTING_CLIENT_NO_RESPONSE_MS)
+  timer.unref?.()
+  existingClientNoResponseTimers.set(contactId, timer)
+
+  console.log('[respond-existing-client-no-response-scheduled]', {
+    contactId,
+    dueAt: new Date(dueAt).toISOString(),
+  })
+}
+
+async function finalizeExistingClientNoResponseHandoff(contactId) {
+  const session = getRespondSession(contactId)
+  const dueAt = Number(session.existingClientNoResponseDueAt)
+  if (!dueAt || dueAt > Date.now()) return false
+
+  const profile = await getRespondContactProfile(contactId, session.respondContactProfile)
+  const currentSession = getRespondSession(contactId)
+  if (
+    Number(currentSession.existingClientNoResponseDueAt) !== dueAt ||
+    profile?.status !== 'returning_client'
+  ) return false
+
+  let assignee = ''
+  for (const candidate of shuffleItems(getRespondCustomerServiceAssignees())) {
+    try {
+      await assignRespondConversation({ contactId, assignee: candidate })
+      assignee = candidate
+      break
+    } catch (error) {
+      console.warn(`Unable to assign silent existing client to Customer Service ${candidate}: ${error.message}`)
+    }
+  }
+
+  if (!assignee) {
+    throw new Error('No configured Customer Service assignee accepted the conversation.')
+  }
+
+  const lockMs = Number.isFinite(EXISTING_CLIENT_AUTOMATION_LOCK_MS) && EXISTING_CLIENT_AUTOMATION_LOCK_MS >= 0
+    ? EXISTING_CLIENT_AUTOMATION_LOCK_MS
+    : 24 * 60 * 60 * 1000
+  const lockedUntil = Date.now() + lockMs
+  setRespondSession(contactId, {
+    ...currentSession,
+    respondContactProfile: profile,
+    existingClientNoResponseDueAt: null,
+    existingClientAutomationLockedUntil: lockedUntil,
+    existingClientNoResponseAssignee: assignee,
+    lastInteractionAt: Date.now(),
+  })
+  console.log('[respond-existing-client-no-response-handoff]', {
+    contactId,
+    assignee,
+    lockedUntil: new Date(lockedUntil).toISOString(),
+  })
+  return true
 }
 
 function shuffleItems(items = []) {

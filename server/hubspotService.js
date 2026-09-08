@@ -77,7 +77,6 @@ export async function getNewClientAvailability({
 } = {}) {
   return getTeamAvailability({
     members: filterSellersByPreference(getConfiguredNewClientBookingTeam(), preferredSpecialist),
-    prioritizeSales: true,
     limit,
     preferredTime,
     timezone,
@@ -91,7 +90,6 @@ async function getTeamAvailability({
   preferredTime = '',
   timezone = EASTERN_TIMEZONE,
   language = '',
-  prioritizeSales = false,
 }) {
   const options = []
   const preference = parsePreferredTime(preferredTime, timezone)
@@ -206,7 +204,7 @@ async function getTeamAvailability({
   }
 
   const sortedOptions = options.sort((left, right) =>
-    compareAvailabilityOptions(left, right, preference, timezone, prioritizeSales),
+    compareAvailabilityOptions(left, right, preference, timezone),
   )
 
   return sortedOptions
@@ -217,7 +215,7 @@ async function getTeamAvailability({
     }))
 }
 
-function compareAvailabilityOptions(left, right, preference, timezone, prioritizeSales = false) {
+export function compareAvailabilityOptions(left, right, preference, timezone) {
   if (preference.dateKey) {
     const leftDateScore = getDateDistance(left.startTime, preference.dateKey, timezone)
     const rightDateScore = getDateDistance(right.startTime, preference.dateKey, timezone)
@@ -236,25 +234,11 @@ function compareAvailabilityOptions(left, right, preference, timezone, prioritiz
     }
   }
 
-  if (prioritizeSales) {
-    const teamPriority = compareNewClientBookingTeamPriority(left, right)
-
-    if (teamPriority !== 0) {
-      return teamPriority
-    }
-  }
-
   if (left.startTime !== right.startTime) {
     return left.startTime - right.startTime
   }
 
   return left.sellerPriority - right.sellerPriority
-}
-
-export function compareNewClientBookingTeamPriority(left, right) {
-  const leftPriority = left.bookingTeam === 'sales' ? 0 : 1
-  const rightPriority = right.bookingTeam === 'sales' ? 0 : 1
-  return leftPriority - rightPriority
 }
 
 function getMonthOffsetForPreference(preference, timezone) {
