@@ -58,34 +58,36 @@ const INITIAL_BOOKING = {
 const LANGUAGE_QUESTION =
   '🌐 Hola, soy Maria de Dharma Clinic. ¿Qué idioma prefieres: español o inglés?'
 const INITIAL_GREETING_BY_LANGUAGE = {
-  English: `Hi, my name is Maria from Dharma Clinic.
+  English: `Hi, my name is Maria from Dharma Clinic. 👋
 
-👋 It is a pleasure to have you here. You can also take a look at our Instagram *@dharma.clinic* 📸.
+It is a pleasure to have you here. Take a look at our Instagram *@dharma.clinic* 📸.
 
-📍 We are a telemedicine company located in the U.S. and our consultations are online.
+📍 We are a telemedicine company located in the U.S. and provide online care in 43 states.
 
-💰 *BEST-SELLING PRICE:*
-- *$235* - Personalized GLP-1 plans starting at $235/month
+💰*BEST-SELLING PRICE:*
 
-We also offer longer treatments depending on your goal.
+*$589* – Package of up to 4 weeks of personalized GLP-1
 
-📲 First, we do a *free* discovery call by video.
+We have longer treatments to help you reach your goal.
 
-☀️ *SPECIAL SUMMER OFFER* ☀️`,
-  'Latin American Spanish': `Hola, mi nombre es Maria, de Dharma Clinic.
+📲 First, we do a *free* analysis call by video.
 
-👋 Es un placer tenerte aqui. Puedes echar un vistazo a nuestro Instagram *@dharma.clinic* 📸.
+💥 *LABOR WEEK OFFERS* 💥`,
+  'Latin American Spanish': `Hola, mi nombre es Maria, de la clínica Dharma. 👋
 
-📍 Somos una empresa de telemedicina ubicada en EE. UU. y las consultas son online.
+Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
 
-💰 *PRECIO DE LO MAS VENDIDO:*
-- *$235* - Planes personalizados de GLP-1 desde $235/mes
+📍 Somos una empresa de telemedicina ubicada en EE.UU. y atendemos online en 43 estados.
 
-Tenemos tratamientos mas largos para que puedas alcanzar tu objetivo.
+💰*PRECIO DE LO MÁS VENDIDO:*
 
-📲 Primero realizamos una llamada de analisis *gratuita* por videollamada.
+*$589* – Paquete de hasta 4 semanas de GLP-1 personalizado
 
-☀️ *OFERTA ESPECIAL DE VERANO* ☀️`,
+Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
+
+📲 Primero realizamos una llamada de análisis *gratuita* por videollamada.
+
+💥 *OFERTAS DE LABOR WEEK* 💥`,
 }
 const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
   English: '📍 What state do you live in so I can confirm whether we deliver there?',

@@ -193,15 +193,15 @@ It is a pleasure to have you here. Take a look at our Instagram *@dharma.clinic*
 
 📍 We are a U.S.-based telemedicine company providing online care in 43 states.
 
-💰*PRICE OF OUR BEST-SELLING TREATMENT:*
+💰*BEST-SELLING PRICE:*
 
-• *$235* – Personalized GLP-1 starting at $235/month
+*$589* – Package of up to 4 weeks of personalized GLP-1
 
-We offer longer treatments to help you reach your goal.
+We have longer treatments to help you reach your goal.
 
-📲 First, we do a *free* discovery call by video.
+📲 First, we do a *free* analysis call by video.
 
-☀️ *SPECIAL SUMMER OFFER* ☀️`,
+💥 *LABOR WEEK OFFERS* 💥`,
   'Latin American Spanish': `Hola, mi nombre es Maria, de la clínica Dharma. 👋
 
 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
@@ -210,28 +210,28 @@ Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic*
 
 💰*PRECIO DE LO MÁS VENDIDO:*
 
-• *$235* – A partir de $235/mes de GLP-1 personalizado
+*$589* – Paquete de hasta 4 semanas de GLP-1 personalizado
 
 Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
 
 📲 Primero realizamos una llamada de análisis *gratuita* por videollamada.
 
-☀️ *OFERTA ESPECIAL DE VERANO* ☀️`,
+💥 *OFERTAS DE LABOR WEEK* 💥`,
   Portuguese: `Olá, meu nome é Maria, da clínica Dharma. 👋
 
 É um prazer ter você aqui, dê uma olhada no nosso Instagram *@dharma.clinic* 📸.
 
 📍 Somos uma empresa de telemedicina localizada nos EUA e atendemos online em 43 estados.
 
-💰*PREÇO DO NOSSO TRATAMENTO MAIS VENDIDO:*
+💰*PREÇO DO MAIS VENDIDO:*
 
-• *$235* – GLP-1 personalizado a partir de $235/mês
+*$589* – Pacote de até 4 semanas de GLP-1 personalizado
 
 Temos tratamentos mais longos para que você possa alcançar seu objetivo.
 
 📲 Primeiro, realizamos uma chamada de análise *gratuita* por videochamada.
 
-☀️ *OFERTA ESPECIAL DE VERÃO* ☀️`,
+💥 *OFERTAS DA LABOR WEEK* 💥`,
 }
 const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
   English: '📍Please tell us which state you live in to find out if we ship to your state?',
