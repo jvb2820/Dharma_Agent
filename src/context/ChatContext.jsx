@@ -966,7 +966,6 @@ function extractPreferredSpecialist(content) {
     ['Meribet', /\bmeribet\b/i],
     ['Leonardo', /\b(leonardo|leo)\b/i],
     ['Maria Claudia', /\b(maria claudia|claudia)\b/i],
-    ['Andres', /\bandres\b/i],
     ['Alejandro', /\balejandro\b/i],
     ['Diana', /\bdiana\b/i],
   ]
