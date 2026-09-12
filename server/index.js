@@ -5598,11 +5598,10 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
     (existingBooking.details?.phoneConfirmed && isUsCountryCodePhone(existingBooking.details?.phone)) ||
     (nextDetails.phoneConfirmed && isUsCountryCodePhone(nextDetails.phone)),
   )
-  const storedNameCanBeTrusted = shouldTrustStoredRespondName(respondContactProfile)
   const userProvidedFullName = Boolean(
-    (nextDetails.nameConfirmed || storedNameCanBeTrusted) &&
+    nextDetails.nameConfirmed &&
     nextDetails.firstName &&
-    (nextDetails.lastName || nextDetails.nameConfirmed),
+    nextDetails.lastName,
   )
 
   if (!userProvidedPhone) {
@@ -5621,15 +5620,9 @@ function applyNewClientBookingRequirements(details, { existingBooking = {}, mess
     delete nextDetails.firstName
     delete nextDetails.lastName
     delete nextDetails.nameConfirmed
-  } else if (storedNameCanBeTrusted && nextDetails.firstName && nextDetails.lastName) {
-    nextDetails.nameConfirmed = true
   }
 
   return nextDetails
-}
-
-function shouldTrustStoredRespondName(profile = {}) {
-  return Boolean(profile.status && profile.status !== 'new_or_no_record')
 }
 
 function buildRespondBookingCustomer(details, customerLanguage) {
@@ -7876,7 +7869,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'When the customer is in the booking flow or gives scheduling intent, do not ask whether they need more information before booking. Continue to the next missing booking detail or offer a real available calendar slot.',
     'Never confirm refunds, replacements, credits, or compensation in complaint cases. Ask for the order details, issue, photos if relevant, and route the customer to a call or Customer Care.',
     'Use the Respond contact profile context when present. If a customer first name is provided, use only the first name and use it sparingly. Prefer no name in routine booking, slot, and follow-up messages, especially if the prior agent reply already used it. If the identifier is returning_client, treat them as an existing client and route support/client-care needs appropriately. If it is returning_lead, existing_hubspot_contact, or returning_conversation, acknowledge continuity naturally and avoid acting like they are brand new. If it is new_or_no_record, continue the normal new-lead flow. Never reveal internal field names, tags, IDs, or classification labels to the customer.',
-    'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic. Use the customer name from Respond for contacts that already have records. For a new customer with no existing Respond record, ask for the name once before booking, then continue the booking flow even if the customer replies with only one name.',
+    'Booking routing rule: contacts whose Respond Contact Status field is exactly "Client" are booked with the CS Team. All other contact statuses are booked with the sellers team. Do not tell the customer this internal routing logic. A visible WhatsApp or Respond contact name may be used conversationally, but it does not confirm the booking name for non-client contacts. Require them to provide at least a first name and last name in the chat before booking. If the customer replies with only one name, ask again for their full name and do not proceed until both name parts are provided.',
     'If a contact says they are already a client, route them to Customer Care. If they ask to speak with doctors or have side effects/medical questions and they are a current prescribed-treatment client, send them to the patient portal: https://telehealth.dharmanutritionclinic.com/dharmanutritionclinic/login. Tell them to log in, go to Messages, then Care Team.',
     'Use "Semaglutide" and "Tirzepatide" for injection names. Do not use "Ozempic" or "Mounjaro" as Dharma product names. If asked about FDA approval, do not say compounded Semaglutide or compounded Tirzepatide are FDA-approved. Explain that FDA-approved branded medications include Wegovy and Zepbound, and Dharma uses the same active compounds with licensed medical oversight when appropriate.',
     'Dharma works with GHK-Cu. If a customer asks whether we carry or work with GHK-Cu, answer yes, then explain that during the free discovery call our specialist can explain the available options, how they work, and whether they fit the customer goals. Do not invent a format, price, benefit, dosage, shipping rule, or eligibility claim.',

@@ -90,18 +90,10 @@ export function splitCustomerFullName(content = '') {
 export function hasConfirmedFullName(details = {}) {
   return Boolean(
     details.nameConfirmed &&
-      details.firstName && (
-        isFullNameCandidate([details.firstName, details.lastName].filter(Boolean).join(' ')) ||
-        isSingleNameCandidate(details.firstName)
-      ),
+      details.firstName &&
+      details.lastName &&
+      isFullNameCandidate([details.firstName, details.lastName].join(' ')),
   )
-}
-
-function isSingleNameCandidate(value) {
-  const normalized = normalizeStatus(value)
-  return /^[\p{L}][\p{L}'-]{1,49}$/u.test(String(value || '').trim()) &&
-    !isAcknowledgmentPhrase(normalized) &&
-    !/\b(yes|yeah|yep|ok|okay|sure|no|si|claro|hola|hello|price|cost|appointment|call|cita|llamada)\b/.test(normalized)
 }
 
 function extractExplicitName(content) {
@@ -132,7 +124,11 @@ function cleanFullNameCandidate(value) {
     .replace(/\s+/g, ' ')
     .trim()
 
-  if (!isFullNameCandidate(cleaned) && !isSingleNameCandidate(cleaned)) {
+  if (isLikelyNonNamePhrase(cleaned)) {
+    return ''
+  }
+
+  if (!isFullNameCandidate(cleaned)) {
     return ''
   }
 
@@ -147,7 +143,9 @@ function cleanExplicitNameCandidate(value) {
     .trim()
   const parts = cleaned.split(/\s+/).filter(Boolean)
 
-  return parts.length >= 1 && parts.length <= 5 ? cleaned : ''
+  return parts.length >= 2 && parts.length <= 5 && !isLikelyNonNamePhrase(cleaned)
+    ? cleaned
+    : ''
 }
 
 function isFullNameCandidate(value) {
@@ -170,9 +168,21 @@ function isFullNameCandidate(value) {
     return false
   }
 
-  return !/\b(yes|yeah|yep|ok|okay|sure|no|not|only|available|availability|later|tomorrow|today|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|si|claro|dale|hola|hello|hi|price|cost|weight|loss|injection|state|florida|california|client|medication|medicine|treatment|appointment|call|y|para|hoy|manana|ahora|tarde|quiero|precios|e|para|hoje|amanha|agora)\b/.test(
+  return !/\b(yes|yeah|yep|ok|okay|sure|no|not|only|available|availability|later|tomorrow|today|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday|si|claro|dale|hola|hello|hi|price|cost|weight|loss|injection|state|florida|california|client|medication|medicine|treatment|appointment|call|y|para|hoy|manana|ahora|tarde|quiero|precio|precios|e|para|hoje|amanha|agora)\b/.test(
     normalized,
   )
+}
+
+function isLikelyNonNamePhrase(value) {
+  const normalized = normalizeStatus(value)
+
+  return [
+    /^(?:what|how|when|where|why|who|which|can|could|do|does|is|are)\b/,
+    /^(?:que|cual|como|cuando|donde|por que|cuanto|cuantos|puede|puedes)\b/,
+    /^(?:o que|qual|como|quando|onde|por que|quanto|pode)\b/,
+    /\b(?:price|prices|cost|costs|pricing|payment|precio|precios|cuesta|cuestan|costo|costos|pago|preco|precos|custa|custam|pagamento)\b/,
+    /\b(?:appointment|call|treatment|medication|medicine|cita|llamada|tratamiento|medicamento|consulta|chamada|tratamento)\b/,
+  ].some((pattern) => pattern.test(normalized))
 }
 
 function isAcknowledgmentPhrase(normalized) {

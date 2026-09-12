@@ -53,6 +53,16 @@ test('returning leads and non-client statuses remain in the new-client flow', ()
   }
 })
 
+test('a visible WhatsApp contact name is not a confirmed booking name', () => {
+  const profile = {
+    status: 'returning_lead',
+    bookingDetails: { firstName: 'Diana', lastName: 'Rodriguez' },
+  }
+
+  assert.equal(shouldUseNewClientBookingFlow(profile), true)
+  assert.equal(hasConfirmedFullName(profile.bookingDetails), false)
+})
+
 test('exact client status fallback is recognized when supplied by profile classification', () => {
   const profile = { exactContactStatus: 'Client' }
 
@@ -62,6 +72,18 @@ test('exact client status fallback is recognized when supplied by profile classi
 
 test('booking phrases are never accepted as customer names', () => {
   for (const phrase of ['y para hoy', 'para mañana', 'quiero precios', 'e para hoje']) {
+    assert.deepEqual(splitCustomerFullName(phrase), {})
+  }
+})
+
+test('price questions are never accepted as customer names', () => {
+  for (const phrase of [
+    'que precio esta',
+    'qué precio está',
+    'how much is it',
+    'quanto custa isso',
+    'Mi nombre es que precio esta',
+  ]) {
     assert.deepEqual(splitCustomerFullName(phrase), {})
   }
 })
@@ -82,13 +104,10 @@ test('full names are accepted after a conversational affirmation', () => {
   }
 })
 
-test('a single explicit customer name can finish the existing name step', () => {
-  assert.deepEqual(splitCustomerFullName('Alexandra'), {
-    firstName: 'Alexandra',
-    lastName: '',
-    nameConfirmed: true,
-  })
-  assert.equal(hasConfirmedFullName({ firstName: 'Alexandra', nameConfirmed: true }), true)
+test('a single customer name cannot finish the full-name step', () => {
+  assert.deepEqual(splitCustomerFullName('Alexandra'), {})
+  assert.deepEqual(splitCustomerFullName('Mi nombre es Alexandra'), {})
+  assert.equal(hasConfirmedFullName({ firstName: 'Alexandra', nameConfirmed: true }), false)
   assert.equal(hasConfirmedFullName({ firstName: 'Yes', nameConfirmed: true }), false)
 })
 

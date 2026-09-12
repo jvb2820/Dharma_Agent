@@ -76,10 +76,10 @@ test('known profile or active-booking phones prevent redundant collection', () =
   assert.equal(hasKnownRespondBookingPhone({}), false)
 })
 
-test('extracts a name from a message that also changes the requested time', () => {
-  assert.deepEqual(splitCustomerFullName('8.30am mi nombre es Jenny'), {
+test('extracts a full name from a message that also changes the requested time', () => {
+  assert.deepEqual(splitCustomerFullName('8.30am mi nombre es Jenny Rivera'), {
     firstName: 'Jenny',
-    lastName: '',
+    lastName: 'Rivera',
     nameConfirmed: true,
   })
 })
