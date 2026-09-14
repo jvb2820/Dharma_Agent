@@ -31,12 +31,13 @@ export async function settleRespondTransferAssignment({
   assign,
   delay = wait,
   delayMs = getRespondTransferSettlementDelayMs(),
+  preserveAnyExistingAssignee = false,
 } = {}) {
   await delay(delayMs)
 
   const profile = await loadProfile(contactId)
   const existingAssignee = getAssignee(profile)
-  if (existingAssignee && assignees.includes(existingAssignee)) {
+  if (existingAssignee && (preserveAnyExistingAssignee || assignees.includes(existingAssignee))) {
     return { assigned: true, assignee: existingAssignee, profile, retained: true }
   }
 

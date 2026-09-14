@@ -6,6 +6,7 @@ import {
   closeHumanTakeoverLock,
   isHumanTakeoverLockActive,
   isHumanTakeoverLockExpired,
+  shouldPreserveHumanTakeoverOnUnassignment,
 } from './humanTakeoverLockService.js'
 
 test('an assigned human-takeover lock remains active without a fixed expiry', () => {
@@ -43,4 +44,19 @@ test('closing a human takeover starts the configured 24-hour cooldown', () => {
 test('a human-takeover lock requires both contact and assignee', () => {
   assert.equal(buildHumanTakeoverLock({ contactId: 'contact-3' }), null)
   assert.equal(buildHumanTakeoverLock({ assignee: 'human@example.com' }), null)
+})
+
+test('workflow unassignment preserves a recently closed human owner', () => {
+  const assigned = buildHumanTakeoverLock({
+    contactId: 'contact-4',
+    assignee: 'william',
+    assignedAt: 1_000,
+  })
+  const cooldown = closeHumanTakeoverLock(assigned, 2_000)
+
+  assert.equal(shouldPreserveHumanTakeoverOnUnassignment(cooldown, 3_000), true)
+  assert.equal(
+    shouldPreserveHumanTakeoverOnUnassignment(cooldown, cooldown.lockedUntil),
+    false,
+  )
 })

@@ -56,3 +56,20 @@ test('keeps an existing target-team assignment after workflow settlement', async
   assert.equal(result.assignee, 'william')
   assert.equal(result.retained, true)
 })
+
+test('previous-owner restoration preserves another human who takes ownership during the wait', async () => {
+  let assignmentCalls = 0
+  const result = await settleRespondTransferAssignment({
+    contactId: 'contact-3',
+    assignees: ['william'],
+    delay: async () => {},
+    loadProfile: async () => ({ conversation: { assignee: 'laura' } }),
+    getAssignee: (profile) => profile.conversation.assignee || '',
+    assign: async () => { assignmentCalls += 1 },
+    preserveAnyExistingAssignee: true,
+  })
+
+  assert.equal(assignmentCalls, 0)
+  assert.equal(result.assignee, 'laura')
+  assert.equal(result.retained, true)
+})

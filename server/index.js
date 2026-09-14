@@ -79,6 +79,7 @@ import {
   isHumanTakeoverLockActive,
   isHumanTakeoverLockExpired,
   saveHumanTakeoverLock,
+  shouldPreserveHumanTakeoverOnUnassignment,
 } from './humanTakeoverLockService.js'
 import {
   bookCustomerServiceMeeting,
@@ -250,6 +251,7 @@ const respondSessions = new Map()
 const existingClientNoResponseTimers = new Map()
 const respondSessionPersistenceQueues = new Map()
 const pendingPostBookingAssignments = new Map()
+const pendingHumanOwnerRestorations = new Map()
 const respondMessageCoordinator = createRespondMessageCoordinator()
 
 const MIME_TYPES = {
@@ -863,6 +865,14 @@ async function handleRespondConversationStateEvent(event) {
   }
   if (postBookingLock) return
 
+  const pendingHumanRestoration = pendingHumanOwnerRestorations.get(event.contactId)
+  if (pendingHumanRestoration && pendingHumanRestoration > Date.now()) {
+    console.log('[respond-human-owner-restoration-event-ignored]', {
+      contactId: event.contactId,
+      eventName: event.eventName,
+    })
+    return
+  }
   if (isPendingRespondTransferActive(session.pendingTransfer)) {
     console.log('[respond-transfer-settlement-event-ignored]', {
       contactId: event.contactId,
@@ -872,15 +882,24 @@ async function handleRespondConversationStateEvent(event) {
     return
   }
 
+  let humanLock = await getHumanTakeoverLock(event.contactId, session.humanTakeoverLock)
+
   if (event.isConversationUnassignedEvent) {
+    if (shouldPreserveHumanTakeoverOnUnassignment(humanLock)) {
+      console.log('[respond-human-takeover-workflow-unassignment-preserved]', {
+        contactId: event.contactId,
+        assignee: humanLock.assignee,
+        lockedUntil: new Date(humanLock.lockedUntil).toISOString(),
+      })
+      return
+    }
+
     await expireHumanTakeoverLock(event.contactId, 'cancelled').catch((error) => {
       console.warn(error.message)
     })
     console.log('[respond-human-takeover-unassigned]', { contactId: event.contactId })
     return
   }
-
-  let humanLock = await getHumanTakeoverLock(event.contactId, session.humanTakeoverLock)
 
   if (event.isConversationAssignmentEvent && !event.isConversationClosedEvent) {
     let assignee = event.assignee
@@ -1113,6 +1132,24 @@ async function processRespondIncomingMessage(event) {
   }
 
   if (isHumanTakeoverLockActive(humanTakeoverLock)) {
+    if (
+      humanTakeoverLock.phase === 'cooldown' &&
+      !isConversationAssigned(respondContactProfile)
+    ) {
+      const restoredOwnership = await restorePreviousRespondHumanOwner({
+        contactId: event.contactId,
+        humanTakeoverLock,
+      })
+      const latestSession = getRespondSession(event.contactId)
+      setRespondSession(event.contactId, {
+        ...latestSession,
+        humanTakeoverLock: restoredOwnership.lock,
+        respondContactProfile: restoredOwnership.profile,
+        lastInteractionAt: Date.now(),
+      })
+      return
+    }
+
     setRespondSession(event.contactId, {
       ...session,
       humanTakeoverLock,
@@ -1691,6 +1728,43 @@ async function unassignRespondConversationAfterReply(contactId) {
   await unassignRespondConversation(contactId).catch((error) => {
     console.warn(`Unable to unassign Respond conversation: ${error.message}`)
   })
+}
+
+async function restorePreviousRespondHumanOwner({ contactId, humanTakeoverLock }) {
+  const holdMs = getRespondTransferSettlementDelayMs() + 60 * 1000
+  pendingHumanOwnerRestorations.set(contactId, Date.now() + holdMs)
+  setTimeout(() => {
+    if (Number(pendingHumanOwnerRestorations.get(contactId)) <= Date.now()) {
+      pendingHumanOwnerRestorations.delete(contactId)
+    }
+  }, holdMs)
+
+  const settlement = await settleRespondTransferAssignment({
+    contactId,
+    assignees: [humanTakeoverLock.assignee],
+    loadProfile: (id) => getRespondContactProfile(id, null),
+    getAssignee: getConversationAssignee,
+    assign: assignRespondConversation,
+    preserveAnyExistingAssignee: true,
+  })
+  const assignee = settlement.assignee || humanTakeoverLock.assignee
+  const lock = settlement.assigned
+    ? buildHumanTakeoverLock({ contactId, assignee })
+    : humanTakeoverLock
+
+  if (settlement.assigned) {
+    await saveHumanTakeoverLock(lock).catch((error) => console.warn(error.message))
+  }
+
+  console.log('[respond-human-owner-restoration-settled]', {
+    contactId,
+    previousAssignee: humanTakeoverLock.assignee,
+    assignee: settlement.assignee,
+    restored: settlement.assigned && !settlement.retained,
+    retained: settlement.retained,
+  })
+
+  return { lock, profile: settlement.profile }
 }
 
 async function shouldPauseRespondReplyForHumanTakeover(contactId, session = {}) {
