@@ -143,6 +143,12 @@ import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
 import { createRespondMessageCoordinator } from './respondMessageCoordinator.js'
+import {
+  buildPendingRespondTransfer,
+  getRespondTransferSettlementDelayMs,
+  isPendingRespondTransferActive,
+  settleRespondTransferAssignment,
+} from './respondTransferSettlementService.js'
 import { withRespondContactLock } from './respondProcessingService.js'
 import { recheckRespondAssignment } from './respondAssignmentRecheckService.js'
 import { acquireSlotClaim, releaseSlotClaim } from './slotClaimService.js'
@@ -856,6 +862,15 @@ async function handleRespondConversationStateEvent(event) {
     return
   }
   if (postBookingLock) return
+
+  if (isPendingRespondTransferActive(session.pendingTransfer)) {
+    console.log('[respond-transfer-settlement-event-ignored]', {
+      contactId: event.contactId,
+      eventName: event.eventName,
+      settleAt: new Date(session.pendingTransfer.settleAt).toISOString(),
+    })
+    return
+  }
 
   if (event.isConversationUnassignedEvent) {
     await expireHumanTakeoverLock(event.contactId, 'cancelled').catch((error) => {
@@ -1764,27 +1779,18 @@ async function transferRespondConversationToCustomerService({
   userMessage,
 }) {
   const frontDeskAssignees = getRespondFrontDeskAssignees()
-  let assignee = ''
-  let assigned = false
+  const orderedAssignees = shuffleItems(frontDeskAssignees)
 
   if (!frontDeskAssignees.length) {
     console.warn(
       `Unable to transfer Respond conversation to Customer Service: no configured Front Desk team member has a Respond assignee in RESPOND_BOOKING_ASSIGNEES.`,
     )
-  } else {
-    for (const candidate of shuffleItems(frontDeskAssignees)) {
-      try {
-        await assignRespondConversation({ contactId, assignee: candidate })
-        assignee = candidate
-        assigned = true
-        break
-      } catch (error) {
-        console.warn(`Unable to transfer Respond conversation to Front Desk assignee ${candidate}: ${error.message}`)
-      }
-    }
   }
 
-  const text = assigned
+  const pendingTransfer = frontDeskAssignees.length
+    ? buildPendingRespondTransfer({ triggerType: transferTrigger?.type })
+    : null
+  const text = pendingTransfer
     ? await resolveRespondTransferMessage({
       customerLanguage,
       latestUserText: userMessage?.content || '',
@@ -1799,8 +1805,9 @@ async function transferRespondConversationToCustomerService({
     customerLanguage,
     languageAsked: false,
     lastInteractionAt: Date.now(),
-    transferHandoffAt: assigned ? Date.now() : null,
+    transferHandoffAt: pendingTransfer ? Date.now() : null,
     transferClosedAt: null,
+    pendingTransfer,
     messages: [
       ...(session.messages || []),
       userMessage,
@@ -1810,12 +1817,43 @@ async function transferRespondConversationToCustomerService({
     respondContactProfile,
   })
 
+  if (!pendingTransfer) return
+
+  await waitForRespondSessionPersistence(contactId)
+  const settlement = await settleRespondTransferAssignment({
+    contactId,
+    assignees: orderedAssignees,
+    loadProfile: (id) => getRespondContactProfile(id, null),
+    getAssignee: getConversationAssignee,
+    assign: assignRespondConversation,
+  })
+
+  const latestSession = getRespondSession(contactId)
+  let humanTakeoverLock = latestSession.humanTakeoverLock || null
+  if (settlement.assigned) {
+    humanTakeoverLock = buildHumanTakeoverLock({
+      contactId,
+      assignee: settlement.assignee,
+    })
+    await saveHumanTakeoverLock(humanTakeoverLock).catch((error) => console.warn(error.message))
+  }
+
+  setRespondSession(contactId, {
+    ...latestSession,
+    pendingTransfer: null,
+    respondContactProfile: settlement.profile || latestSession.respondContactProfile,
+    ...(humanTakeoverLock ? { humanTakeoverLock } : {}),
+    lastInteractionAt: Date.now(),
+  })
+
   console.log(
     '[respond-transfer-front-desk]',
     Object.fromEntries(
       Object.entries({
         contactId,
-        assignee,
+        assignee: settlement.assignee,
+        retained: settlement.retained,
+        settlementDelayMs: getRespondTransferSettlementDelayMs(),
         triggerType: transferTrigger?.type,
         reason: transferTrigger?.reason,
       }).filter(([, value]) => Boolean(value)),
