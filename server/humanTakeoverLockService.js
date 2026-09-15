@@ -54,7 +54,7 @@ export function isHumanTakeoverLockExpired(lock, now = Date.now()) {
 }
 
 export function shouldPreserveHumanTakeoverOnUnassignment(lock, now = Date.now()) {
-  return Boolean(lock?.phase === 'cooldown' && isHumanTakeoverLockActive(lock, now))
+  return isHumanTakeoverLockActive(lock, now)
 }
 
 export async function saveHumanTakeoverLock(lock) {

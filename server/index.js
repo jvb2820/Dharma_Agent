@@ -886,10 +886,22 @@ async function handleRespondConversationStateEvent(event) {
 
   if (event.isConversationUnassignedEvent) {
     if (shouldPreserveHumanTakeoverOnUnassignment(humanLock)) {
-      console.log('[respond-human-takeover-workflow-unassignment-preserved]', {
+      const restoredOwnership = await restorePreviousRespondHumanOwner({
         contactId: event.contactId,
-        assignee: humanLock.assignee,
-        lockedUntil: new Date(humanLock.lockedUntil).toISOString(),
+        humanTakeoverLock: humanLock,
+        delayMs: 0,
+      })
+      const latestSession = getRespondSession(event.contactId)
+      setRespondSession(event.contactId, {
+        ...latestSession,
+        humanTakeoverLock: restoredOwnership.lock,
+        respondContactProfile: restoredOwnership.profile,
+        lastInteractionAt: Date.now(),
+      })
+      console.log('[respond-human-takeover-workflow-unassignment-restored]', {
+        contactId: event.contactId,
+        assignee: restoredOwnership.lock?.assignee || humanLock.assignee,
+        phase: humanLock.phase,
       })
       return
     }
@@ -1110,19 +1122,6 @@ async function processRespondIncomingMessage(event) {
 
   if (
     humanTakeoverLock?.phase === 'assigned' &&
-    !isConversationAssigned(respondContactProfile)
-  ) {
-    await expireHumanTakeoverLock(event.contactId, 'cancelled').catch((error) => {
-      console.warn(error.message)
-    })
-    humanTakeoverLock = null
-    console.log('[respond-human-takeover-manually-released]', {
-      contactId: event.contactId,
-    })
-  }
-
-  if (
-    humanTakeoverLock?.phase === 'assigned' &&
     isConversationClosed(respondContactProfile)
   ) {
     humanTakeoverLock = closeHumanTakeoverLock(humanTakeoverLock)
@@ -1132,13 +1131,11 @@ async function processRespondIncomingMessage(event) {
   }
 
   if (isHumanTakeoverLockActive(humanTakeoverLock)) {
-    if (
-      humanTakeoverLock.phase === 'cooldown' &&
-      !isConversationAssigned(respondContactProfile)
-    ) {
+    if (!isConversationAssigned(respondContactProfile)) {
       const restoredOwnership = await restorePreviousRespondHumanOwner({
         contactId: event.contactId,
         humanTakeoverLock,
+        delayMs: 0,
       })
       const latestSession = getRespondSession(event.contactId)
       setRespondSession(event.contactId, {
@@ -1392,7 +1389,6 @@ async function processRespondIncomingMessage(event) {
       customerLanguage: initialLanguage,
       firstName: getCustomerFirstName(initialDetails, respondContactProfile),
     })
-    await unassignRespondConversationAfterReply(event.contactId)
 
     setRespondSession(event.contactId, {
       channelId: event.channelId,
@@ -1429,7 +1425,6 @@ async function processRespondIncomingMessage(event) {
       customerLanguage: preferredLanguage,
       firstName: getCustomerFirstName(getRespondContactBookingDetails(respondContactProfile), respondContactProfile),
     })
-    await unassignRespondConversationAfterReply(event.contactId)
 
     setRespondSession(event.contactId, {
       channelId: event.channelId,
@@ -1581,10 +1576,6 @@ async function processRespondIncomingMessage(event) {
         })
         : null
 
-      if (!isPostBookingLockEnabled()) {
-        await unassignRespondConversationAfterReply(event.contactId)
-      }
-
       if (!assignment?.assigned && nextPostBookingLock) {
         console.warn(
           `Respond assignment failed after booking; post-booking lock remains active for contact ${event.contactId} and restoration will be retried.`,
@@ -1596,7 +1587,6 @@ async function processRespondIncomingMessage(event) {
         channelId: event.channelId,
         text: bookingResponse.text,
       })
-      await unassignRespondConversationAfterReply(event.contactId)
     }
 
     const nextSession = setRespondSession(event.contactId, {
@@ -1659,7 +1649,6 @@ async function processRespondIncomingMessage(event) {
     channelId: event.channelId,
     text,
   })
-  await unassignRespondConversationAfterReply(event.contactId)
 
   setRespondSession(event.contactId, {
     customerLanguage,
@@ -1730,7 +1719,11 @@ async function unassignRespondConversationAfterReply(contactId) {
   })
 }
 
-async function restorePreviousRespondHumanOwner({ contactId, humanTakeoverLock }) {
+async function restorePreviousRespondHumanOwner({
+  contactId,
+  humanTakeoverLock,
+  delayMs = 0,
+}) {
   const holdMs = getRespondTransferSettlementDelayMs() + 60 * 1000
   pendingHumanOwnerRestorations.set(contactId, Date.now() + holdMs)
   setTimeout(() => {
@@ -1746,6 +1739,7 @@ async function restorePreviousRespondHumanOwner({ contactId, humanTakeoverLock }
     getAssignee: getConversationAssignee,
     assign: assignRespondConversation,
     preserveAnyExistingAssignee: true,
+    delayMs,
   })
   const assignee = settlement.assignee || humanTakeoverLock.assignee
   const lock = settlement.assigned
@@ -1770,10 +1764,27 @@ async function restorePreviousRespondHumanOwner({ contactId, humanTakeoverLock }
 async function shouldPauseRespondReplyForHumanTakeover(contactId, session = {}) {
   const lock = await getHumanTakeoverLock(contactId, session.humanTakeoverLock)
   if (isHumanTakeoverLockActive(lock)) {
+    const profile = await getRespondContactProfile(contactId, session.respondContactProfile)
+    let restoredOwnership = null
+    if (!isConversationAssigned(profile)) {
+      restoredOwnership = await restorePreviousRespondHumanOwner({
+        contactId,
+        humanTakeoverLock: lock,
+        delayMs: 0,
+      })
+    }
+    const latestSession = getRespondSession(contactId)
+    setRespondSession(contactId, {
+      ...latestSession,
+      humanTakeoverLock: restoredOwnership?.lock || lock,
+      respondContactProfile: restoredOwnership?.profile || profile,
+      lastInteractionAt: Date.now(),
+    })
     console.log('[respond-human-takeover-pre-send-paused]', {
       contactId,
-      assignee: lock.assignee,
+      assignee: restoredOwnership?.lock?.assignee || lock.assignee,
       phase: lock.phase,
+      restored: Boolean(restoredOwnership),
     })
     return true
   }
@@ -1852,6 +1863,8 @@ async function transferRespondConversationToCustomerService({
   transferTrigger,
   userMessage,
 }) {
+  if (await shouldPauseRespondReplyForHumanTakeover(contactId, session)) return
+
   const frontDeskAssignees = getRespondFrontDeskAssignees()
   const orderedAssignees = shuffleItems(frontDeskAssignees)
 

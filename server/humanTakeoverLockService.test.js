@@ -60,3 +60,13 @@ test('workflow unassignment preserves a recently closed human owner', () => {
     false,
   )
 })
+
+test('workflow unassignment preserves an actively assigned human owner', () => {
+  const assigned = buildHumanTakeoverLock({
+    contactId: 'contact-5',
+    assignee: 'william',
+    assignedAt: 1_000,
+  })
+
+  assert.equal(shouldPreserveHumanTakeoverOnUnassignment(assigned, Date.now()), true)
+})

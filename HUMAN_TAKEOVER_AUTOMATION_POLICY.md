@@ -19,8 +19,11 @@ Maria to resume after a human has finished handling the conversation.
 6. On the first inbound message after cooldown expiry, the lock expires, the previous
    assignee is removed, the prior in-memory conversation is cleared, and automation
    restarts from that message.
-7. If a human explicitly unassigns the conversation before closure, the takeover lock
-   is cancelled and automation may resume on the next inbound message.
+7. If a Respond workflow unassigns the conversation while the takeover lock is active,
+   the recorded human owner is restored and automation remains paused. This applies
+   during both the assigned and cooldown phases.
+8. Routine automated replies never clear a live assignee. A takeover lock is released
+   only through its explicit lifecycle, including cooldown expiration.
 
 ## Booking Interaction
 
