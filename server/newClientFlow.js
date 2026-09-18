@@ -1,13 +1,13 @@
-export function isExactRespondClientStatus(profile = {}) {
+export function isCustomerServiceBookingStatus(profile = {}) {
   const exactStatus = normalizeStatus(
     profile?.fields?.contactStatus || profile?.exactContactStatus,
   )
 
-  return exactStatus === 'client'
+  return exactStatus === 'client' || exactStatus === 'evaluation scheduled'
 }
 
 export function shouldUseNewClientBookingFlow(profile = {}) {
-  return !isExactRespondClientStatus(profile)
+  return !isCustomerServiceBookingStatus(profile)
 }
 
 export function removeAvailabilitySignalsFromNameReply(signals = {}, pendingField = '') {

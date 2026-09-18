@@ -5,7 +5,7 @@ import {
   createDummyEmailFromProvidedPhone,
   extractUsPhoneNumber,
   hasConfirmedFullName,
-  isExactRespondClientStatus,
+  isCustomerServiceBookingStatus,
   isUsCountryCodePhone,
   normalizeUsPhoneNumber,
   removeAvailabilitySignalsFromNameReply,
@@ -28,11 +28,13 @@ test('a customer name that is also a month cannot replace the accepted appointme
   )
 })
 
-test('exact Client status uses the recurring-client flow', () => {
-  const profile = { fields: { contactStatus: 'Client' } }
+test('Client and Evaluation Scheduled statuses use the Customer Service flow', () => {
+  for (const contactStatus of ['Client', 'Evaluation Scheduled']) {
+    const profile = { fields: { contactStatus } }
 
-  assert.equal(isExactRespondClientStatus(profile), true)
-  assert.equal(shouldUseNewClientBookingFlow(profile), false)
+    assert.equal(isCustomerServiceBookingStatus(profile), true)
+    assert.equal(shouldUseNewClientBookingFlow(profile), false)
+  }
 })
 
 test('recurring clients do not need a confirmed full name', () => {
@@ -42,13 +44,12 @@ test('recurring clients do not need a confirmed full name', () => {
   assert.equal(requiresName, false)
 })
 
-test('returning leads and non-client statuses remain in the new-client flow', () => {
+test('returning leads and other statuses remain in the new-client flow', () => {
   for (const profile of [
     { status: 'returning_lead', fields: { contactStatus: 'Lead' } },
-    { fields: { contactStatus: 'Evaluation Scheduled' } },
     { fields: { contactStatus: '' } },
   ]) {
-    assert.equal(isExactRespondClientStatus(profile), false)
+    assert.equal(isCustomerServiceBookingStatus(profile), false)
     assert.equal(shouldUseNewClientBookingFlow(profile), true)
   }
 })
@@ -66,7 +67,7 @@ test('a visible WhatsApp contact name is not a confirmed booking name', () => {
 test('exact client status fallback is recognized when supplied by profile classification', () => {
   const profile = { exactContactStatus: 'Client' }
 
-  assert.equal(isExactRespondClientStatus(profile), true)
+  assert.equal(isCustomerServiceBookingStatus(profile), true)
   assert.equal(shouldUseNewClientBookingFlow(profile), false)
 })
 
