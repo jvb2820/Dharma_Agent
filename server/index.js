@@ -201,7 +201,7 @@ We have longer treatments to help you reach your goal.
 
 📲 First, we do a *free* analysis call by video.
 
-💥 *LABOR WEEK OFFERS* 💥`,
+💥 *SPECIAL OFFER TODAY ONLY* 💥`,
   'Latin American Spanish': `Hola, mi nombre es Maria, de la clínica Dharma. 👋
 
 Es un placer tenerte aquí, echa un vistazo a nuestro Instagram *@dharma.clinic* 📸.
@@ -216,7 +216,7 @@ Tenemos tratamientos más largos para que pueda alcanzar su objetivo.
 
 📲 Primero realizamos una llamada de análisis *gratuita* por videollamada.
 
-💥 *OFERTAS DE LABOR WEEK* 💥`,
+💥 *OFERTA ESPECIAL SOLO HOY* 💥`,
   Portuguese: `Olá, meu nome é Maria, da clínica Dharma. 👋
 
 É um prazer ter você aqui, dê uma olhada no nosso Instagram *@dharma.clinic* 📸.
@@ -231,7 +231,7 @@ Temos tratamentos mais longos para que você possa alcançar seu objetivo.
 
 📲 Primeiro, realizamos uma chamada de análise *gratuita* por videochamada.
 
-💥 *OFERTAS DA LABOR WEEK* 💥`,
+💥 *OFERTA ESPECIAL SOMENTE HOJE* 💥`,
 }
 const INITIAL_STATE_QUESTION_BY_LANGUAGE = {
   English: '📍Please tell us which state you live in to find out if we ship to your state?',
