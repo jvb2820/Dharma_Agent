@@ -4372,6 +4372,7 @@ async function offerSoonestRespondSlot({
   preferredTime = details.preferredTime,
   closest = false,
   offerCopyKey = '',
+  forceSingleSlot = false,
 }) {
   const requestedSunday = isSundayAvailabilityPreference(preferredTime)
   if (requestedSunday) {
@@ -4455,18 +4456,19 @@ async function offerSoonestRespondSlot({
     }
   }
 
-  const nextOptions = afterHoursFallback ? availableOptions.slice(0, 3) : [offeredOption]
-  const offerKey = afterHoursFallback ? 'offerNextMorningAfterHours' : offerCopyKey || getSingleSlotOfferCopyKey({
+  const nextOptions = afterHoursFallback && !forceSingleSlot ? availableOptions.slice(0, 3) : [offeredOption]
+  const useAfterHoursCopy = afterHoursFallback && !forceSingleSlot
+  const offerKey = useAfterHoursCopy ? 'offerNextMorningAfterHours' : offerCopyKey || getSingleSlotOfferCopyKey({
     closest,
     preferredTime,
     usedFallback: options.length === 0 && fallbackOptions.length > 0,
   })
 
-  const offerText = nextOptions.length === 1 && !afterHoursFallback
+  const offerText = nextOptions.length === 1 && !useAfterHoursCopy
       ? bookingCopy(customerLanguage, offerKey, {
         slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone, customerLanguage),
       })
-      : bookingCopy(customerLanguage, afterHoursFallback ? offerKey : closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
+      : bookingCopy(customerLanguage, useAfterHoursCopy ? offerKey : closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
         slots: formatNumberedSlots(nextOptions, details.state, customerLanguage),
       })
 
@@ -5401,13 +5403,18 @@ async function buildRespondBookingFailure(booking, details, customerLanguage, er
   }
 
   if (slotUnavailable) {
+    const unavailableOption = booking.offeredOption || booking.options?.[0]
+    const unavailableStartTime = Number(unavailableOption?.startTime)
     const replacement = await offerSoonestRespondSlot({
       booking: buildBookingWithExcludedOptions(booking),
-      details,
+      details: Number.isFinite(unavailableStartTime)
+        ? { ...details, minimumStartTime: unavailableStartTime + 1 }
+        : details,
       customerLanguage,
       preferredTime: details.preferredTime,
       closest: Boolean(details.preferredTime),
       offerCopyKey: 'offerAlternativeSlot',
+      forceSingleSlot: true,
     }).catch((availabilityError) => {
       console.warn(`Unable to recover from Respond slot conflict: ${availabilityError.message}`)
       return null
