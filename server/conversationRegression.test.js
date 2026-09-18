@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 
 import {
   chooseConfirmedState,
+  chooseExplicitOrNextAvailabilityPreference,
+  extractExplicitAvailabilityAlternative,
   confirmsOfferedSlotTime,
   findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
@@ -445,6 +447,32 @@ test('a rejected relative day advances scheduling instead of searching it again'
 
   assert.equal(getNextPreferenceAfterRejectedRelativeDay("I can't today"), 'tomorrow')
   assert.equal(getNextPreferenceAfterRejectedRelativeDay('Tomorrow works for me'), '')
+})
+
+test('an explicit weekday wins over the rejected relative day', () => {
+  assert.equal(
+    chooseExplicitOrNextAvailabilityPreference('Monday', "I can't do today. I can do Monday"),
+    'Monday',
+  )
+  assert.equal(
+    chooseExplicitOrNextAvailabilityPreference('', "I can't do today"),
+    'tomorrow',
+  )
+})
+
+test('explicit alternatives are isolated from rejected times in supported languages', () => {
+  const alternatives = new Map([
+    ["I can't do today. I can do Monday", 'monday'],
+    ['No puedo hoy. Puedo el mi\u00e9rcoles', 'el miercoles'],
+    ['N\u00e3o posso hoje. Posso na quinta-feira', 'na quinta feira'],
+    ["Tomorrow doesn't work, but I'm available Friday at 11 AM", 'friday at 11 am'],
+    ['No puedo el lunes, pero me funciona el martes por la tarde', 'el martes por la tarde'],
+    ['N\u00e3o posso de manh\u00e3, mas funciona para mim \u00e0 tarde', 'a tarde'],
+  ])
+
+  for (const [message, expected] of alternatives) {
+    assert.equal(extractExplicitAvailabilityAlternative(message), expected, message)
+  }
 })
 
 test('rejecting the current week advances to next week in every supported language', () => {

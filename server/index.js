@@ -36,11 +36,12 @@ import {
 } from '../src/utils/leadIntentRules.js'
 import {
   chooseConfirmedState,
+  chooseExplicitOrNextAvailabilityPreference,
+  extractExplicitAvailabilityAlternative,
   confirmsOfferedSlotTime,
   findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
   getLaterSlotDelayMs,
-  getNextPreferenceAfterRejectedRelativeDay,
   getUnrecognizedStateAttemptResult,
   hasCallFormatQuestion,
   hasStrictRequestedDay,
@@ -4624,12 +4625,15 @@ function getPreferredTimeAfterSlotRejection({
   latestUserText = '',
   extractedPreferredTime = '',
 } = {}) {
-  const nextRelativeDay = getNextPreferenceAfterRejectedRelativeDay(latestUserText)
+  const nextRelativeDay = chooseExplicitOrNextAvailabilityPreference(
+    extractedPreferredTime,
+    latestUserText,
+  )
 
-  // A negated date is not a requested date. Advance past it before considering
-  // the generic preferred-time extraction, which still sees words such as
-  // "tomorrow" inside "I can't tomorrow".
-  if (nextRelativeDay) {
+  // An explicit positive alternative (for example, "I can't do today. I can
+  // do Monday") takes priority. With no alternative, advance past a negated
+  // relative day instead of treating that rejected day as the request.
+  if (nextRelativeDay && !extractedPreferredTime) {
     return nextRelativeDay
   }
 
@@ -8260,7 +8264,9 @@ function extractPreferredLanguageName(content) {
 }
 
 function extractPreferredTimeText(content) {
-  const preferenceText = getPositiveAvailabilityPreferenceText(content)
+  const preferenceText =
+    extractExplicitAvailabilityAlternative(content) ||
+    getPositiveAvailabilityPreferenceText(content)
 
   if (!preferenceText) {
     return ''

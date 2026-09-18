@@ -77,6 +77,21 @@ export function getNextPreferenceAfterRejectedRelativeDay(content = '') {
   return ''
 }
 
+export function chooseExplicitOrNextAvailabilityPreference(explicitPreference = '', content = '') {
+  return String(explicitPreference || '').trim() || getNextPreferenceAfterRejectedRelativeDay(content)
+}
+
+export function extractExplicitAvailabilityAlternative(content = '') {
+  const normalized = normalizeRuleText(content)
+    .replace(/[^a-z0-9:]+/g, ' ')
+    .trim()
+  const match = normalized.match(
+    /(?<!\bno\s)(?<!\bnao\s)\b(?:but\s+|however\s+|instead\s+|pero\s+|mas\s+)?(?:i\s+can\s+do|i\s+am\s+available|i\s+m\s+available|i\s+am\s+free|i\s+m\s+free|works\s+for\s+me|puedo|estoy\s+disponible|me\s+funciona|posso|estou\s+disponivel|funciona\s+para\s+mim)\s+(.+)$/,
+  )
+
+  return match?.[1]?.trim() || ''
+}
+
 export function getMinimumStartAfterSlotRejection(
   content = '',
   offeredStartTime,
