@@ -446,6 +446,9 @@ test('a rejected relative day advances scheduling instead of searching it again'
   }
 
   assert.equal(getNextPreferenceAfterRejectedRelativeDay("I can't today"), 'tomorrow')
+  assert.equal(getNextPreferenceAfterRejectedRelativeDay('Hoy estoy trabajando'), 'tomorrow')
+  assert.equal(getNextPreferenceAfterRejectedRelativeDay("I'm working today"), 'tomorrow')
+  assert.equal(getNextPreferenceAfterRejectedRelativeDay('Hoje estou trabalhando'), 'tomorrow')
   assert.equal(getNextPreferenceAfterRejectedRelativeDay('Tomorrow works for me'), '')
 })
 

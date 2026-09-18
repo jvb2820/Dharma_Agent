@@ -388,5 +388,8 @@ function hasNegativeAvailabilityLanguage(normalized) {
     /\b(this week|current week|rest of the week|remainder of the week)\b[\s\S]{0,50}\b(no|not|unavailable|can['’]?t|can t|cannot|won t|wont)\b/,
     /\b(esta semana|semana actual|resto de la semana|lo que queda de la semana)\b[\s\S]{0,50}\b(no|tampoco|imposible)\b/,
     /\b(esta semana|semana atual|resto da semana|restante da semana)\b[\s\S]{0,50}\b(nao|impossivel)\b/,
+    /\b(today)\b[\s\S]{0,40}\b(work|working|at work)\b|\b(work|working|at work)\b[\s\S]{0,40}\b(today)\b/,
+    /\b(hoy)\b[\s\S]{0,40}\b(trabajo|trabajando|en el trabajo)\b|\b(trabajo|trabajando|en el trabajo)\b[\s\S]{0,40}\b(hoy)\b/,
+    /\b(hoje)\b[\s\S]{0,40}\b(trabalho|trabalhando|no trabalho)\b|\b(trabalho|trabalhando|no trabalho)\b[\s\S]{0,40}\b(hoje)\b/,
   ].some((pattern) => pattern.test(normalized))
 }
