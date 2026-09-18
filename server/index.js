@@ -156,7 +156,7 @@ import {
   isInsuranceQuestion,
   isGeneratedBookingPromptLine,
   hasKnownRespondBookingPhone,
-  flattenRespondIdentityValues,
+  extractRespondContactPhone,
   resolveRespondContactStatus,
 } from './respondConversationRules.js'
 import {
@@ -2542,40 +2542,6 @@ function extractRespondContactName(contact, customFields = {}) {
     .find((value) => isLikelyCustomerName(value) && !extractPhoneNumber(value))
 
   return directName ? splitCustomerName(directName) : {}
-}
-
-function extractRespondContactPhone(contact, customFields = {}) {
-  const directValue = [
-    contact?.phone,
-    contact?.phoneNumber,
-    contact?.phone_number,
-    contact?.identifier,
-    contact?.contactIdentifier,
-    contact?.name,
-    customFields.phone,
-    customFields.Phone,
-    customFields.whatsapp,
-    customFields.WhatsApp,
-  ]
-    .map((value) => String(value || '').trim())
-    .find((value) => extractPhoneNumber(value))
-
-  if (directValue) {
-    return extractPhoneNumber(directValue)
-  }
-
-  // Respond may expose the WhatsApp address under a channel/identifier object,
-  // including nested source/contact identity payloads. Treat it as the known
-  // booking phone so the flow can move directly to full-name confirmation.
-  const nestedValues = flattenRespondIdentityValues([
-    contact?.channel,
-    contact?.channels,
-    contact?.identifier,
-    contact?.identifiers,
-  ])
-    .find((value) => extractPhoneNumber(value))
-
-  return nestedValues ? extractPhoneNumber(nestedValues) : ''
 }
 
 function getRespondContactBookingDetails(profile) {

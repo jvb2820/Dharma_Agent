@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   classifyBookingFailure,
+  extractRespondContactPhone,
   flattenRespondIdentityValues,
   hasKnownRespondBookingPhone,
   isGeneratedBookingPromptLine,
@@ -84,6 +85,30 @@ test('finds registered WhatsApp identity values in nested Respond channel payloa
       source: { contact: { identifier: '+1 (424) 303-2151' } },
     }),
     ['whatsapp', '+1 (424) 303-2151'],
+  )
+})
+
+test('extracts the phone shape returned by the live Respond contact API', () => {
+  assert.equal(
+    extractRespondContactPhone({
+      id: 123456789,
+      phone: '+1 202-555-0147',
+      custom_fields: [],
+    }),
+    '+1 202-555-0147',
+  )
+})
+
+test('extracts Phone Number custom fields and nested WhatsApp identities', () => {
+  assert.equal(
+    extractRespondContactPhone({}, { phone_number: '+1 (424) 303-2151' }),
+    '+1 (424) 303-2151',
+  )
+  assert.equal(
+    extractRespondContactPhone({
+      channel: { type: 'whatsapp', source: { contact: { identifier: 'whatsapp:+17135948815' } } },
+    }),
+    '+17135948815',
   )
 })
 

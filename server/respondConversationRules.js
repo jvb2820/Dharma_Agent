@@ -134,6 +134,54 @@ export function flattenRespondIdentityValues(value) {
   return text ? [text] : []
 }
 
+export function extractRespondContactPhone(contact = {}, customFields = {}) {
+  const directCandidates = [
+    contact.phone,
+    contact.phoneNumber,
+    contact.phone_number,
+    contact.identifier,
+    contact.contactIdentifier,
+    contact.contact_identifier,
+    customFields.phone,
+    customFields.Phone,
+    customFields.phone_number,
+    customFields.phoneNumber,
+    customFields['Phone Number'],
+    customFields.whatsapp,
+    customFields.WhatsApp,
+    customFields.whats_app,
+  ]
+
+  for (const candidate of directCandidates) {
+    const phone = extractPhoneCandidate(candidate)
+    if (phone) return phone
+  }
+
+  // Some Respond webhook/contact variants expose the WhatsApp address only
+  // inside channel or identifier metadata.
+  for (const candidate of flattenRespondIdentityValues([
+    contact.channel,
+    contact.channels,
+    contact.identifier,
+    contact.identifiers,
+  ])) {
+    const phone = extractPhoneCandidate(candidate)
+    if (phone) return phone
+  }
+
+  return ''
+}
+
+function extractPhoneCandidate(value) {
+  const text = String(value || '').trim()
+  const matches = text.match(/(?<![\d+])\+?\d[\d\s().-]{7,}\d(?!\d)/g) || []
+
+  return matches.find((candidate) => {
+    const digitCount = candidate.replace(/\D/g, '').length
+    return digitCount >= 10 && digitCount <= 15
+  })?.trim() || ''
+}
+
 export function isGeneratedBookingPromptLine(line = '') {
   const normalized = String(line || '')
     .normalize('NFD')
