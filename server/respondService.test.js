@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { updateRespondContact } from './respondService.js'
 
-test('Respond contact updates send custom fields using their configured display names', async (t) => {
+test('Respond contact updates send custom fields using their API field names', async (t) => {
   const originalFetch = globalThis.fetch
   const originalToken = process.env.RESPOND_API_TOKEN
   let request
@@ -29,7 +29,7 @@ test('Respond contact updates send custom fields using their configured display 
     contactId: '123',
     fields: {
       customFields: {
-        'Contact Status': 'Evaluation Scheduled',
+        lead_status: 'Evaluation Scheduled',
       },
     },
   })
@@ -39,7 +39,7 @@ test('Respond contact updates send custom fields using their configured display 
   assert.deepEqual(JSON.parse(request.options.body), {
     custom_fields: [
       {
-        name: 'Contact Status',
+        name: 'lead_status',
         value: 'Evaluation Scheduled',
       },
     ],

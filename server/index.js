@@ -7485,7 +7485,7 @@ async function updateRespondContactStatusAfterBooking(contactId) {
     contactId,
     fields: {
       customFields: {
-        'Contact Status': 'Evaluation Scheduled',
+        lead_status: 'Evaluation Scheduled',
       },
     },
   }).catch((error) => {
