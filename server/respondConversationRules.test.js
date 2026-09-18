@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   classifyBookingFailure,
+  flattenRespondIdentityValues,
   hasKnownRespondBookingPhone,
   isGeneratedBookingPromptLine,
   isGeneralZepboundQuestion,
@@ -74,6 +75,16 @@ test('known profile or active-booking phones prevent redundant collection', () =
   assert.equal(hasKnownRespondBookingPhone({ bookingPhone: '17135948815' }), true)
   assert.equal(hasKnownRespondBookingPhone({ conversationPhone: '17135948815' }), true)
   assert.equal(hasKnownRespondBookingPhone({}), false)
+})
+
+test('finds registered WhatsApp identity values in nested Respond channel payloads', () => {
+  assert.deepEqual(
+    flattenRespondIdentityValues({
+      type: 'whatsapp',
+      source: { contact: { identifier: '+1 (424) 303-2151' } },
+    }),
+    ['whatsapp', '+1 (424) 303-2151'],
+  )
 })
 
 test('extracts a full name from a message that also changes the requested time', () => {

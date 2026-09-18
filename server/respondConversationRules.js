@@ -119,6 +119,21 @@ export function hasKnownRespondBookingPhone({
   return Boolean(conversationPhone || bookingPhone || profilePhone)
 }
 
+export function flattenRespondIdentityValues(value) {
+  if (value == null) return []
+
+  if (Array.isArray(value)) {
+    return value.flatMap(flattenRespondIdentityValues)
+  }
+
+  if (typeof value === 'object') {
+    return Object.values(value).flatMap(flattenRespondIdentityValues)
+  }
+
+  const text = String(value).trim()
+  return text ? [text] : []
+}
+
 export function isGeneratedBookingPromptLine(line = '') {
   const normalized = String(line || '')
     .normalize('NFD')
