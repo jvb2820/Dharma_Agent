@@ -63,6 +63,7 @@ export const NON_SERVICEABLE_STATES = [
   'Kentucky',
   'Louisiana',
   'Mississippi',
+  'Puerto Rico',
   'West Virginia',
 ]
 

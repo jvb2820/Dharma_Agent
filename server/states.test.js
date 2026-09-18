@@ -8,7 +8,7 @@ import {
   isPrescribedTreatmentDeliveryState,
 } from '../src/data/states.js'
 
-test('prescribed-treatment shipping is blocked only in the configured ten jurisdictions', () => {
+test('prescribed-treatment shipping is blocked only in the configured eleven jurisdictions', () => {
   assert.deepEqual(NON_SERVICEABLE_STATES, [
     'Alabama',
     'Alaska',
@@ -19,6 +19,7 @@ test('prescribed-treatment shipping is blocked only in the configured ten jurisd
     'Kentucky',
     'Louisiana',
     'Mississippi',
+    'Puerto Rico',
     'West Virginia',
   ])
 
@@ -30,6 +31,7 @@ test('prescribed-treatment shipping is blocked only in the configured ten jurisd
     assert.equal(isPrescribedTreatmentDeliveryState(state), true, state)
   }
 
-  assert.equal(SERVICEABLE_STATES.includes('Puerto Rico'), true)
+  assert.equal(SERVICEABLE_STATES.includes('Puerto Rico'), false)
+  assert.equal(isPrescribedTreatmentDeliveryState('Puerto Rico'), false)
   assert.equal(isPrescribedTreatmentDeliveryState('Canada'), false)
 })
