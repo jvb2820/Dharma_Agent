@@ -50,7 +50,7 @@ test('unrecognized state answers clarify once and transfer on the second attempt
   assert.deepEqual(getUnrecognizedStateAttemptResult(1), { attempts: 2, shouldTransfer: true })
 })
 import { detectLatestMessageLanguage, resolveLatestMessageLanguage } from '../src/utils/conversationLanguage.js'
-import { formatCustomerStateSlot, getStateTimeZone } from './timezones.js'
+import { formatCustomerStateSlot, getCustomerStateDateKey, getStateTimeZone } from './timezones.js'
 import {
   applyDefaultAvailabilityRule,
   extractAfterWorkConstraint,
@@ -793,6 +793,13 @@ test('only explicit location wording can trigger unresolved-state clarification'
 test('California slots are formatted in California local time', () => {
   assert.equal(getStateTimeZone('California'), 'America/Los_Angeles')
   assert.match(formatCustomerStateSlot(Date.UTC(2026, 6, 25, 19, 0), 'California'), /12:00 PM California Time/)
+})
+
+test('availability fallback compares dates in the customer state timezone', () => {
+  const timestamp = Date.UTC(2026, 8, 23, 2, 0)
+  assert.equal(getCustomerStateDateKey(timestamp, 'California'), '2026-09-22')
+  assert.equal(getCustomerStateDateKey(timestamp, 'Florida'), '2026-09-22')
+  assert.equal(getCustomerStateDateKey(Date.UTC(2026, 8, 23, 5, 0), 'Florida'), '2026-09-23')
 })
 
 test('customer-facing slots localize the complete date and timezone label', () => {

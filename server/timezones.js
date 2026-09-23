@@ -146,6 +146,22 @@ export function getCustomerStateMinutesOfDay(timestamp, state, fallbackTimezone 
   return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null
 }
 
+export function getCustomerStateDateKey(timestamp, state, fallbackTimezone = DEFAULT_TIMEZONE) {
+  if (!timestamp) return ''
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: getStateTimeZone(state, fallbackTimezone),
+  }).formatToParts(new Date(timestamp))
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+
+  return values.year && values.month && values.day
+    ? `${values.year}-${values.month}-${values.day}`
+    : ''
+}
+
 function normalizeStateName(state) {
   return String(state || '').trim()
 }

@@ -15,6 +15,7 @@ import {
   formatCustomerStateSlot,
   formatCustomerStateTime,
   getCustomerStateHour,
+  getCustomerStateDateKey,
   getCustomerStateMinutesOfDay,
   getStateTimeZone,
 } from './timezones.js'
@@ -93,6 +94,7 @@ import {
   getNewClientAvailability,
   getPrioritySellerAvailability,
   isMeetingOptionAvailable,
+  parsePreferredTime,
   resolveBookingTeamForOption,
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
@@ -4425,6 +4427,14 @@ async function offerSoonestRespondSlot({
     timezone: getStateTimeZone(details.state),
   })
   const strictRequestedDay = hasStrictRequestedDay(preferredTime)
+  const timezone = getStateTimeZone(details.state)
+  const parsedPreference = parsePreferredTime(preferredTime, timezone)
+  const searchDiagnostics = {
+    requested: options.length,
+    strictFiltered: 0,
+    relaxedSameDay: 0,
+    nextDayCandidates: 0,
+  }
   const fallbackOptions =
     closest && options.length === 0
       ? await getAvailability({ limit: 100, timezone: getStateTimeZone(details.state) })
@@ -4434,6 +4444,40 @@ async function offerSoonestRespondSlot({
     details,
   )
   availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
+  searchDiagnostics.strictFiltered = availableOptions.length
+
+  // If the requested date has real calendar openings but none survives a
+  // narrow time window, keep the date and offer its closest valid opening.
+  if (
+    strictRequestedDay &&
+    parsedPreference.dateKey &&
+    hasExactClockPreference(preferredTime) &&
+    availableOptions.length === 0 &&
+    options.length > 0
+  ) {
+    availableOptions = filterOptionsByAvailabilityPreference(options, {
+      state: details.state,
+      minimumStartTime: details.minimumStartTime,
+    })
+    availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
+    searchDiagnostics.relaxedSameDay = availableOptions.length
+  }
+
+  // If an explicit date has no usable openings at all, advance to the next
+  // real business-hours option instead of ending the booking flow.
+  if (strictRequestedDay && parsedPreference.dateKey && availableOptions.length === 0) {
+    const nextDayOptions = await getAvailability({ limit: 100, timezone })
+    const afterRequestedDate = nextDayOptions.filter((option) =>
+      getCustomerStateDateKey(option.startTime, details.state, option.timezone) > parsedPreference.dateKey,
+    )
+    searchDiagnostics.nextDayCandidates = afterRequestedDate.length
+    availableOptions = filterOptionsByAvailabilityPreference(afterRequestedDate, {
+      ...details,
+      minimumStartTime: undefined,
+      latestStartTime: undefined,
+    })
+    availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
+  }
 
   if ((hasTimeConstraint || hasExcludedAvailability) && availableOptions.length === 0 && !strictRequestedDay) {
     availableOptions = filterOptionsByAvailabilityPreference(
@@ -4474,6 +4518,16 @@ async function offerSoonestRespondSlot({
 
   const offeredOption = availableOptions[0]
 
+  logRespondRoutingDecision('availability-search', {
+    strictRequestedDay,
+    requestedDateKey: parsedPreference.dateKey,
+    preferredResultCount: searchDiagnostics.requested,
+    strictResultCount: searchDiagnostics.strictFiltered,
+    relaxedSameDayCount: searchDiagnostics.relaxedSameDay,
+    nextDayCandidateCount: searchDiagnostics.nextDayCandidates,
+    finalResultCount: availableOptions.length,
+  })
+
   if (!offeredOption) {
     await recordBookingFailureEvent({
       contactId: booking.contactId,
@@ -4483,6 +4537,11 @@ async function offerSoonestRespondSlot({
       metadata: {
         preferredTime: String(preferredTime || ''),
         state: String(details.state || ''),
+        strictRequestedDay,
+        requestedDateKey: parsedPreference.dateKey || null,
+        searchDiagnostics,
+        excludedOptionCount: Number(booking.excludedOptions?.length || 0),
+        excludedDateCount: Number(booking.excludedDateKeys?.length || 0),
       },
     }).catch((error) => console.warn(error.message))
     return {
