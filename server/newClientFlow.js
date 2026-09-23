@@ -87,6 +87,29 @@ export function splitCustomerFullName(content = '') {
   }
 }
 
+export function mergeCustomerNameReply(details = {}, content = '') {
+  const fullName = splitCustomerFullName(content)
+  if (fullName.nameConfirmed) {
+    return { ...details, ...fullName, partialFirstName: '' }
+  }
+
+  const singleName = extractSingleCustomerName(content)
+  if (!singleName) return details
+
+  const partialFirstName = String(details.partialFirstName || '').trim()
+  if (partialFirstName) {
+    return {
+      ...details,
+      firstName: partialFirstName,
+      lastName: singleName,
+      nameConfirmed: true,
+      partialFirstName: '',
+    }
+  }
+
+  return { ...details, partialFirstName: singleName }
+}
+
 export function hasConfirmedFullName(details = {}) {
   return Boolean(
     details.nameConfirmed &&
@@ -146,6 +169,39 @@ function cleanExplicitNameCandidate(value) {
   return parts.length >= 2 && parts.length <= 5 && !isLikelyNonNamePhrase(cleaned)
     ? cleaned
     : ''
+}
+
+function extractSingleCustomerName(content) {
+  const withoutPhoneOrEmail = stripPhoneAndEmail(content)
+  const explicitName = extractExplicitNameFragment(withoutPhoneOrEmail)
+  const cleaned = String(explicitName || withoutPhoneOrEmail)
+    .replace(/^\s*(?:yes|yeah|yep|sure|si|sí|claro|ok|okay)[\s,;:.-]+/i, '')
+    .replace(/\b(?:please|pls|thanks|thank you|gracias|por favor|obrigado|obrigada)\b/gi, ' ')
+    .replace(/[^\p{L}' -]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const parts = cleaned.split(/\s+/).filter(Boolean)
+  const normalized = normalizeStatus(cleaned)
+
+  if (parts.length !== 1 || parts[0].length < 2 || isLikelyNonNamePhrase(cleaned) || isAcknowledgmentPhrase(normalized)) {
+    return ''
+  }
+
+  if (/\b(?:yes|no|hello|hola|price|cost|today|tomorrow|state|appointment|call|perfecto|correcto|vale|bueno)\b/.test(normalized)) {
+    return ''
+  }
+
+  return parts[0]
+}
+
+function extractExplicitNameFragment(content) {
+  const patterns = [
+    /\b(?:my\s+(?:full\s+)?name\s+is|name\s+is|this\s+is|it'?s|its)\s+([^.!?,;\n]+)/i,
+    /\b(?:mi\s+nombre\s+es|soy|me\s+llamo|a\s+nombre\s+de)\s+([^.!?,;\n]+)/i,
+    /\b(?:meu\s+nome\s+e|meu\s+nome\s+é|sou|em\s+nome\s+de)\s+([^.!?,;\n]+)/i,
+  ]
+
+  return patterns.map((pattern) => String(content || '').match(pattern)?.[1] || '').find(Boolean) || ''
 }
 
 function isFullNameCandidate(value) {

@@ -9,6 +9,7 @@ import {
   getConfiguredPrioritySellers,
   parsePreferredWeekdays,
   parsePreferredTime,
+  resolveBookingTeamForOption,
 } from './hubspotService.js'
 
 test('combined booking pool chooses the earliest slot regardless of team', () => {
@@ -47,6 +48,11 @@ test('new-client booking pool includes sellers and Customer Service specialists'
     pool.filter((member) => member.bookingTeam === 'customer_service').map((member) => member.slug),
     customerService.map((member) => member.slug),
   )
+})
+
+test('persisted options recover their booking team from the specialist slug', () => {
+  assert.equal(resolveBookingTeamForOption({ sellerSlug: 'aline-strelow' }, 'sales'), 'customer_service')
+  assert.equal(resolveBookingTeamForOption({ sellerSlug: 'meribet-yazziet' }, 'customer_service'), 'sales')
 })
 
 test('Ailin Isabel is configured as a seller', () => {

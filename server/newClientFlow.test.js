@@ -7,6 +7,7 @@ import {
   hasConfirmedFullName,
   isCustomerServiceBookingStatus,
   isUsCountryCodePhone,
+  mergeCustomerNameReply,
   normalizeUsPhoneNumber,
   removeAvailabilitySignalsFromNameReply,
   shouldUseNewClientBookingFlow,
@@ -110,6 +111,27 @@ test('a single customer name cannot finish the full-name step', () => {
   assert.deepEqual(splitCustomerFullName('Mi nombre es Alexandra'), {})
   assert.equal(hasConfirmedFullName({ firstName: 'Alexandra', nameConfirmed: true }), false)
   assert.equal(hasConfirmedFullName({ firstName: 'Yes', nameConfirmed: true }), false)
+})
+
+test('first and last names supplied in consecutive replies are combined safely', () => {
+  const afterFirstName = mergeCustomerNameReply({}, 'Delia')
+  assert.deepEqual(afterFirstName, { partialFirstName: 'Delia' })
+  assert.equal(hasConfirmedFullName(afterFirstName), false)
+
+  const afterLastName = mergeCustomerNameReply(afterFirstName, 'Moreno')
+  assert.deepEqual(afterLastName, {
+    partialFirstName: '',
+    firstName: 'Delia',
+    lastName: 'Moreno',
+    nameConfirmed: true,
+  })
+  assert.equal(hasConfirmedFullName(afterLastName), true)
+})
+
+test('non-name replies are not retained as partial names', () => {
+  for (const reply of ['Perfecto', 'que precio esta', 'para mañana', 'I already sent it']) {
+    assert.deepEqual(mergeCustomerNameReply({}, reply), {})
+  }
 })
 
 test('a resend reminder is never accepted as a customer name', () => {

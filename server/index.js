@@ -93,6 +93,7 @@ import {
   getNewClientAvailability,
   getPrioritySellerAvailability,
   isMeetingOptionAvailable,
+  resolveBookingTeamForOption,
 } from './hubspotService.js'
 import { formatKnowledgeContext, ingestKnowledgeFolder, searchKnowledge } from './ragService.js'
 import {
@@ -131,6 +132,7 @@ import {
   hasConfirmedFullName,
   isCustomerServiceBookingStatus,
   isUsCountryCodePhone,
+  mergeCustomerNameReply,
   normalizeUsPhoneNumber,
   removeAvailabilitySignalsFromNameReply,
   shouldUseNewClientBookingFlow,
@@ -3189,7 +3191,7 @@ async function handleRespondBookingAutomation({
     !latestSignals.state
   const latestNameDetails =
     existingBooking.pendingField === 'name'
-      ? splitCustomerFullName(latestUserText)
+      ? mergeCustomerNameReply(existingBooking.details || {}, latestUserText)
       : {}
   const latestPreferredTime = resolveRespondPreferredTime({
     existingDetails: existingBooking.details,
@@ -3808,7 +3810,7 @@ async function handleRespondBookingAutomation({
   if (existingBooking.pendingField === 'name') {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     const isOutOfFlowQuestion = shouldAnswerBeforeReturningToBooking(latestUserText, messages, modelIntent)
-    const nameDetails = splitCustomerFullName(latestUserText)
+    const nameDetails = mergeCustomerNameReply(details, latestUserText)
     const nextDetails = mergeNonEmptyDetails(
       details,
       nameDetails,
@@ -5356,7 +5358,7 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
     }
   }
 
-  const selectedBookingTeam = option.bookingTeam || booking.bookingTeam
+  const selectedBookingTeam = resolveBookingTeamForOption(option, booking.bookingTeam)
   const bookMeeting =
     selectedBookingTeam === 'customer_service'
       ? bookCustomerServiceMeeting

@@ -1386,6 +1386,22 @@ export function getConfiguredNewClientBookingTeam() {
   ]
 }
 
+export function resolveBookingTeamForOption(option = {}, fallbackTeam = 'sales') {
+  const slug = String(option.sellerSlug || '').trim()
+
+  if (slug && getConfiguredCustomerServiceTeam().some((member) => member.slug === slug)) {
+    return 'customer_service'
+  }
+
+  if (slug && getConfiguredPrioritySellers().some((member) => member.slug === slug)) {
+    return 'sales'
+  }
+
+  return option.bookingTeam === 'customer_service' || option.bookingTeam === 'sales'
+    ? option.bookingTeam
+    : fallbackTeam
+}
+
 export function getConfiguredFrontDeskTeam() {
   const configuredSlugs = process.env.RESPOND_FRONT_DESK_TEAM_SLUGS?.split(',')
     .map((slug) => slug.trim())
