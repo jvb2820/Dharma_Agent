@@ -55,19 +55,14 @@ test('persisted options recover their booking team from the specialist slug', ()
   assert.equal(resolveBookingTeamForOption({ sellerSlug: 'meribet-yazziet' }, 'customer_service'), 'sales')
 })
 
-test('Ailin Isabel is configured as a seller', () => {
-  const ailin = getConfiguredPrioritySellers().find(
-    (member) => member.fieldValue === 'Ailin Isabel',
-  )
-
-  assert.deepEqual(ailin, {
-    slug: 'ailin-isabel',
-    name: 'Ailin',
-    fieldValue: 'Ailin Isabel',
-  })
+test('Ailin Isabel is not in the active seller pool', () => {
   assert.equal(
-    getConfiguredNewClientBookingTeam().find((member) => member.slug === 'ailin-isabel')?.bookingTeam,
-    'sales',
+    getConfiguredPrioritySellers().some((member) => member.slug === 'ailin-isabel'),
+    false,
+  )
+  assert.equal(
+    getConfiguredNewClientBookingTeam().some((member) => member.slug === 'ailin-isabel'),
+    false,
   )
 })
 

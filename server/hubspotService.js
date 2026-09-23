@@ -18,7 +18,6 @@ const DEFAULT_POST_BOOKING_WORKFLOW_ID = '1660572815'
 const PRIORITY_SELLERS = [
   { slug: 'meribet-yazziet', name: 'Meribet', fieldValue: 'Meribet Sampson' },
   { slug: 'mclaudia', name: 'Maria Claudia', fieldValue: 'Maria Claudia' },
-  { slug: 'ailin-isabel', name: 'Ailin', fieldValue: 'Ailin Isabel' },
   { slug: 'evargas22', name: 'Erika', fieldValue: 'Erika Vargas' },
 ]
 
