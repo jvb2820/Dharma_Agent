@@ -138,6 +138,7 @@ import {
 import {
   hasExplicitNamedPersonMedicationQuestion,
   isExplicitThirdPartyMedicationQuestion,
+  isGeneralProductInfoRequest,
   isGeneralMedicationSafetyQuestion,
 } from './privacyGuard.js'
 import { isTreatmentAcquisitionQuestion } from '../src/utils/privacyRules.js'
@@ -3254,7 +3255,9 @@ async function handleRespondBookingAutomation({
   }
 
   const deterministicPolicyAnswer =
-    isInsuranceQuestion(latestUserText)
+    isGeneralProductInfoRequest(latestUserText)
+      ? getGeneralProductOverviewAnswer(customerLanguage)
+      : isInsuranceQuestion(latestUserText)
       ? getInsuranceAnswer(customerLanguage)
       : isInitialConsultationCostQuestion(latestUserText)
         ? getInitialConsultationCostAnswer(customerLanguage)
@@ -6733,6 +6736,20 @@ function isNegativeAvailabilityReply(content) {
     /\b(hoy)\b[\s\S]{0,40}\b(trabajo|trabajando|en el trabajo)\b|\b(trabajo|trabajando|en el trabajo)\b[\s\S]{0,40}\b(hoy)\b/,
     /\b(hoje)\b[\s\S]{0,40}\b(trabalho|trabalhando|no trabalho)\b|\b(trabalho|trabalhando|no trabalho)\b[\s\S]{0,40}\b(hoje)\b/,
   ].some((pattern) => pattern.test(normalized))
+}
+
+function getGeneralProductOverviewAnswer(customerLanguage) {
+  const language = normalizeLanguageName(customerLanguage)
+
+  if (language === 'Latin American Spanish') {
+    return 'Ofrecemos opciones personalizadas de Semaglutide y Tirzepatide para apoyar la pérdida de peso, siempre sujetas a la evaluación del proveedor. Tenemos un plan de alrededor de $589. Durante la llamada gratuita de evaluación, nuestro especialista te explicará en detalle las demás opciones y precios según tus necesidades, responderá tus preguntas y te ayudará a encontrar el plan que mejor se adapte a ti.'
+  }
+
+  if (language === 'Portuguese') {
+    return 'Oferecemos opções personalizadas de Semaglutide e Tirzepatide para apoiar a perda de peso, sempre sujeitas à avaliação do provedor. Temos um plano na faixa de $589. Durante a chamada gratuita de avaliação, nosso especialista explicará em detalhes as outras opções e preços de acordo com suas necessidades, responderá às suas perguntas e ajudará você a encontrar o plano mais adequado.'
+  }
+
+  return 'We offer personalized Semaglutide and Tirzepatide options to support weight loss, subject to provider evaluation. We have a plan in the $589 range. During the free evaluation call, our specialist will explain the other options and prices in more detail based on your needs, answer your questions, and help identify the plan that best fits you.'
 }
 
 function isTooEarlyAvailabilityReply(content) {

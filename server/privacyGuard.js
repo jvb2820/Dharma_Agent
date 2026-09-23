@@ -44,6 +44,27 @@ export function isGeneralMedicationSafetyQuestion(text = '') {
   return asksSafety && !thirdParty
 }
 
+export function isGeneralProductInfoRequest(text = '') {
+  if (hasExplicitNamedPersonMedicationQuestion(text) || isExplicitThirdPartyMedicationQuestion(text)) {
+    return false
+  }
+
+  const normalized = normalizePrivacyText(text)
+
+  if (/\b(?:person|customer|client|patient|celebrity|public figure|persona|cliente|paciente|celebridad|figura publica|pessoa)\b/.test(normalized)) {
+    return false
+  }
+
+  return [
+    /\b(?:can|could|may) i (?:get|have) more (?:info|information)(?: on| about)? (?:this|that|it)\b/,
+    /\b(?:tell|give) me more (?:about )?(?:this|that|it)\b/,
+    /\bwhat is (?:this|that) about\b/,
+    /\b(?:puedo|podria) (?:tener|recibir|saber) mas (?:informacion )?(?:sobre )?(?:esto|eso)\b/,
+    /\b(?:me puedes|puedes) (?:dar|contar) mas (?:informacion )?(?:sobre )?(?:esto|eso)\b/,
+    /\b(?:posso|poderia) (?:ter|receber|saber) mais (?:informacoes )?(?:sobre )?(?:isto|isso)\b/,
+  ].some((pattern) => pattern.test(normalized))
+}
+
 function normalizePrivacyText(value) {
   return String(value || '')
     .normalize('NFD')

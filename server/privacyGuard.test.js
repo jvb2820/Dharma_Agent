@@ -5,6 +5,7 @@ import {
   hasExplicitNamedPersonMedicationQuestion,
   isExplicitThirdPartyMedicationQuestion,
   isGeneralMedicationSafetyQuestion,
+  isGeneralProductInfoRequest,
 } from './privacyGuard.js'
 import {
   hasNamedPersonTreatmentQuestion,
@@ -101,6 +102,21 @@ test('general treatment questions are not privacy questions', () => {
     assert.equal(isExplicitThirdPartyMedicationQuestion(message), false)
     assert.equal(hasExplicitNamedPersonMedicationQuestion(message), false)
   }
+})
+
+test('generic ad information requests are product questions, not privacy questions', () => {
+  for (const message of [
+    'Hello! Can I get more info on this?',
+    'Could you tell me more about this?',
+    '¿Me puedes dar más información sobre esto?',
+    'Posso ter mais informações sobre isso?',
+  ]) {
+    assert.equal(isGeneralProductInfoRequest(message), true)
+    assert.equal(hasExplicitNamedPersonMedicationQuestion(message), false)
+    assert.equal(isExplicitThirdPartyMedicationQuestion(message), false)
+  }
+
+  assert.equal(isGeneralProductInfoRequest('Can I get more information about that patient?'), false)
 })
 
 test('a Tirzepatide price question is general pricing, not client privacy', () => {
