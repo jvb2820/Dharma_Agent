@@ -197,6 +197,15 @@ export function hasCallFormatQuestion(content = '') {
   return mentionsCall && asksFormat
 }
 
+export function isGeneratedSlotReofferLine(content = '') {
+  const normalized = normalizeRuleText(content)
+  const mentionsReturnToBooking = /\b(?:returning|back) to (?:the )?(?:appointment|booking|call)|\bregresando a (?:la )?(?:cita|llamada)|\bvolta(?:ndo)? (?:a|para) (?:a )?(?:consulta|chamada)\b/.test(normalized)
+  const mentionsCalendarDay = /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|lunes|martes|miercoles|jueves|viernes|sabado|domingo|segunda|terca|quarta|quinta|sexta)\b/.test(normalized)
+  const mentionsTime = /\b(?:1[0-2]|0?[1-9])(?::\d{2})?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)\b/.test(normalized)
+
+  return mentionsTime && (mentionsReturnToBooking || mentionsCalendarDay)
+}
+
 export function getCallFormatAnswer(customerLanguage = '') {
   if (customerLanguage === 'Latin American Spanish') {
     return 'La llamada de análisis es una videollamada de 20 minutos. A la hora acordada, el especialista puede llamarte a tu número de teléfono habitual, o puedes entrar al enlace de videollamada que te enviaremos unos minutos antes de la cita.'

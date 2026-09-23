@@ -16,6 +16,7 @@ import {
   hasCallFormatQuestion,
   isEarlierSchedulingPreference,
   isExactCasualAffirmative,
+  isGeneratedSlotReofferLine,
   isRecognizedStateQualificationReply,
   looksLikeExplicitStateDeclaration,
   parseAfterTimePreference,
@@ -582,6 +583,17 @@ test('call-format answers explain both ways to join the 20-minute discovery call
   assert.match(english, /20-minute video call/i)
   assert.match(english, /regular phone number/i)
   assert.match(english, /video-call link/i)
+})
+
+test('generated slot reoffers are recognized even when a.m. punctuation is normalized', () => {
+  assert.equal(
+    isGeneratedSlotReofferLine('Regresando a la cita, ¿te queda bien el miércoles 23 de septiembre a las 9:40 a.m., hora de Utah?'),
+    true,
+  )
+  assert.equal(
+    isGeneratedSlotReofferLine('La llamada puede ser por videollamada o por teléfono.'),
+    false,
+  )
 })
 
 test('Spanish "La" never overwrites the state with Louisiana', () => {

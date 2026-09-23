@@ -48,6 +48,7 @@ import {
   hasStrictRequestedDay,
   isEarlierSchedulingPreference,
   isExactCasualAffirmative,
+  isGeneratedSlotReofferLine,
   isRecognizedStateQualificationReply,
   looksLikeExplicitStateDeclaration,
   parseAfterTimePreference,
@@ -6391,14 +6392,15 @@ function stripBookingPromptFromGeneratedAnswer(answer) {
 }
 
 function isBookingPromptLine(line) {
+  if (isGeneratedSlotReofferLine(line)) return true
   if (isGeneratedBookingPromptLine(line)) return true
 
   const normalized = normalizeSearchText(line)
 
   if (
     [
-      /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b[\s\S]{0,100}\b(am|pm|hora de california|hora de florida|hora del este)\b/,
-      /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b[\s\S]{0,100}\b(am|pm|horario da california|horario da florida|horario do leste)\b/,
+      /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b[\s\S]{0,100}\b(am|pm|a m|p m|hora de california|hora de florida|hora del este)\b/,
+      /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b[\s\S]{0,100}\b(am|pm|a m|p m|horario da california|horario da florida|horario do leste)\b/,
       /\b(confirmo esa cita|confirmar esa cita|disponible para ti|tenemos disponible|cita para ti)\b/,
     ].some((pattern) => pattern.test(normalized))
   ) {
@@ -6406,7 +6408,7 @@ function isBookingPromptLine(line) {
   }
 
   return [
-    /\b(friday|monday|tuesday|wednesday|thursday|saturday|sunday|jul|july|jan|feb|mar|apr|may|jun|aug|sep|oct|nov|dec)\b[\s\S]{0,80}\b(am|pm|florida time|eastern time)\b/,
+    /\b(friday|monday|tuesday|wednesday|thursday|saturday|sunday|jul|july|jan|feb|mar|apr|may|jun|aug|sep|oct|nov|dec)\b[\s\S]{0,80}\b(am|pm|a m|p m|florida time|eastern time)\b/,
     /\b(does that work|still work|work for you|reserve that spot|book this call|available time|available slot|discovery call on)\b/,
     /\b(to move forward|to continue|to proceed|to book|book the appointment|appointment details|please send|please share|may i please have|may i have|can i have)\b[\s\S]{0,120}\b(phone|phone number|number|full name|name)\b/,
     /\b(te funciona|reservar ese espacio|agendar esta llamada|horario disponible|llamada gratuita)\b/,
