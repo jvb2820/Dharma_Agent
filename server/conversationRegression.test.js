@@ -9,6 +9,7 @@ import {
   findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
   getLaterSlotDelayMs,
+  getCallFormatAnswer,
   getNextPreferenceAfterRejectedRelativeDay,
   getUnrecognizedStateAttemptResult,
   hasStrictRequestedDay,
@@ -565,6 +566,18 @@ test('call-format questions are not availability changes', () => {
   assert.equal(hasCallFormatQuestion('Is it a regular phone call or a video call?'), true)
   assert.equal(hasCallFormatQuestion('A consulta é por chamada normal ou videochamada?'), true)
   assert.equal(hasCallFormatQuestion('Después de las 6'), false)
+})
+
+test('call-format answers explain both ways to join the 20-minute discovery call', () => {
+  const spanish = getCallFormatAnswer('Latin American Spanish')
+  assert.match(spanish, /20 minutos/i)
+  assert.match(spanish, /número de teléfono habitual/i)
+  assert.match(spanish, /enlace de videollamada/i)
+
+  const english = getCallFormatAnswer('English')
+  assert.match(english, /20-minute video call/i)
+  assert.match(english, /regular phone number/i)
+  assert.match(english, /video-call link/i)
 })
 
 test('Spanish "La" never overwrites the state with Louisiana', () => {

@@ -197,6 +197,18 @@ export function hasCallFormatQuestion(content = '') {
   return mentionsCall && asksFormat
 }
 
+export function getCallFormatAnswer(customerLanguage = '') {
+  if (customerLanguage === 'Latin American Spanish') {
+    return 'La llamada de análisis es una videollamada de 20 minutos. A la hora acordada, el especialista puede llamarte a tu número de teléfono habitual, o puedes entrar al enlace de videollamada que te enviaremos unos minutos antes de la cita.'
+  }
+
+  if (customerLanguage === 'Portuguese') {
+    return 'A chamada de análise é uma videochamada de 20 minutos. No horário combinado, o especialista pode ligar para o seu número de telefone habitual, ou você pode entrar pelo link da videochamada que enviaremos alguns minutos antes da consulta.'
+  }
+
+  return 'The discovery call is a 20-minute video call. At the agreed appointment time, the specialist can call your regular phone number, or you can join using the video-call link we will send a few minutes before the appointment.'
+}
+
 export function isExactCasualAffirmative(content = '') {
   const normalized = normalizeRuleText(content).replace(/[^a-z0-9]+/g, ' ').trim()
 

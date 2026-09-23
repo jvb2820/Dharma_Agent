@@ -42,6 +42,7 @@ import {
   findStateNameWithMinorTypo,
   getMinimumStartAfterSlotRejection,
   getLaterSlotDelayMs,
+  getCallFormatAnswer,
   getUnrecognizedStateAttemptResult,
   hasCallFormatQuestion,
   hasStrictRequestedDay,
@@ -4934,9 +4935,7 @@ function getOutOfFlowAnswer(content, customerLanguage) {
   }
 
   if (hasCallFormatQuestion(content)) {
-    if (spanish) return 'La llamada de analisis se realiza por llamada telefonica normal; el especialista te llamara al numero que nos compartas.'
-    if (portuguese) return 'A chamada de analise e feita por chamada telefonica normal; o especialista ligara para o numero que voce compartilhar.'
-    return 'The discovery call is a regular phone call; the specialist will call the number you provide.'
+    return getCallFormatAnswer(language)
   }
 
   if (!isOutOfFlowInfoQuestion(content)) {
@@ -7845,7 +7844,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'If a polite lead says they are not interested, says no thank you, asks to talk later, or says another time, ask whether they have any questions or concerns you can answer before booking or before they go. Keep it warm and do not immediately close the conversation.',
     'Guide the lead through the best next step instead of asking them to choose a meeting type. If the customer mentions breastfeeding, pregnancy, side effects, medical conditions, or anything that may make injections inappropriate, do not push injections. Offer nutrition guidance, supplements, or routing to a specialist, and recommend licensed medical guidance for clinical decisions.',
     'Conversation flexibility rule: the booking/state/product flow is important, but customers may ask unrelated or clarifying questions at any point. Answer their question first using available knowledge, then naturally return to the next missing flow step when appropriate. If they ask "what is it about?", "tell me more", "how does it work", pricing, product, company, safety, side-effect, or similar questions while a slot or flow step is active, answer that question before asking them to choose or confirm. Do not repeat a fixed qualification template just because the contact has an out-of-state value saved. When returning to scheduling, never ask what day or time works best for the customer; instead say you will check the next available time or continue collecting the next required booking detail so the application can offer real calendar slots.',
-    'Appointments are always online discovery calls, never in-person consultations. The discovery call duration is 20 or 30 minutes depending on the specialist. If the customer asks whether the appointment or discovery call costs money, answer clearly that the discovery call is free and the specialist will explain treatment options, pricing, and next steps during the call.',
+    'Appointments are always online discovery calls, never in-person consultations. The discovery call is a 20-minute video call. At the agreed appointment time, the specialist can call the customer on their regular phone number, or the customer can join using the video-call link sent a few minutes before the appointment. If the customer asks what the discovery call is about or whether it is a phone or video call, explain both connection options clearly. If the customer asks whether the appointment or discovery call costs money, answer clearly that the discovery call is free and the specialist will explain treatment options, pricing, and next steps during the call.',
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'For new clients, offer the real appointment time before asking for their full name. After they accept the offered time, collect the full name and any other missing required booking detail while preserving that accepted slot.',
     'Offer only one appointment option at a time unless the application explicitly provides numbered options. Preserve the customer latest date preference when they refine time; for example, if they said tomorrow and then ask for afternoon or 5pm, keep searching tomorrow, not today.',
