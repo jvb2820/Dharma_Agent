@@ -6,7 +6,9 @@ import { buildBookedMessage, buildBookingPaymentInfoMessage } from './booked.js'
 import {
   applyContactLeadSourceAttribution,
   getBookingReport,
+  parseRespondMeetingStart,
   recordBookingReportEvent,
+  shouldRecordBotAssistedBooking,
   updateContactBookingAttribution,
 } from './bookingReportService.js'
 import { buildBookingAttemptKey, recordBookingFailureEvent } from './bookingFailureService.js'
@@ -905,6 +907,10 @@ async function handleRespondConversationStateEvent(event) {
   await hydrateRespondSession(event.contactId)
   const session = getRespondSession(event.contactId)
 
+  await maybeRecordBotAssistedBooking(event.contactId, session).catch((error) => {
+    console.warn(`Unable to record bot-assisted booking: ${error.message}`)
+  })
+
   const pendingBookingAssignment = pendingPostBookingAssignments.get(event.contactId)
   if (pendingBookingAssignment && pendingBookingAssignment > Date.now()) {
     console.log('[respond-human-takeover-skipped-booking-assignment]', {
@@ -1000,6 +1006,65 @@ async function handleRespondConversationStateEvent(event) {
         : '',
     })
   }
+}
+
+function getBotEngagementSessionFields(session = {}, respondContactProfile = {}) {
+  return {
+    botEngagedAt: Number(session.botEngagedAt || Date.now()),
+    botEngagedInitialContactStatus:
+      session.botEngagedInitialContactStatus ||
+      respondContactProfile?.exactContactStatus ||
+      respondContactProfile?.fields?.contactStatus ||
+      '',
+  }
+}
+
+async function maybeRecordBotAssistedBooking(contactId, session = {}) {
+  if (!session.botEngagedAt || session.botAssistedReportRecordedAt) return null
+
+  const contact = await getRespondContact(contactId)
+  const customFields = getRespondCustomFieldMap(contact)
+  const currentContactStatus = resolveRespondContactStatus(customFields, contact)
+
+  if (!shouldRecordBotAssistedBooking({
+    botEngagedAt: session.botEngagedAt,
+    initialContactStatus: session.botEngagedInitialContactStatus,
+    currentContactStatus,
+  })) return null
+
+  const meetingStart = parseRespondMeetingStart(
+    customFields.date_of_meeting,
+    customFields.time_of_meeting,
+  )
+  if (!meetingStart) return null
+
+  const leadSource = getRespondLeadSource(customFields)
+  const attribution = {
+    ...applyContactLeadSourceAttribution(session.attribution || {}, leadSource),
+    ...session.attribution,
+    leadSource,
+    botAssisted: true,
+    bookingCredit: 'bot_assisted',
+    evidence: 'Respond API/template engaged contact before Evaluation Scheduled workflow',
+  }
+  const recorded = await recordBookingReportEvent({
+    contactId,
+    contactPhone: extractRespondContactPhone(contact, customFields),
+    attribution,
+    booked: { startTime: meetingStart },
+    option: { startTime: meetingStart },
+  })
+
+  setRespondSession(contactId, {
+    ...session,
+    botAssistedReportRecordedAt: Date.now(),
+  })
+  console.log('[respond-bot-assisted-booking-recorded]', {
+    contactId,
+    meetingStartAt: new Date(meetingStart).toISOString(),
+    reportId: recorded?.id || '',
+  })
+  return recorded
 }
 
 function getDefaultBookingConfirmationVideoUrl() {
@@ -1118,6 +1183,7 @@ async function processRespondIncomingMessage(event) {
       postBookingLock,
       respondContactProfile,
       attribution,
+      ...getBotEngagementSessionFields(session, respondContactProfile),
     })
     console.log('[respond-post-booking-locked]', {
       contactId: event.contactId,
@@ -1709,6 +1775,7 @@ async function processRespondIncomingMessage(event) {
     booking: activeBooking || null,
     respondContactProfile,
     attribution,
+    ...getBotEngagementSessionFields(session, respondContactProfile),
   })
 
   queueMemorySuggestion({

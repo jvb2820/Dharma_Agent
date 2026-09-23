@@ -1,7 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { applyContactLeadSourceAttribution, getEasternReportRange } from './bookingReportService.js'
+import {
+  applyContactLeadSourceAttribution,
+  getEasternReportRange,
+  parseRespondMeetingStart,
+  shouldRecordBotAssistedBooking,
+} from './bookingReportService.js'
 
 test('Respond Lead Source determines paid Meta and TikTok attribution', () => {
   assert.deepEqual(applyContactLeadSourceAttribution({ campaignName: 'Summer' }, 'Meta'), {
@@ -33,4 +38,30 @@ test('booking report dates automatically use standard Eastern time in winter', (
     from: '2026-12-15T05:00:00.000Z',
     toExclusive: '2026-12-16T05:00:00.000Z',
   })
+})
+
+test('bot-assisted credit requires bot engagement before Evaluation Scheduled', () => {
+  assert.equal(shouldRecordBotAssistedBooking({
+    botEngagedAt: Date.now(),
+    initialContactStatus: 'Pre-qualified Lead',
+    currentContactStatus: 'Evaluation Scheduled',
+  }), true)
+  assert.equal(shouldRecordBotAssistedBooking({
+    botEngagedAt: Date.now(),
+    initialContactStatus: 'Evaluation Scheduled',
+    currentContactStatus: 'Evaluation Scheduled',
+  }), false)
+  assert.equal(shouldRecordBotAssistedBooking({
+    initialContactStatus: 'Pre-qualified Lead',
+    currentContactStatus: 'Evaluation Scheduled',
+  }), false)
+})
+
+test('Respond UTC meeting fields produce the report appointment timestamp', () => {
+  assert.equal(
+    parseRespondMeetingStart('2026-09-24', '15:00:00'),
+    Date.parse('2026-09-24T15:00:00Z'),
+  )
+  assert.equal(parseRespondMeetingStart('09/24/2026', '15:00:00'), null)
+  assert.equal(parseRespondMeetingStart('2026-09-24', ''), null)
 })

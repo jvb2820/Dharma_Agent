@@ -11,6 +11,19 @@ export async function recordBookingReportEvent({ contactId, contactPhone, attrib
   const externalBookingId = String(booked.id || booked.meetingId || booked.eventId || '').trim()
   const bookingKey = externalBookingId || `${contactId}:${meetingStartAt || bookedAt.slice(0, 16)}`
   const source = normalizeSource(attribution)
+
+  if (meetingStartAt) {
+    const { data: existing, error: existingError } = await supabase
+      .from('booking_attribution_events')
+      .select('*')
+      .eq('respond_contact_id', String(contactId))
+      .eq('meeting_start_at', meetingStartAt)
+      .maybeSingle()
+
+    if (existingError) throw new Error(`Unable to check existing booking attribution: ${existingError.message}`)
+    if (existing) return existing
+  }
+
   const { data, error } = await supabase
     .from('booking_attribution_events')
     .upsert({
@@ -36,6 +49,20 @@ export async function recordBookingReportEvent({ contactId, contactPhone, attrib
 
   if (error) throw new Error(`Unable to record booking attribution: ${error.message}`)
   return data
+}
+
+export function shouldRecordBotAssistedBooking({ botEngagedAt, initialContactStatus = '', currentContactStatus = '' } = {}) {
+  return Boolean(botEngagedAt) &&
+    !/^evaluation scheduled$/i.test(String(initialContactStatus || '').trim()) &&
+    /^evaluation scheduled$/i.test(String(currentContactStatus || '').trim())
+}
+
+export function parseRespondMeetingStart(dateValue = '', timeValue = '') {
+  const date = String(dateValue || '').trim()
+  const time = String(timeValue || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}(?::\d{2})?$/.test(time)) return null
+  const timestamp = Date.parse(`${date}T${time.length === 5 ? `${time}:00` : time}Z`)
+  return Number.isFinite(timestamp) ? timestamp : null
 }
 
 export async function getBookingReport({ from, to } = {}) {
