@@ -72,6 +72,15 @@ test('work schedules become after-work availability constraints', () => {
       dayPart: 'evening',
     })
   }
+
+  assert.deepEqual(extractAfterWorkConstraint('Estoy en mi trabajo salgo alas 8 o 9'), {
+    preferredTime: 'tomorrow 8:00am',
+    earliestHour: 8,
+    earliestMinuteOfDay: 480,
+    latestHour: 9,
+    dayPart: 'morning',
+    direction: 'next_day',
+  })
 })
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
 import { CITY_STATE_OPTIONS } from '../src/data/usCityStates.js'

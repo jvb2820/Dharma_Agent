@@ -114,9 +114,32 @@ export function extractAfterWorkConstraint(value = '') {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-  const match = normalized.match(
+  const ambiguousMorningMatch = normalized.match(
+    /\b(?:leave work|finish work|get off work|salgo|termino|saio)\b[\s\S]{0,12}?\b(?:at|a las|alas|a|as)?\s*(8|9)(?:[:.](\d{2}))?\s*(?:or|o|ou)\s*(8|9)(?:[:.](\d{2}))?\b(?!\s*(?:am|pm))/,
+  )
+
+  // A bare "8 or 9" does not establish PM. Treat it as a request for the
+  // following morning so the bot can make a concrete offer instead of
+  // inventing an after-hours preference.
+  if (ambiguousMorningMatch) {
+    const earliestHour = Math.min(Number(ambiguousMorningMatch[1]), Number(ambiguousMorningMatch[3]))
+    return {
+      preferredTime: `tomorrow ${earliestHour}:00am`,
+      earliestHour,
+      earliestMinuteOfDay: earliestHour * 60,
+      latestHour: Math.max(Number(ambiguousMorningMatch[1]), Number(ambiguousMorningMatch[3])),
+      dayPart: 'morning',
+      direction: 'next_day',
+    }
+  }
+
+  const leavingWorkMatch = normalized.match(
+    /\b(?:leave work|finish work|get off work|salgo|termino|saio)\b[\s\S]{0,12}?\b(?:at|a las|alas|a|as)?\s*(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)\b/,
+  )
+  const scheduledWorkMatch = normalized.match(
     /\b(?:work|working|trabajo|trabajando|trabalho|trabalhando)\b[\s\S]{0,30}?\b(?:to|until|hasta|ate|a|-)\s*(1[0-2]|0?[1-9])(?:[:.](\d{2}))?\s*(am|pm)\b/,
   )
+  const match = leavingWorkMatch || scheduledWorkMatch
 
   if (!match) return null
 

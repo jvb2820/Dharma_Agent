@@ -4693,19 +4693,59 @@ async function offerSoonestRespondSlot({
     )
     availableOptions = filterPreviouslyOfferedOptions(availableOptions, booking)
   }
-  let afterHoursFallback = false
+  let afterHoursFallback = ''
 
   if (isAfterHoursAvailabilityPreference(details, preferredTime) && availableOptions.length === 0 && !strictRequestedDay) {
-    const nextMorningPreferredTime = getNextMorningPreferredTime(preferredTime)
-    const nextMorningOptions = await getAvailability({ limit: 100, preferredTime: nextMorningPreferredTime })
-    const morningOptions = nextMorningOptions.filter((option) => {
+    const relaxedOptions = filterPreviouslyOfferedOptions(
+      filterOptionsByAvailabilityPreference(
+        await getAvailability({ limit: 100, timezone }),
+        {
+          state: details.state,
+          minimumStartTime: details.minimumStartTime,
+        },
+      ),
+      booking,
+    )
+    const nearClosingOptions = relaxedOptions.filter((option) => {
       const localHour = getCustomerStateHour(option.startTime, details.state, option.timezone)
-
-      return localHour != null && localHour < 12
+      return localHour === 18
     })
 
-    availableOptions = filterPreviouslyOfferedOptions(morningOptions.length ? morningOptions : nextMorningOptions, booking)
-    afterHoursFallback = availableOptions.length > 0
+    if (nearClosingOptions.length > 0) {
+      availableOptions = [nearClosingOptions[0]]
+      afterHoursFallback = 'near_closing'
+    } else {
+      const nextMorningPreferredTime = getNextMorningPreferredTime(preferredTime)
+      const nextMorningOptions = await getAvailability({
+        limit: 100,
+        preferredTime: nextMorningPreferredTime,
+        timezone,
+      })
+      const morningOptions = nextMorningOptions.filter((option) => {
+        const localHour = getCustomerStateHour(option.startTime, details.state, option.timezone)
+
+        return localHour != null && localHour < 12
+      })
+
+      availableOptions = filterPreviouslyOfferedOptions(morningOptions.length ? morningOptions : nextMorningOptions, booking)
+      afterHoursFallback = availableOptions.length > 0 ? 'next_morning' : ''
+    }
+  }
+
+  // A narrow preference must never strand the conversation when the calendars
+  // still contain a real opening. Relax only the time window and offer the
+  // next confirmed option as the final fallback.
+  let usedGeneralAvailabilityFallback = false
+  if (availableOptions.length === 0) {
+    const generalOptions = filterOptionsByAvailabilityPreference(
+      await getAvailability({ limit: 100, timezone }),
+      {
+        state: details.state,
+        minimumStartTime: details.minimumStartTime,
+      },
+    )
+    availableOptions = filterPreviouslyOfferedOptions(generalOptions, booking)
+    usedGeneralAvailabilityFallback = availableOptions.length > 0
   }
 
   if (latestSameDayAfter && availableOptions.length > 0) {
@@ -4764,19 +4804,24 @@ async function offerSoonestRespondSlot({
     booking,
   }).catch((error) => console.warn(error.message))
 
-  const nextOptions = afterHoursFallback && !forceSingleSlot ? availableOptions.slice(0, 3) : [offeredOption]
-  const useAfterHoursCopy = afterHoursFallback && !forceSingleSlot
-  const offerKey = useAfterHoursCopy ? 'offerNextMorningAfterHours' : offerCopyKey || getSingleSlotOfferCopyKey({
+  const nextOptions = [offeredOption]
+  const offerKey = afterHoursFallback === 'near_closing'
+    ? 'offerNearClosingSlotAfterHours'
+    : afterHoursFallback === 'next_morning'
+      ? 'offerNextMorningSlotAfterHours'
+    : usedGeneralAvailabilityFallback
+      ? 'offerClosestSlot'
+      : offerCopyKey || getSingleSlotOfferCopyKey({
     closest,
     preferredTime,
     usedFallback: options.length === 0 && fallbackOptions.length > 0,
   })
 
-  const offerText = nextOptions.length === 1 && !useAfterHoursCopy
+  const offerText = nextOptions.length === 1
       ? bookingCopy(customerLanguage, offerKey, {
         slot: formatCustomerStateSlot(nextOptions[0].startTime, details.state, nextOptions[0].timezone, customerLanguage),
       })
-      : bookingCopy(customerLanguage, useAfterHoursCopy ? offerKey : closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
+      : bookingCopy(customerLanguage, closest ? (options.length ? 'offerClosestSlots' : 'offerFallbackSlots') : 'offerSlots', {
         slots: formatNumberedSlots(nextOptions, details.state, customerLanguage),
       })
 
@@ -6210,6 +6255,16 @@ function bookingCopy(language, key, values = {}) {
       `I do not have availability after 7:00 PM in your time zone. I can offer these next morning options instead:\n${values.slots}\n\nWhich option works best? Please reply with the number.`,
       `No tengo disponibilidad despues de las 7:00 PM en tu zona horaria. Puedo ofrecerte estas opciones para la siguiente manana:\n${values.slots}\n\nCual opcion te funciona mejor? Responde con el numero.`,
       `Nao tenho disponibilidade depois das 7:00 PM no seu fuso horario. Posso oferecer estas opcoes para a manha seguinte:\n${values.slots}\n\nQual opcao funciona melhor? Responda com o numero.`,
+    ),
+    offerNextMorningSlotAfterHours: tri(
+      `We cannot book after 7:00 PM in your time zone, but I can offer this confirmed opening on the next available morning: ${values.slot}. Does that work for you?`,
+      `No podemos agendar despues de las 7:00 p.m. en tu zona horaria, pero puedo ofrecerte este espacio confirmado en la proxima manana disponible: ${values.slot}. Te funciona?`,
+      `Nao podemos agendar depois das 7:00 PM no seu fuso horario, mas posso oferecer este horario confirmado na proxima manha disponivel: ${values.slot}. Funciona para voce?`,
+    ),
+    offerNearClosingSlotAfterHours: tri(
+      `Our appointment hours end at 7:00 PM in your time zone, so I cannot offer the requested later time. The closest confirmed evening opening I can offer is ${values.slot}. Does that work for you?`,
+      `Nuestro horario de citas termina a las 7:00 p.m. en tu zona horaria, por eso no puedo ofrecer el horario solicitado mas tarde. El espacio confirmado mas cercano que puedo ofrecerte en la tarde es ${values.slot}. Te funciona?`,
+      `Nosso horario de consultas termina as 7:00 PM no seu fuso horario, por isso nao posso oferecer o horario solicitado mais tarde. O horario confirmado mais proximo que posso oferecer no fim da tarde e ${values.slot}. Funciona para voce?`,
     ),
     askChooseOption: tri(
       'Which option works best? Please reply with the number or the time so I can book it.',
