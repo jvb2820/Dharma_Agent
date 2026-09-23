@@ -151,9 +151,9 @@ export function confirmsOfferedSlotTime(content = '', offeredHour, offeredMinute
   }
 
   const normalized = normalizeRuleText(content)
-  const confirms = /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|si|claro|dale|esta bien|correcto|confirmo|agendalo|reserva)\b/.test(normalized)
+  const confirms = /\b(yes|yeah|yep|ok|okay|sure|works|perfect|perfecto|perfecta|perfeito|perfeita|confirm|si|claro|dale|esta bien|correcto|confirmo|agendalo|reserva)\b/.test(normalized)
   const match =
-    normalized.match(/\b(?:at|a las|las)\s+(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)?\b/) ||
+    normalized.match(/\b(?:at|a las|las|as)\s+(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)?\b/) ||
     normalized.match(/\b(1[0-2]|0?[1-9])(?::(\d{2}))?\s*(am|pm)\b/)
 
   if (!confirms || !match) {

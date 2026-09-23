@@ -531,6 +531,9 @@ test('after-time preferences preserve the minute-level cutoff', () => {
 
 test('an affirmative reply repeating the offered time confirms that slot', () => {
   assert.equal(confirmsOfferedSlotTime('Está bien a las 2', 14, 0), true)
+  assert.equal(confirmsOfferedSlotTime('Perfecto, gracias. A las 4 p.m.', 16, 0), true)
+  assert.equal(confirmsOfferedSlotTime('Perfecto, gracias. A las 4:20 p.m.', 16, 20), true)
+  assert.equal(confirmsOfferedSlotTime('Perfeito, às 4:20 p.m.', 16, 20), true)
   assert.equal(confirmsOfferedSlotTime('Yes, 2:00 pm works', 14, 0), true)
   assert.equal(confirmsOfferedSlotTime('No, a las 2 no puedo', 14, 0), false)
   assert.equal(confirmsOfferedSlotTime('Está bien a las 2:20', 14, 0), false)

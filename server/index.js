@@ -6643,7 +6643,7 @@ function isAffirmative(content) {
 
   return (
     isExactCasualAffirmative(content) ||
-    /\b(yes|yeah|yep|ok|okay|sure|works|perfect|confirm|book it|si|claro|dale|esta bien|correcto|confirmo|agendalo|reserva)\b/i.test(
+    /\b(yes|yeah|yep|ok|okay|sure|works|perfect|perfecto|perfecta|perfeito|perfeita|confirm|book it|si|claro|dale|esta bien|correcto|confirmo|agendalo|reserva)\b/i.test(
       normalized,
     )
   )
