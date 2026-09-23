@@ -303,6 +303,7 @@ test('state and city names do not accidentally switch an established language', 
 test('unique cities resolve without requiring a state reconfirmation', () => {
   assert.deepEqual(CITY_STATE_OPTIONS.manhattan, ['New York'])
   assert.deepEqual(CITY_STATE_OPTIONS.houston, ['Texas'])
+  assert.deepEqual(CITY_STATE_OPTIONS.miami, ['Florida'])
   assert.deepEqual(CITY_STATE_OPTIONS.portland, ['Oregon', 'Maine'])
 })
 

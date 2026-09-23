@@ -4016,6 +4016,7 @@ async function handleRespondBookingAutomation({
     const minimumStartTime = getMinimumStartAfterSlotRejection(
       latestUserText,
       activeOption?.startTime,
+      getLaterSlotDelayMs(getCustomerStateHour(activeOption?.startTime, details.state, activeOption?.timezone)),
     )
 
     return await offerSoonestRespondSlot({
@@ -4025,6 +4026,9 @@ async function handleRespondBookingAutomation({
       preferredTime,
       closest: Boolean(preferredTime),
       offerCopyKey: preferredTime ? '' : 'offerAlternativeSlot',
+      latestSameDayAfter: getCustomerStateHour(activeOption?.startTime, details.state, activeOption?.timezone) >= 16
+        ? activeOption.startTime
+        : 0,
     })
   }
 
@@ -4079,6 +4083,7 @@ async function handleRespondBookingAutomation({
     const minimumStartTime = getMinimumStartAfterSlotRejection(
       latestUserText,
       activeOption.startTime,
+      getLaterSlotDelayMs(getCustomerStateHour(activeOption.startTime, details.state, activeOption.timezone)),
     )
 
     return await offerSoonestRespondSlot({
@@ -4092,6 +4097,9 @@ async function handleRespondBookingAutomation({
       preferredTime,
       closest: Boolean(preferredTime),
       offerCopyKey: preferredTime ? '' : 'offerAlternativeSlot',
+      latestSameDayAfter: getCustomerStateHour(activeOption.startTime, details.state, activeOption.timezone) >= 16
+        ? activeOption.startTime
+        : 0,
     })
   }
 
@@ -4111,6 +4119,7 @@ async function handleRespondBookingAutomation({
     const minimumStartTime = getMinimumStartAfterSlotRejection(
       latestUserText,
       activeOption?.startTime,
+      getLaterSlotDelayMs(getCustomerStateHour(activeOption?.startTime, details.state, activeOption?.timezone)),
     )
 
     return await offerSoonestRespondSlot({
@@ -4124,6 +4133,9 @@ async function handleRespondBookingAutomation({
       preferredTime,
       closest: Boolean(preferredTime),
       offerCopyKey: preferredTime ? '' : 'offerAlternativeSlot',
+      latestSameDayAfter: getCustomerStateHour(activeOption?.startTime, details.state, activeOption?.timezone) >= 16
+        ? activeOption.startTime
+        : 0,
     })
   }
 
@@ -4374,6 +4386,7 @@ async function offerSoonestRespondSlot({
   closest = false,
   offerCopyKey = '',
   forceSingleSlot = false,
+  latestSameDayAfter = 0,
 }) {
   const requestedSunday = isSundayAvailabilityPreference(preferredTime)
   if (requestedSunday) {
@@ -4436,6 +4449,21 @@ async function offerSoonestRespondSlot({
 
     availableOptions = filterPreviouslyOfferedOptions(morningOptions.length ? morningOptions : nextMorningOptions, booking)
     afterHoursFallback = availableOptions.length > 0
+  }
+
+  if (latestSameDayAfter && availableOptions.length > 0) {
+    const referenceOption = { startTime: latestSameDayAfter, timezone: availableOptions[0]?.timezone }
+    const referenceDateKey = getOptionCustomerDateKey(referenceOption, details.state)
+    const sameDayOptions = availableOptions.filter((option) =>
+      getOptionCustomerDateKey(option, details.state) === referenceDateKey,
+    )
+
+    if (sameDayOptions.length > 0) {
+      const latestOption = sameDayOptions.reduce((latest, option) =>
+        Number(option.startTime) > Number(latest.startTime) ? option : latest,
+      )
+      availableOptions = [latestOption, ...availableOptions.filter((option) => option !== latestOption)]
+    }
   }
 
   const offeredOption = availableOptions[0]
@@ -7443,9 +7471,10 @@ function getInitialStateQuestion(customerLanguage) {
 async function updateRespondContactState(contactId, state) {
   await updateRespondContact({
     contactId,
-    customFields: {
-      state,
-      State: state,
+    fields: {
+      customFields: {
+        state,
+      },
     },
   }).catch((error) => {
     console.warn(`Unable to update Respond state field: ${error.message}`)
@@ -7848,7 +7877,7 @@ function buildInstructions({ agent, instructions, customerLanguage, redundancyCo
     'When offering a discovery call, offer a real available slot from the booking calendar or ask the application/team to check availability. Never ask generally for the customer best availability as the primary next step.',
     'For new clients, offer the real appointment time before asking for their full name. After they accept the offered time, collect the full name and any other missing required booking detail while preserving that accepted slot.',
     'Offer only one appointment option at a time unless the application explicitly provides numbered options. Preserve the customer latest date preference when they refine time; for example, if they said tomorrow and then ask for afternoon or 5pm, keep searching tomorrow, not today.',
-    'HIGH-PRIORITY AVAILABILITY RULE: Treat every customer availability statement as a binding constraint for the rest of the current chat. If they reject only the offered time, offer a real calendar slot at least three hours later; if they reject today or a named day/date, offer the next available calendar day after it; and if they specify morning, afternoon, evening, or a weekday such as Saturdays only, remember and apply that restriction to every later offer until the customer changes it. Never repeat the rejected time or offer a slot that conflicts with the stored restriction.',
+    'HIGH-PRIORITY AVAILABILITY RULE: Treat every customer availability statement as a binding constraint for the rest of the current chat. If they reject only an offered time earlier in the day, offer a later real calendar slot. If the rejected slot is at or after 4:00 PM and close to the 7:00 PM business-hours cutoff, offer the latest real remaining calendar slot before closing; if none remains that day, offer the next valid day. Never calculate, mention, or accept a time that was not returned by the booking calendar. If they reject today or a named day/date, offer the next available calendar day after it; and if they specify morning, afternoon, evening, or a weekday such as Saturdays only, remember and apply that restriction to every later offer until the customer changes it. Never repeat the rejected time or offer a slot that conflicts with the stored restriction.',
     'Never claim that an appointment is booked, scheduled, confirmed, reserved, or that a link/details were sent unless the application booking flow has already returned a successful booking confirmation.',
     'For Respond webhook conversations, do not invent appointment availability. If there is no explicit booking-calendar availability or booking confirmation in the application context, collect the missing booking details instead. The customer phone is required before booking. Never narrate internal workflow or backend implementation details to customers.',
     'Never ask for the customer full address or shipping address during lead qualification or discovery-call booking. State is enough for delivery qualification.',
