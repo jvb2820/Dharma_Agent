@@ -116,8 +116,14 @@ export function getMinimumStartAfterSlotRejection(
 }
 
 export function getLaterSlotDelayMs(offeredLocalHour) {
-  return Number(offeredLocalHour) >= 16
-    ? 60 * 60 * 1000
+  const hour = Number(offeredLocalHour)
+
+  // Near closing, keep the cutoff just beyond the rejected appointment so
+  // the caller can select the latest real same-day opening before 7 PM.
+  if (hour >= 17) return 20 * 60 * 1000
+
+  return hour >= 12
+    ? 2 * 60 * 60 * 1000
     : 3 * 60 * 60 * 1000
 }
 

@@ -510,10 +510,13 @@ test('a rejected time moves the next offer at least three hours later', () => {
   assert.equal(getMinimumStartAfterSlotRejection('No puedo hoy', offeredStart), undefined)
 })
 
-test('generic later requests use a one-hour delay from 4 PM and three hours before then', () => {
-  assert.equal(getLaterSlotDelayMs(15), 3 * 60 * 60 * 1000)
-  assert.equal(getLaterSlotDelayMs(16), 60 * 60 * 1000)
-  assert.equal(getLaterSlotDelayMs(18), 60 * 60 * 1000)
+test('generic later requests use morning, afternoon, and near-closing cutoffs', () => {
+  assert.equal(getLaterSlotDelayMs(11), 3 * 60 * 60 * 1000)
+  assert.equal(getLaterSlotDelayMs(12), 2 * 60 * 60 * 1000)
+  assert.equal(getLaterSlotDelayMs(15), 2 * 60 * 60 * 1000)
+  assert.equal(getLaterSlotDelayMs(16), 2 * 60 * 60 * 1000)
+  assert.equal(getLaterSlotDelayMs(17), 20 * 60 * 1000)
+  assert.equal(getLaterSlotDelayMs(18), 20 * 60 * 1000)
 })
 
 test('after-time preferences preserve the minute-level cutoff', () => {
