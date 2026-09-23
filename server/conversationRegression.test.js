@@ -83,8 +83,36 @@ import {
   isPrescribedTreatmentDeclination,
   isTreatmentPackageInclusionsQuestion,
 } from '../src/utils/leadIntentRules.js'
-import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
+import {
+  buildSupplementCatalogAnswer,
+  getPastSupplementUseAnswer,
+  isContextualSupplementQuestion,
+  isPastSupplementUseMention,
+} from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
+import {
+  getInjectionFrequencyAnswer,
+  isInjectionFrequencyQuestion,
+} from '../src/utils/injectionFrequencyRules.js'
+
+test('injection frequency questions receive the weekly answer and discovery-call bridge', () => {
+  for (const message of [
+    'Cuantas inyecciones hay que usar al mes',
+    'How many injections do I need per month?',
+    'Com que frequencia sao as injecoes?',
+  ]) {
+    assert.equal(isInjectionFrequencyQuestion(message), true, message)
+  }
+
+  const spanish = getInjectionFrequencyAnswer('Latin American Spanish')
+  assert.match(spanish, /una inyeccion por semana/i)
+  assert.match(spanish, /llamada gratuita de analisis/i)
+  assert.match(spanish, /especialista/i)
+
+  const english = getInjectionFrequencyAnswer('English')
+  assert.match(english, /one injection per week/i)
+  assert.match(english, /free discovery call/i)
+})
 
 test('general package inclusion questions are recognized as commercial questions', () => {
   for (const message of [
@@ -184,6 +212,21 @@ test('an explicit complete-catalog request never dumps every supplement', () => 
 test('a price follow-up remains in supplement context', () => {
   assert.equal(isContextualSupplementQuestion('¿Y cuánto cuesta?', [{ role: 'user', content: 'Quiero información sobre sus suplementos' }]), true)
   assert.equal(isContextualSupplementQuestion('¿Y cuánto cuesta?', [{ role: 'user', content: 'Tienen Tirzepatide?' }]), false)
+})
+
+test('past supplement use gets a brief acknowledgment without opening supplement context', () => {
+  const priorUse = 'Hace mucho tiempo, tomaba pastillas ahi en Chicago y si, baje bastante'
+  assert.equal(isPastSupplementUseMention(priorUse), true)
+
+  const answer = getPastSupplementUseAnswer('Latin American Spanish')
+  assert.match(answer, /tambien trabajamos con algunos suplementos/i)
+  assert.match(answer, /llamada gratuita/i)
+  assert.doesNotMatch(answer, /Berberine|Fat Burner|Creatine|\$/i)
+
+  assert.equal(isContextualSupplementQuestion('Pero quiero saber primero cuanto vale el tratamiento', [
+    { role: 'user', content: priorUse },
+    { role: 'assistant', content: answer },
+  ]), false)
 })
 
 test('named supplement directions use the catalog label instructions', () => {

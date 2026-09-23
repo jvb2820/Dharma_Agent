@@ -158,8 +158,17 @@ import {
 } from './privacyGuard.js'
 import { isTreatmentAcquisitionQuestion } from '../src/utils/privacyRules.js'
 import { getCanonicalStateAlias } from '../src/utils/stateAliases.js'
-import { buildSupplementCatalogAnswer, isContextualSupplementQuestion } from '../src/data/supplements.js'
+import {
+  buildSupplementCatalogAnswer,
+  getPastSupplementUseAnswer,
+  isContextualSupplementQuestion,
+  isPastSupplementUseMention,
+} from '../src/data/supplements.js'
 import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '../src/utils/affordabilityRules.js'
+import {
+  getInjectionFrequencyAnswer,
+  isInjectionFrequencyQuestion,
+} from '../src/utils/injectionFrequencyRules.js'
 import { createRespondMessageCoordinator } from './respondMessageCoordinator.js'
 import { withRespondContactLock } from './respondProcessingService.js'
 import { recheckRespondAssignment } from './respondAssignmentRecheckService.js'
@@ -3444,6 +3453,8 @@ async function handleRespondBookingAutomation({
       ? getAffordabilityAnswer(customerLanguage)
       : isTreatmentPackageInclusionsQuestion(latestUserText)
         ? getTreatmentPackageInclusionsAnswer(customerLanguage)
+      : isPastSupplementUseMention(latestUserText)
+        ? getPastSupplementUseAnswer(customerLanguage)
       : isGhkProductQuestion(latestUserText)
         ? getGhkProductAnswer(customerLanguage)
         : isSupplementProductQuestion(latestUserText) || isContextualSupplementQuestion(latestUserText, messages)
@@ -5218,6 +5229,10 @@ function getOutOfFlowAnswer(content, customerLanguage) {
     return 'ℹ️ The medication itself does not cause a rebound effect, but maintaining long-term results also depends on keeping healthy habits. A balanced diet and regular physical activity are important to maximize the benefits of treatment.\n\n📲 For more information, our specialist can explain everything during the free call.'
   }
 
+  if (isPastSupplementUseMention(content)) {
+    return getPastSupplementUseAnswer(language)
+  }
+
   if (isSupplementProductQuestion(content)) {
     return getSupplementProductAnswer(customerLanguage, content)
   }
@@ -5232,6 +5247,10 @@ function getOutOfFlowAnswer(content, customerLanguage) {
 
   if (hasCallFormatQuestion(content)) {
     return getCallFormatAnswer(language)
+  }
+
+  if (isInjectionFrequencyQuestion(content)) {
+    return getInjectionFrequencyAnswer(language)
   }
 
   if (!isOutOfFlowInfoQuestion(content)) {
@@ -7147,7 +7166,8 @@ function isOutOfFlowInfoQuestion(content) {
     isMedicalHistoryOrSafetyQuestion(normalized) ||
     isProductOrMedicationQuestion(normalized) ||
     isPopularityOrBestSellerQuestion(normalized) ||
-    isInjectionEffectTimingQuestion(normalized)
+    isInjectionEffectTimingQuestion(normalized) ||
+    isInjectionFrequencyQuestion(normalized)
   ) {
     return true
   }

@@ -38,7 +38,33 @@ export function isSupplementPriceOrDirectionsQuestion(content = '') {
 
 export function isContextualSupplementQuestion(content = '', messages = []) {
   if (!isSupplementPriceOrDirectionsQuestion(content)) return false
-  return [...messages].reverse().slice(0, 6).some(({ content: prior = '' }) => /\b(supplement|supplements|suplemento|suplementos|berberine|berberina|fat burner|collagen|colageno|probiotic|vitamin|creatine|creatina|protein|proteina)\b/.test(normalize(prior)))
+  return [...messages]
+    .reverse()
+    .slice(0, 6)
+    .some(({ role, content: prior = '' }) => {
+      if (role !== 'user') return false
+      const normalized = normalize(prior)
+      const namesSupplement = /\b(supplement|supplements|suplemento|suplementos|berberine|berberina|fat burner|collagen|colageno|probiotic|vitamin|creatine|creatina|protein|proteina)\b/.test(normalized)
+      const asksAboutSupplement = /\b(want|need|interested|information|tell me|show me|price|cost|take|use|quiero|necesito|interesa|informacion|dime|muestrame|precio|cuanto|cuesta|tomar|usar|quero|preciso|interessad|informacao|preco|quanto|custa)\b/.test(normalized)
+      return namesSupplement && asksAboutSupplement && !isPastSupplementUseMention(prior)
+    })
+}
+
+export function isPastSupplementUseMention(content = '') {
+  const normalized = normalize(content)
+  const pastUse = /\b(used to take|previously took|have taken|had taken|took|was taking|tomaba|tome|he tomado|habia tomado|use to use|used|usaba|use|tomava|tomei|ja tomei|ja usei)\b/.test(normalized)
+  const pillOrSupplement = /\b(pill|pills|tablet|tablets|capsule|capsules|supplement|supplements|pastilla|pastillas|capsula|capsulas|suplemento|suplementos|comprimido|comprimidos)\b/.test(normalized)
+  return pastUse && pillOrSupplement
+}
+
+export function getPastSupplementUseAnswer(language = '') {
+  if (language === 'Latin American Spanish') {
+    return 'Gracias por compartirlo. Tambien trabajamos con algunos suplementos que pueden complementar tus objetivos. Nuestra especialista puede orientarte durante la llamada gratuita.'
+  }
+  if (language === 'Portuguese') {
+    return 'Obrigado por compartilhar. Tambem trabalhamos com alguns suplementos que podem complementar seus objetivos. Nossa especialista pode orientar voce durante a chamada gratuita.'
+  }
+  return 'Thank you for sharing that. We also offer some supplements that may complement your goals. Our specialist can guide you during the free discovery call.'
 }
 
 export function buildSupplementCatalogAnswer(language, content = '') {
