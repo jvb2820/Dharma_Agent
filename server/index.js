@@ -153,7 +153,7 @@ import { hasAffordabilityObjection, isContextualAffordabilityObjection } from '.
 import { createRespondMessageCoordinator } from './respondMessageCoordinator.js'
 import { withRespondContactLock } from './respondProcessingService.js'
 import { recheckRespondAssignment } from './respondAssignmentRecheckService.js'
-import { acquireSlotClaim, releaseSlotClaim } from './slotClaimService.js'
+import { acquireSlotClaim, buildPersistedSlotClaim, releaseSlotClaim } from './slotClaimService.js'
 import {
   classifyBookingFailure,
   getInitialConsultationCostAnswer,
@@ -3162,9 +3162,29 @@ async function handleRespondBookingAutomation({
   customerLanguage,
   respondContactProfile,
 }) {
-  const existingBooking = {
+  let existingBooking = {
     ...(session.booking || {}),
     contactId: respondContactProfile?.contactId || session.booking?.contactId || '',
+  }
+  let acceptedSlotClaimLost = false
+  if (existingBooking.slotClaim && existingBooking.offeredOption) {
+    try {
+      const renewedClaim = await acquireSlotClaim({
+        option: existingBooking.offeredOption,
+        contactId: existingBooking.slotClaim.contactId || existingBooking.contactId,
+      })
+      if (renewedClaim.acquired) {
+        existingBooking = {
+          ...existingBooking,
+          slotClaim: buildPersistedSlotClaim(renewedClaim, existingBooking.slotClaim.contactId || existingBooking.contactId),
+        }
+      } else {
+        acceptedSlotClaimLost = true
+        existingBooking = { ...existingBooking, slotClaim: null }
+      }
+    } catch (error) {
+      console.warn(`Unable to renew accepted slot claim: ${error.message}`)
+    }
   }
   const bookingTeam = getCurrentRespondBookingTeam(existingBooking, respondContactProfile)
   const latestUserText = [...messages].reverse().find((item) => item.role === 'user')?.content || ''
@@ -3692,6 +3712,14 @@ async function handleRespondBookingAutomation({
     })
   }
 
+  if (acceptedSlotClaimLost && existingBooking.offeredOption) {
+    return await recoverLostAcceptedSlotClaim({
+      booking: { ...existingBooking, bookingTeam },
+      details,
+      customerLanguage,
+    })
+  }
+
   if (existingBooking.pendingField === 'phone') {
     const activeOption = existingBooking.offeredOption || existingBooking.options?.[0]
     const latestMessageChangesAvailability =
@@ -4172,6 +4200,29 @@ async function handleRespondBookingAutomation({
   // Evaluation Scheduled contacts use the Customer Service booking flow.
   if (selectedOption || (existingBooking.offeredOption && isSlotAffirmation(latestUserText, latestSignals))) {
     const option = selectedOption || existingBooking.offeredOption
+    const acceptedBookingBase = { ...existingBooking, bookingTeam, details, offeredOption: option, options: [] }
+    const acceptedClaim = await acquireSlotClaim({
+      option,
+      contactId: existingBooking.contactId,
+    }).catch((error) => {
+      console.warn(`Unable to claim accepted slot; continuing with final availability verification: ${error.message}`)
+      return null
+    })
+
+    if (acceptedClaim && !acceptedClaim.acquired) {
+      return await recoverLostAcceptedSlotClaim({
+        booking: acceptedBookingBase,
+        details,
+        customerLanguage,
+      })
+    }
+
+    const acceptedBooking = {
+      ...acceptedBookingBase,
+      ...(acceptedClaim
+        ? { slotClaim: buildPersistedSlotClaim(acceptedClaim, existingBooking.contactId) }
+        : { slotClaim: null }),
+    }
 
     if (!details.phone) {
       const phoneCopyKey = shouldUseNewClientBookingFlow(respondContactProfile) ? 'askUsPhone' : 'askPhone'
@@ -4182,19 +4233,19 @@ async function handleRespondBookingAutomation({
           latestUserText,
           customerLanguage,
           respondContactProfile,
-          booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+          booking: { ...acceptedBooking, pendingField: 'phone' },
           modelIntent,
         })
 
         return {
           text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, phoneCopyKey)}`,
-          booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+          booking: { ...acceptedBooking, pendingField: 'phone' },
         }
       }
 
       return {
         text: bookingCopy(customerLanguage, phoneCopyKey),
-        booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+        booking: { ...acceptedBooking, pendingField: 'phone' },
       }
     }
 
@@ -4205,17 +4256,14 @@ async function handleRespondBookingAutomation({
           latestUserText,
           customerLanguage,
           respondContactProfile,
-          booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'name' },
+          booking: { ...acceptedBooking, pendingField: 'name' },
           modelIntent,
         })
 
         return {
           text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askName')}`,
           booking: {
-            ...existingBooking,
-            bookingTeam,
-            details,
-            offeredOption: option,
+            ...acceptedBooking,
             pendingField: 'name',
           },
         }
@@ -4224,10 +4272,7 @@ async function handleRespondBookingAutomation({
       return {
         text: bookingCopy(customerLanguage, 'askName'),
         booking: {
-          ...existingBooking,
-          bookingTeam,
-          details,
-          offeredOption: option,
+          ...acceptedBooking,
           pendingField: 'name',
         },
       }
@@ -4240,17 +4285,14 @@ async function handleRespondBookingAutomation({
           latestUserText,
           customerLanguage,
           respondContactProfile,
-          booking: { ...existingBooking, bookingTeam, details, offeredOption: option, pendingField: 'phone' },
+          booking: { ...acceptedBooking, pendingField: 'phone' },
           modelIntent,
         })
 
         return {
           text: `${stripBookingPromptFromGeneratedAnswer(answer)}\n\n${bookingCopy(customerLanguage, 'askPhone')}`,
           booking: {
-            ...existingBooking,
-            bookingTeam,
-            details,
-            offeredOption: option,
+            ...acceptedBooking,
             pendingField: 'phone',
           },
         }
@@ -4259,23 +4301,20 @@ async function handleRespondBookingAutomation({
       return {
         text: bookingCopy(customerLanguage, 'askPhone'),
         booking: {
-          ...existingBooking,
-          bookingTeam,
-          details,
-          offeredOption: option,
+          ...acceptedBooking,
           pendingField: 'phone',
         },
       }
     }
 
     return await bookAcceptedRespondSlot({
-      booking: { ...existingBooking, bookingTeam, offeredOption: option },
+      booking: acceptedBooking,
       details,
       customerLanguage,
       respondContactProfile,
     }).catch((error) =>
       buildRespondBookingFailure(
-        { ...existingBooking, bookingTeam, offeredOption: option },
+        acceptedBooking,
         details,
         customerLanguage,
         error,
@@ -4396,6 +4435,7 @@ async function offerSoonestRespondSlot({
   forceSingleSlot = false,
   latestSameDayAfter = 0,
 }) {
+  booking = await releasePersistedSlotClaim(booking)
   const requestedSunday = isSundayAvailabilityPreference(preferredTime)
   if (requestedSunday) {
     preferredTime = replaceSundayWithSaturday(preferredTime)
@@ -5462,6 +5502,44 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
       option,
     },
   }
+}
+
+async function releasePersistedSlotClaim(booking = {}) {
+  const claim = booking.slotClaim
+  if (!claim?.slotKey || !claim?.contactId) {
+    return booking
+  }
+
+  await releaseSlotClaim({ slotKey: claim.slotKey, contactId: claim.contactId })
+  return { ...booking, slotClaim: null }
+}
+
+async function recoverLostAcceptedSlotClaim({ booking, details, customerLanguage }) {
+  const option = booking.offeredOption || booking.options?.[0]
+  await recordBookingFailureEvent({
+    contactId: booking.contactId,
+    failureType: 'slot_claim_conflict',
+    phase: 'slot_acceptance',
+    option,
+    booking,
+    error: new Error('The accepted slot claim is no longer available.'),
+  }).catch((error) => console.warn(error.message))
+
+  const replacement = await offerSoonestRespondSlot({
+    booking: buildBookingWithExcludedOptions(booking),
+    details: Number.isFinite(Number(option?.startTime))
+      ? { ...details, minimumStartTime: Number(option.startTime) + 1 }
+      : details,
+    customerLanguage,
+    preferredTime: details.preferredTime,
+    closest: Boolean(details.preferredTime),
+    offerCopyKey: 'offerAlternativeSlot',
+    forceSingleSlot: true,
+  })
+
+  return replacement?.booking?.offeredOption || replacement?.booking?.options?.length
+    ? { ...replacement, text: `${bookingCopy(customerLanguage, 'slotTaken')}\n\n${replacement.text}` }
+    : replacement
 }
 
 async function buildRespondBookingFailure(booking, details, customerLanguage, error) {
