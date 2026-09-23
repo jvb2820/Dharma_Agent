@@ -88,3 +88,25 @@ test('continues a contact queue after an earlier task fails', async () => {
   await second.promise
   assert.deepEqual(events, ['second'])
 })
+
+test('buffers rapid messages and processes only the latest task with every message ID', async () => {
+  const coordinator = createRespondMessageCoordinator({ debounceMs: 10 })
+  const calls = []
+  const first = coordinator.enqueue({
+    contactId: 'contact-a',
+    messageId: 'message-1',
+    task: async (batch) => calls.push({ task: 'first', batch }),
+  })
+  const second = coordinator.enqueue({
+    contactId: 'contact-a',
+    messageId: 'message-2',
+    task: async (batch) => calls.push({ task: 'second', batch }),
+  })
+
+  await Promise.all([first.promise, second.promise])
+  assert.deepEqual(calls, [{
+    task: 'second',
+    batch: { messageIds: ['message-1', 'message-2'] },
+  }])
+  assert.equal(coordinator.getBufferedContactCount(), 0)
+})

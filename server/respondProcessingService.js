@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from './supabaseClient.js'
 const LOCK_TTL_SECONDS = 300
 const LOCK_WAIT_MS = 60_000
 
-export async function withRespondContactLock({ contactId, messageId = '', task }) {
+export async function withRespondContactLock({ contactId, messageId = '', messageIds = [], task }) {
   const supabase = createSupabaseServerClient()
   if (!supabase) return task()
 
@@ -12,24 +12,26 @@ export async function withRespondContactLock({ contactId, messageId = '', task }
   const acquired = await waitForContactLock(supabase, contactId, ownerId)
   if (!acquired) throw new Error(`Timed out waiting for Respond contact lock: ${contactId}`)
 
-  let messageClaimed = false
+  const claimedMessageIds = []
 
   try {
-    if (messageId) {
+    const uniqueMessageIds = [...new Set([messageId, ...messageIds].map(String).filter(Boolean))]
+    for (const candidateMessageId of uniqueMessageIds) {
       const { data, error } = await supabase.rpc('claim_respond_webhook_message', {
         claim_contact_id: String(contactId),
-        claim_message_id: String(messageId),
+        claim_message_id: candidateMessageId,
         claim_owner_id: ownerId,
         claim_ttl_seconds: LOCK_TTL_SECONDS,
       })
       if (error) throw new Error(`Unable to deduplicate Respond webhook message: ${error.message}`)
-      if (!data) return { skippedDuplicate: true }
-      messageClaimed = true
+      if (data) claimedMessageIds.push(candidateMessageId)
     }
+
+    if (uniqueMessageIds.length && !claimedMessageIds.length) return { skippedDuplicate: true }
 
     const result = await task()
 
-    if (messageClaimed) {
+    if (claimedMessageIds.length) {
       await supabase
         .from('respond_processed_messages')
         .update({
@@ -39,18 +41,18 @@ export async function withRespondContactLock({ contactId, messageId = '', task }
           updated_at: new Date().toISOString(),
         })
         .eq('contact_id', String(contactId))
-        .eq('message_id', String(messageId))
+        .in('message_id', claimedMessageIds)
         .eq('owner_id', ownerId)
     }
 
     return result
   } catch (error) {
-    if (messageClaimed) {
+    if (claimedMessageIds.length) {
       await supabase
         .from('respond_processed_messages')
         .delete()
         .eq('contact_id', String(contactId))
-        .eq('message_id', String(messageId))
+        .in('message_id', claimedMessageIds)
         .eq('owner_id', ownerId)
     }
     throw error

@@ -542,6 +542,47 @@ export async function bookCustomerServiceMeeting({ customer, option }) {
   })
 }
 
+export async function checkBookingCalendarHealth({ timezone = EASTERN_TIMEZONE } = {}) {
+  const results = []
+  for (const member of getConfiguredNewClientBookingTeam()) {
+    try {
+      const meetingInfo = await fetchMeetingInfo({ slug: member.slug, timezone })
+      const duration = Number(meetingInfo.customParams?.durations?.[0] || 0)
+      if (duration !== 1200000 && duration !== 1800000) {
+        results.push({ sellerSlug: member.slug, status: 'unsupported_duration', duration })
+        continue
+      }
+      const pages = await Promise.all([
+        fetchAvailability({ slug: member.slug, timezone, monthOffset: 0 }),
+        fetchAvailability({ slug: member.slug, timezone, monthOffset: 1 }),
+      ])
+      const slots = pages.flatMap((page) =>
+        page?.linkAvailability?.linkAvailabilityByDuration?.[duration]?.availabilities || [],
+      )
+      results.push({
+        sellerSlug: member.slug,
+        status: slots.length ? 'healthy' : 'no_availability',
+        availableSlotCount: slots.length,
+      })
+    } catch (error) {
+      results.push({
+        sellerSlug: member.slug,
+        status: /calendar|offline|connect/i.test(error.message) ? 'calendar_disconnected' : 'meeting_page_error',
+        error: String(error.message || error).slice(0, 300),
+      })
+    }
+  }
+  return results
+}
+
+export async function reconcilePrioritySellerMeeting({ customer, option }) {
+  return reconcileTeamMeeting({ customer, option, members: getConfiguredPrioritySellers(), teamLabel: 'priority seller' })
+}
+
+export async function reconcileCustomerServiceMeeting({ customer, option }) {
+  return reconcileTeamMeeting({ customer, option, members: getConfiguredCustomerServiceTeam(), teamLabel: 'customer service team' })
+}
+
 export async function isMeetingOptionAvailable(option = {}) {
   const sellerSlug = String(option.sellerSlug || '').trim()
   const startTime = Number(option.startTime)
@@ -565,12 +606,21 @@ export async function enrollContactInPostBookingWorkflow(email) {
   }
 
   const workflowId = process.env.HUBSPOT_POST_BOOKING_WORKFLOW_ID || DEFAULT_POST_BOOKING_WORKFLOW_ID
-  await hubspotSend(
-    `/automation/v2/workflows/${encodeURIComponent(workflowId)}/enrollments/contacts/${encodeURIComponent(email)}`,
-    { method: 'POST' },
-  )
+  const workflow = await hubspotGet(`/automation/v4/flows/${encodeURIComponent(workflowId)}`)
+  if (!workflow?.isEnabled) {
+    throw new Error(`HubSpot post-booking workflow ${workflowId} is not enabled.`)
+  }
 
-  return { ok: true, workflowId, email }
+  // Modern event-based HubSpot flows enroll from their configured event.
+  // The scheduler booking is that event; legacy v2 manual enrollment rejects
+  // v4 flow IDs with "resource not found" and must not be retried.
+  return {
+    ok: true,
+    workflowId,
+    email,
+    automaticEnrollment: true,
+    workflowName: workflow.name || '',
+  }
 }
 
 async function bookTeamMeeting({ customer, option, members, teamLabel }) {
@@ -726,6 +776,44 @@ async function bookTeamMeeting({ customer, option, members, teamLabel }) {
       specialistName: seller.name,
       timestamp: option.startTime,
       timezone,
+      language: customer.preferredLanguage,
+    }),
+  }
+}
+
+async function reconcileTeamMeeting({ customer, option, members, teamLabel }) {
+  const seller = members.find((item) => item.slug === option?.sellerSlug)
+  if (!seller) throw new Error(`Selected specialist is not in the ${teamLabel} list.`)
+
+  const contact = await findHubSpotContactByEmail(customer.email)
+  if (!contact?.id) return null
+  const meeting = await findBookedMeetingForContact({ contactId: contact.id, startTime: option.startTime })
+  if (!meeting?.id) return null
+
+  const confirmedStartTime = new Date(meeting.properties?.hs_meeting_start_time || 0).getTime()
+  assertConfirmedMeetingMatchesOption(option.startTime, confirmedStartTime)
+  const dealSync = await syncBookedMeetingDeal({ customer, option, seller, contact, meeting })
+    .catch((error) => ({ ok: false, error: error.message }))
+  const appointmentContactSync = await syncBookedTimeToContact({ contact, customer, startTime: confirmedStartTime })
+    .catch((error) => ({ ok: false, error: error.message }))
+  const workflowEnrollment = appointmentContactSync.ok
+    ? await enrollContactInPostBookingWorkflow(customer.email).catch((error) => ({ ok: false, error: error.message }))
+    : { ok: false, skipped: true, error: 'Workflow enrollment skipped because the confirmed appointment time was not synced to the contact.' }
+
+  return {
+    calendarEventId: meeting.id,
+    confirmedStartTime,
+    dealSync,
+    appointmentContactSync,
+    workflowEnrollment,
+    sellerName: seller.name,
+    sellerFieldValue: seller.fieldValue,
+    sellerSlug: seller.slug,
+    reconciled: true,
+    display: formatSpecialistSlot({
+      specialistName: seller.name,
+      timestamp: confirmedStartTime,
+      timezone: EASTERN_TIMEZONE,
       language: customer.preferredLanguage,
     }),
   }

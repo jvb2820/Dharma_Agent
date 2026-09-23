@@ -1,6 +1,7 @@
 export const GLP1_PLAN_PRICE = 589
 
 export function buildGlp1PricingAnswer(_content = '', language = 'English') {
+  void _content
   const lang = String(language || '').toLowerCase()
 
   if (lang.includes('spanish') || lang === 'es') {

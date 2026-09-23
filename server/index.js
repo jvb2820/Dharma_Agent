@@ -9,7 +9,13 @@ import {
   recordBookingReportEvent,
   updateContactBookingAttribution,
 } from './bookingReportService.js'
-import { recordBookingFailureEvent } from './bookingFailureService.js'
+import { buildBookingAttemptKey, recordBookingFailureEvent } from './bookingFailureService.js'
+import { recordBookingFunnelEvent } from './bookingFunnelService.js'
+import {
+  enqueueBookingReconciliation,
+  executeIdempotentBooking,
+  runOneBookingReconciliation,
+} from './bookingReliabilityService.js'
 import { loadLocalEnv } from './env.js'
 import {
   formatCustomerStateSlot,
@@ -87,6 +93,9 @@ import {
 import {
   bookCustomerServiceMeeting,
   bookPrioritySellerMeeting,
+  checkBookingCalendarHealth,
+  reconcileCustomerServiceMeeting,
+  reconcilePrioritySellerMeeting,
   findHubSpotContactByEmail,
   getConfiguredCustomerServiceTeam,
   getConfiguredFrontDeskTeam,
@@ -138,7 +147,6 @@ import {
   normalizeUsPhoneNumber,
   removeAvailabilitySignalsFromNameReply,
   shouldUseNewClientBookingFlow,
-  splitCustomerFullName,
 } from './newClientFlow.js'
 import {
   hasExplicitNamedPersonMedicationQuestion,
@@ -253,7 +261,9 @@ const respondSessions = new Map()
 const existingClientNoResponseTimers = new Map()
 const respondSessionPersistenceQueues = new Map()
 const pendingPostBookingAssignments = new Map()
-const respondMessageCoordinator = createRespondMessageCoordinator()
+const respondMessageCoordinator = createRespondMessageCoordinator({
+  debounceMs: Number(process.env.RESPOND_MESSAGE_BUFFER_MS || 3000),
+})
 
 const MIME_TYPES = {
   '.css': 'text/css',
@@ -388,6 +398,61 @@ const server = http.createServer(async (request, response) => {
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`)
 })
+
+let bookingReconciliationRunning = false
+const bookingReconciliationTimer = setInterval(() => {
+  if (bookingReconciliationRunning) return
+  bookingReconciliationRunning = true
+  runOneBookingReconciliation({ handler: reconcileBookingJob })
+    .catch((error) => console.warn(`[booking-reconciliation-worker] ${error.message}`))
+    .finally(() => { bookingReconciliationRunning = false })
+}, Number(process.env.BOOKING_RECONCILIATION_INTERVAL_MS || 30_000))
+bookingReconciliationTimer.unref?.()
+
+async function logBookingCalendarHealth() {
+  const results = await checkBookingCalendarHealth()
+  for (const result of results) {
+    if (result.status !== 'healthy') console.warn('[booking-calendar-health]', result)
+  }
+}
+const calendarHealthTimer = setInterval(() => {
+  logBookingCalendarHealth().catch((error) => console.warn(`[booking-calendar-health] ${error.message}`))
+}, Number(process.env.BOOKING_CALENDAR_HEALTH_INTERVAL_MS || 15 * 60_000))
+calendarHealthTimer.unref?.()
+setTimeout(() => {
+  logBookingCalendarHealth().catch((error) => console.warn(`[booking-calendar-health] ${error.message}`))
+}, 60_000).unref?.()
+
+async function reconcileBookingJob(job) {
+  const { customer, option, bookingTeam } = job.payload || {}
+  if (!customer || !option) throw new Error('Booking reconciliation payload is incomplete.')
+  const reconcileMeeting = bookingTeam === 'customer_service'
+    ? reconcileCustomerServiceMeeting
+    : reconcilePrioritySellerMeeting
+  const booked = await reconcileMeeting({ customer, option })
+  if (!booked) {
+    const error = new Error('The booked HubSpot meeting is not visible yet.')
+    error.status = 503
+    throw error
+  }
+  const incomplete = [booked.dealSync, booked.appointmentContactSync, booked.workflowEnrollment]
+    .find((result) => result && result.ok === false)
+  if (incomplete) {
+    const error = new Error(incomplete.error || 'A downstream booking update is still incomplete.')
+    error.status = 503
+    throw error
+  }
+  await updateRespondContactStatusAfterBooking(job.respond_contact_id, { throwOnError: true })
+  if (isPostBookingLockEnabled()) {
+    const assignment = await assignRespondConversationAfterBooking({ contactId: job.respond_contact_id, booked, option })
+    if (!assignment?.assigned) {
+      const error = new Error('Respond specialist assignment is still incomplete.')
+      error.status = 503
+      throw error
+    }
+  }
+  return booked
+}
 
 async function serveStaticFile(pathname, response) {
   const normalizedPath = pathname === '/' ? '/index.html' : pathname
@@ -672,9 +737,10 @@ async function handleRespondWebhook(request, response) {
   const coordinatedMessage = respondMessageCoordinator.enqueue({
     contactId: event.contactId,
     messageId: event.messageId,
-    task: () => withRespondContactLock({
+    task: ({ messageIds = [] } = {}) => withRespondContactLock({
       contactId: event.contactId,
       messageId: event.messageId,
+      messageIds,
       task: async () => {
         await refreshRespondSession(event.contactId)
         try {
@@ -1433,6 +1499,11 @@ async function processRespondIncomingMessage(event) {
 
   if (state) {
     await updateRespondContactState(event.contactId, state)
+    await recordBookingFunnelEvent({
+      contactId: event.contactId,
+      eventType: 'state_received',
+      metadata: { state, stageKey: state },
+    }).catch((error) => console.warn(error.message))
   }
 
   const bookingResponse = await handleRespondBookingAutomation({
@@ -1492,7 +1563,7 @@ async function processRespondIncomingMessage(event) {
         )
       }
 
-      await updateRespondContactStatusAfterBooking(event.contactId)
+      const statusUpdate = await updateRespondContactStatusAfterBooking(event.contactId)
       await recordBookingReportEvent({
         contactId: event.contactId,
         contactPhone: respondContactProfile?.bookingDetails?.phone || event.contactPhone,
@@ -1546,6 +1617,18 @@ async function processRespondIncomingMessage(event) {
         console.warn(
           `Respond assignment failed after booking; post-booking lock remains active for contact ${event.contactId} and restoration will be retried.`,
         )
+      }
+      if (statusUpdate?.ok === false || (isPostBookingLockEnabled() && !assignment?.assigned)) {
+        const retryOption = bookingResponse.postReplyRespondAction.option
+        await enqueueBookingReconciliation({
+          attemptKey: buildBookingAttemptKey(event.contactId, retryOption),
+          contactId: event.contactId,
+          payload: {
+            customer: bookingResponse.postReplyRespondAction.customer,
+            option: retryOption,
+            bookingTeam: resolveBookingTeamForOption(retryOption),
+          },
+        }).catch((error) => console.warn(error.message))
       }
     } else {
       await sendRespondTextMessage({
@@ -4436,6 +4519,12 @@ async function offerSoonestRespondSlot({
   latestSameDayAfter = 0,
 }) {
   booking = await releasePersistedSlotClaim(booking)
+  await recordBookingFunnelEvent({
+    contactId: booking.contactId,
+    eventType: 'availability_requested',
+    booking,
+    metadata: { preferredTime: String(preferredTime || ''), stageKey: String(preferredTime || 'general') },
+  }).catch((error) => console.warn(error.message))
   const requestedSunday = isSundayAvailabilityPreference(preferredTime)
   if (requestedSunday) {
     preferredTime = replaceSundayWithSaturday(preferredTime)
@@ -4589,6 +4678,13 @@ async function offerSoonestRespondSlot({
       booking: { ...booking, details },
     }
   }
+
+  await recordBookingFunnelEvent({
+    contactId: booking.contactId,
+    eventType: 'slot_offered',
+    option: offeredOption,
+    booking,
+  }).catch((error) => console.warn(error.message))
 
   const nextOptions = afterHoursFallback && !forceSingleSlot ? availableOptions.slice(0, 3) : [offeredOption]
   const useAfterHoursCopy = afterHoursFallback && !forceSingleSlot
@@ -5428,7 +5524,16 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
     }
   }
 
+  await recordBookingFunnelEvent({
+    contactId: booking.contactId,
+    eventType: 'slot_accepted',
+    option,
+    booking,
+  }).catch((error) => console.warn(error.message))
+
   if (shouldUseNewClientBookingFlow(respondContactProfile) && !isUsCountryCodePhone(details.phone)) {
+    await recordBookingFunnelEvent({ contactId: booking.contactId, eventType: 'phone_requested', option, booking })
+      .catch((error) => console.warn(error.message))
     return {
       text: bookingCopy(customerLanguage, 'askUsPhone'),
       booking: {
@@ -5441,6 +5546,8 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
   }
 
   if (shouldUseNewClientBookingFlow(respondContactProfile) && !hasConfirmedFullName(details)) {
+    await recordBookingFunnelEvent({ contactId: booking.contactId, eventType: 'name_requested', option, booking })
+      .catch((error) => console.warn(error.message))
     return {
       text: bookingCopy(customerLanguage, 'askName'),
       booking: {
@@ -5462,6 +5569,10 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
     selectedBookingTeam === 'customer_service'
       ? bookCustomerServiceMeeting
       : bookPrioritySellerMeeting
+  const reconcileMeeting =
+    selectedBookingTeam === 'customer_service'
+      ? reconcileCustomerServiceMeeting
+      : reconcilePrioritySellerMeeting
   const customer = buildRespondBookingCustomer(details, customerLanguage)
   const claimContactId = respondContactProfile?.contactId || customer.email || customer.phone
   const claim = await acquireSlotClaim({ option, contactId: claimContactId })
@@ -5472,17 +5583,62 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
     throw error
   }
 
+  await recordBookingFunnelEvent({
+    contactId: claimContactId,
+    eventType: 'claim_acquired',
+    option,
+    booking: { ...booking, bookingTeam: selectedBookingTeam },
+  }).catch((error) => console.warn(error.message))
+
   let booked
 
   try {
-    const stillAvailable = await isMeetingOptionAvailable(option)
-    if (!stillAvailable) {
-      const error = new Error('The selected slot is no longer available.')
-      error.status = 409
-      throw error
+    await recordBookingFunnelEvent({
+      contactId: claimContactId,
+      eventType: 'booking_submitted',
+      option,
+      booking: { ...booking, bookingTeam: selectedBookingTeam },
+    }).catch((error) => console.warn(error.message))
+    const idempotentResult = await executeIdempotentBooking({
+      contactId: claimContactId,
+      option,
+      reconcile: () => reconcileMeeting({ customer, option }),
+      submit: async () => {
+        const stillAvailable = await isMeetingOptionAvailable(option)
+        if (!stillAvailable) {
+          const error = new Error('The selected slot is no longer available.')
+          error.status = 409
+          throw error
+        }
+        return bookMeeting({ customer, option })
+      },
+    })
+    booked = idempotentResult.booked
+    await recordBookingFunnelEvent({
+      contactId: claimContactId,
+      eventType: 'booking_confirmed',
+      option,
+      booking: { ...booking, bookingTeam: selectedBookingTeam },
+      metadata: { reused: idempotentResult.reused },
+    }).catch((error) => console.warn(error.message))
+    if (idempotentResult.reused || Number(booking.bookingFailureCount || 0) > 0) {
+      await recordBookingFunnelEvent({
+        contactId: claimContactId,
+        eventType: 'customer_recovered',
+        option,
+        booking: { ...booking, bookingTeam: selectedBookingTeam },
+        metadata: { reused: idempotentResult.reused },
+      }).catch((error) => console.warn(error.message))
     }
-
-    booked = await bookMeeting({ customer, option })
+    const downstreamIncomplete = [booked.dealSync, booked.appointmentContactSync, booked.workflowEnrollment]
+      .some((result) => result && result.ok === false)
+    if (downstreamIncomplete) {
+      await enqueueBookingReconciliation({
+        attemptKey: idempotentResult.attemptKey,
+        contactId: claimContactId,
+        payload: { customer, option, bookingTeam: selectedBookingTeam },
+      }).catch((error) => console.warn(error.message))
+    }
   } finally {
     await releaseSlotClaim({ slotKey: claim.slotKey, contactId: claimContactId })
   }
@@ -5500,6 +5656,7 @@ async function bookAcceptedRespondSlot({ booking, details, customerLanguage, res
       type: 'booked',
       booked,
       option,
+      customer,
     },
   }
 }
@@ -5545,6 +5702,13 @@ async function recoverLostAcceptedSlotClaim({ booking, details, customerLanguage
 async function buildRespondBookingFailure(booking, details, customerLanguage, error) {
   console.warn(`Unable to book Respond HubSpot appointment: ${error.message}`)
   const failureType = classifyBookingFailure(error)
+  await recordBookingFunnelEvent({
+    contactId: booking.contactId,
+    eventType: 'booking_failed',
+    option: booking.offeredOption || booking.options?.[0],
+    booking,
+    metadata: { failureType },
+  }).catch((recordError) => console.warn(recordError.message))
   await recordBookingFailureEvent({
     contactId: booking.contactId,
     failureType,
@@ -7639,16 +7803,18 @@ async function updateRespondContactState(contactId, state) {
   })
 }
 
-async function updateRespondContactStatusAfterBooking(contactId) {
-  await updateRespondContact({
+async function updateRespondContactStatusAfterBooking(contactId, { throwOnError = false } = {}) {
+  return updateRespondContact({
     contactId,
     fields: {
       customFields: {
         lead_status: 'Evaluation Scheduled',
       },
     },
-  }).catch((error) => {
+  }).then(() => ({ ok: true })).catch((error) => {
+    if (throwOnError) throw error
     console.warn(`Unable to update Respond Contact Status after booking: ${error.message}`)
+    return { ok: false, error: error.message }
   })
 }
 
