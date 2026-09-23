@@ -11,6 +11,12 @@ export function detectLatestMessageLanguage(content = '') {
   const normalized = normalizeLanguageText(content)
   if (!normalized) return ''
 
+  // This is the prefilled English Facebook-ad opener used for Spanish campaigns.
+  // Treat only the exact prompt as Spanish; normal English conversations remain English.
+  if (normalized === 'hello can i get more info on this') {
+    return 'Latin American Spanish'
+  }
+
   // A standalone 1, 2, or 3, or an explicit "option 1/2/3" reply, is Spanish.
   // Other numbers and time expressions remain language-neutral.
   if (/^(?:[123]|option\s+[123])$/i.test(raw)) {

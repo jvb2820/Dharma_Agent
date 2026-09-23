@@ -351,6 +351,17 @@ test('unique cities resolve without requiring a state reconfirmation', () => {
   assert.deepEqual(CITY_STATE_OPTIONS.portland, ['Oregon', 'Maine'])
 })
 
+test('the exact Facebook ad information opener uses the Spanish template', () => {
+  assert.equal(
+    detectLatestMessageLanguage('Hello! Can I get more info on this?'),
+    'Latin American Spanish',
+  )
+  assert.equal(
+    detectLatestMessageLanguage('Hello! Can I get more information about the treatment?'),
+    'English',
+  )
+})
+
 test('city plus lowercase state abbreviation is accepted as explicit location', () => {
   assert.equal(shouldAcceptStateAbbreviationToken({
     rawToken: 'tx',
