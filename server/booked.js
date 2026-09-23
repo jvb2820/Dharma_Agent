@@ -27,8 +27,8 @@ const BOOKING_SPECIALIST_NAMES = {
     'diana villalobos': 'DIANA',
   },
   customer_service: {
-    aline: 'ALINE',
-    'aline strelow': 'ALINE',
+    aline: 'ALICE',
+    'aline strelow': 'ALICE',
     alice: 'ALICE',
     'alice f': 'ALICE',
     brayam: 'BRAYAM',
@@ -144,7 +144,7 @@ export function buildBookingPaymentInfoMessage(language = '') {
   ].join('\n')
 }
 
-function resolveBookedSpecialistName({ bookingTeam, option, booked }) {
+export function resolveBookedSpecialistName({ bookingTeam, option, booked }) {
   const team = bookingTeam === 'customer_service' ? 'customer_service' : 'sales'
   const names = BOOKING_SPECIALIST_NAMES[team]
   const candidates = [
