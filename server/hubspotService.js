@@ -16,7 +16,6 @@ const BOOKED_MEETING_START_TOLERANCE_MS = 5 * 60 * 1000
 const DEFAULT_POST_BOOKING_WORKFLOW_ID = '1660572815'
 
 const PRIORITY_SELLERS = [
-  { slug: 'meribet-yazziet', name: 'Meribet', fieldValue: 'Meribet Sampson' },
   { slug: 'mclaudia', name: 'Maria Claudia', fieldValue: 'Maria Claudia' },
   { slug: 'evargas22', name: 'Erika', fieldValue: 'Erika Vargas' },
   { slug: 'alejandra-oyala', name: 'Alejandra', fieldValue: 'Alejandra Oyala' },

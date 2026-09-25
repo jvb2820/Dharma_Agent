@@ -52,7 +52,18 @@ test('new-client booking pool includes sellers and Customer Service specialists'
 
 test('persisted options recover their booking team from the specialist slug', () => {
   assert.equal(resolveBookingTeamForOption({ sellerSlug: 'aline-strelow' }, 'sales'), 'customer_service')
-  assert.equal(resolveBookingTeamForOption({ sellerSlug: 'meribet-yazziet' }, 'customer_service'), 'sales')
+  assert.equal(resolveBookingTeamForOption({ sellerSlug: 'mclaudia' }, 'customer_service'), 'sales')
+})
+
+test('Meribet Sampson is not in the active seller pool', () => {
+  assert.equal(
+    getConfiguredPrioritySellers().some((member) => member.slug === 'meribet-yazziet'),
+    false,
+  )
+  assert.equal(
+    getConfiguredNewClientBookingTeam().some((member) => member.slug === 'meribet-yazziet'),
+    false,
+  )
 })
 
 test('Ailin Isabel is not in the active seller pool', () => {
