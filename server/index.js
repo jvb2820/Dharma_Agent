@@ -12,6 +12,7 @@ import {
   updateContactBookingAttribution,
 } from './bookingReportService.js'
 import { buildBookingAttemptKey, recordBookingFailureEvent } from './bookingFailureService.js'
+import { getConversationReport } from './conversationReportService.js'
 import { recordBookingFunnelEvent } from './bookingFunnelService.js'
 import {
   enqueueBookingReconciliation,
@@ -297,7 +298,7 @@ const server = http.createServer(async (request, response) => {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
     const pathname = url.pathname
 
-    if (pathname === '/api/reports/bookings') {
+    if (pathname === '/api/reports/bookings' || pathname === '/api/reports/conversations') {
       const corsAllowed = applyReportCors(request, response)
       if (!corsAllowed) {
         sendJson(response, 403, { error: 'This origin is not allowed to access booking reports.' })
@@ -392,6 +393,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === 'GET' && pathname === '/api/reports/bookings') {
       await handleBookingReport(response, url)
+      return
+    }
+
+    if (request.method === 'GET' && pathname === '/api/reports/conversations') {
+      await handleConversationReport(response, url)
       return
     }
 
@@ -778,6 +784,14 @@ async function handleRespondWebhook(request, response) {
 
 async function handleBookingReport(response, url) {
   const report = await getBookingReport({
+    from: url.searchParams.get('from') || '',
+    to: url.searchParams.get('to') || '',
+  })
+  sendJson(response, 200, report)
+}
+
+async function handleConversationReport(response, url) {
+  const report = await getConversationReport({
     from: url.searchParams.get('from') || '',
     to: url.searchParams.get('to') || '',
   })

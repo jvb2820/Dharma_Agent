@@ -1,3 +1,5 @@
+import { recordRespondReply } from './conversationReportService.js'
+
 const RESPOND_API_BASE_URL = 'https://api.respond.io'
 
 export async function getRespondContact(contactId) {
@@ -108,6 +110,8 @@ export async function sendRespondTextMessage({ contactId, text, channelId }) {
     throw new Error(data.message || `Respond message send failed with ${response.status}.`)
   }
 
+  await trackRespondReply({ contactId, channelId, messageType: 'text', text, response: data })
+
   return data
 }
 
@@ -194,7 +198,21 @@ async function sendRespondAttachmentMessage({
     )
   }
 
+  await trackRespondReply({
+    contactId,
+    channelId,
+    messageType: attachmentType,
+    text: caption,
+    response: data,
+  })
+
   return data
+}
+
+async function trackRespondReply(details) {
+  await recordRespondReply(details).catch((error) => {
+    console.warn(`[respond-reply-tracking] ${error.message}`)
+  })
 }
 
 export async function unassignRespondConversation(contactId) {

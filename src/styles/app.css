@@ -104,6 +104,10 @@
 .report-table { border-collapse: collapse; width: 100%; }
 .report-table th, .report-table td { border-bottom: 1px solid #e4e7ec; padding: 12px 10px; text-align: left; white-space: nowrap; }
 .report-table th { color: #475467; font-size: 12px; text-transform: uppercase; }
+.report-subtitle { color: #667085; font-size: 13px; margin: 5px 0 0; }
+.conversation-report-table .reply-preview { max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+.conversation-link { color: #175cd3; font-weight: 700; text-decoration: none; }
+.conversation-link:hover { text-decoration: underline; }
 .source-badge { background: #eef2f6; border-radius: 999px; display: inline-block; font-size: 12px; font-weight: 700; padding: 5px 8px; }
 .source-meta { background: #e8f1ff; color: #175cd3; }
 .source-tiktok { background: #f4eaff; color: #6938ef; }
