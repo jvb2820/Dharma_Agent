@@ -17,6 +17,7 @@ import {
   isEarlierSchedulingPreference,
   isExactCasualAffirmative,
   isGeneratedSlotReofferLine,
+  isWorkRelatedSlotRejection,
   isRecognizedStateQualificationReply,
   looksLikeExplicitStateDeclaration,
   parseAfterTimePreference,
@@ -617,6 +618,16 @@ test('working at the offered time also moves the next offer three hours later', 
     'Nao, estou trabalhando nesse horario',
   ]) {
     assert.equal(getMinimumStartAfterSlotRejection(reply, offeredStart), expectedStart)
+  }
+})
+
+test('standalone work replies reject an active offered slot', () => {
+  for (const reply of [
+    'Estaré trabajando',
+    "I'll be working",
+    'Estarei trabalhando',
+  ]) {
+    assert.equal(isWorkRelatedSlotRejection(reply), true, reply)
   }
 })
 

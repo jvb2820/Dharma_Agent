@@ -110,9 +110,15 @@ export function getMinimumStartAfterSlotRejection(
 
   const rejectsConversationalSlot =
     /\bno\b[\s\S]{0,50}\b(?:that|this|esa|ese|esta|este)?\s*(?:time|hour|hora|horario)\b/.test(normalized) ||
-    /\b(?:working|at work|trabajando|en el trabajo|trabalhando)\b/.test(normalized)
+    isWorkRelatedSlotRejection(content)
 
   return rejectsSlot || rejectsConversationalSlot ? startTime + delayMs : undefined
+}
+
+export function isWorkRelatedSlotRejection(content = '') {
+  const normalized = normalizeRuleText(content)
+
+  return /\b(?:working|at work|trabajando|en el trabajo|trabalhando|no trabalho)\b/.test(normalized)
 }
 
 export function getLaterSlotDelayMs(offeredLocalHour) {

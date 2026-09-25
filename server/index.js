@@ -58,6 +58,7 @@ import {
   isEarlierSchedulingPreference,
   isExactCasualAffirmative,
   isGeneratedSlotReofferLine,
+  isWorkRelatedSlotRejection,
   isRecognizedStateQualificationReply,
   looksLikeExplicitStateDeclaration,
   parseAfterTimePreference,
@@ -7132,6 +7133,7 @@ function isSlotRejection(content) {
   return (
     isNegativeAvailabilityReply(content) ||
     isTooEarlyAvailabilityReply(content) ||
+    isWorkRelatedSlotRejection(content) ||
     /\b(no|nope|nah|not|doesn t work|doesnt work|otro|otra|different|later|mas tarde)\b/i.test(
       normalized,
     ) || isNegative(content)
