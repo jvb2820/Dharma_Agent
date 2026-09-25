@@ -82,6 +82,22 @@ test('Erika Vargas is configured as a seller', () => {
   )
 })
 
+test('Alejandra Oyala is configured as a seller', () => {
+  const alejandra = getConfiguredPrioritySellers().find(
+    (member) => member.slug === 'alejandra-oyala',
+  )
+
+  assert.deepEqual(alejandra, {
+    slug: 'alejandra-oyala',
+    name: 'Alejandra',
+    fieldValue: 'Alejandra Oyala',
+  })
+  assert.equal(
+    getConfiguredNewClientBookingTeam().find((member) => member.slug === 'alejandra-oyala')?.bookingTeam,
+    'sales',
+  )
+})
+
 test('Alejandro Rivera is not in the active seller pool', () => {
   assert.equal(
     getConfiguredPrioritySellers().some((member) => member.slug === 'alejandro667'),

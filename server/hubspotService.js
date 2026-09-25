@@ -19,6 +19,7 @@ const PRIORITY_SELLERS = [
   { slug: 'meribet-yazziet', name: 'Meribet', fieldValue: 'Meribet Sampson' },
   { slug: 'mclaudia', name: 'Maria Claudia', fieldValue: 'Maria Claudia' },
   { slug: 'evargas22', name: 'Erika', fieldValue: 'Erika Vargas' },
+  { slug: 'alejandra-oyala', name: 'Alejandra', fieldValue: 'Alejandra Oyala' },
 ]
 
 const CUSTOMER_SERVICE_TEAM = [
