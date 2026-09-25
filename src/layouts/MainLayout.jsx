@@ -4,6 +4,7 @@ const navigationItems = [
   { label: 'Chat', path: '/chat' },
   { label: 'Settings', path: '/settings' },
   { label: 'Reports', path: '/reports' },
+  { label: 'Conversations', path: '/conversations' },
 ]
 
 function MainLayout() {

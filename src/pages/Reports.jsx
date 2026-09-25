@@ -8,7 +8,6 @@ const monthStart = `${today.slice(0, 8)}01`
 function Reports() {
   const [filters, setFilters] = useState({ from: monthStart, to: today })
   const [report, setReport] = useState({ summary: { total: 0, fromAds: 0, byPlatform: {} }, rows: [] })
-  const [conversations, setConversations] = useState({ summary: { conversations: 0, replies: 0 }, rows: [] })
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
 
@@ -16,12 +15,7 @@ function Reports() {
     setStatus('loading')
     setError('')
     try {
-      const [bookingData, conversationData] = await Promise.all([
-        reportService.getBookings(filters),
-        reportService.getConversations(filters),
-      ])
-      setReport(bookingData)
-      setConversations(conversationData)
+      setReport(await reportService.getBookings(filters))
       setStatus('ready')
     } catch (loadError) {
       setError(loadError.message)
@@ -31,10 +25,9 @@ function Reports() {
 
   useEffect(() => {
     let active = true
-    Promise.all([reportService.getBookings(filters), reportService.getConversations(filters)]).then(([bookingData, conversationData]) => {
+    reportService.getBookings(filters).then((bookingData) => {
       if (!active) return
       setReport(bookingData)
-      setConversations(conversationData)
       setStatus('ready')
     }).catch((loadError) => {
       if (!active) return
@@ -87,29 +80,6 @@ function Reports() {
         )}
       </section>
 
-      <section className="panel report-table-panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Respond conversations replied to</h2>
-            <p className="report-subtitle">One row per conversation with a successful outbound reply in the selected date range.</p>
-          </div>
-          <span>{conversations.summary?.conversations || 0} conversations · {conversations.summary?.replies || 0} replies</span>
-        </div>
-        {status === 'loading' && <p className="report-state">Loading conversations…</p>}
-        {status === 'ready' && conversations.rows.length === 0 && <p className="report-state">No tracked replies were sent in this date range.</p>}
-        {conversations.rows.length > 0 && (
-          <div className="report-table-wrap"><table className="report-table conversation-report-table"><thead><tr><th>Last replied</th><th>First replied</th><th>Replies</th><th>Channel ID</th><th>Respond contact</th><th>Link</th><th>Latest reply</th></tr></thead>
-            <tbody>{conversations.rows.map((row) => <tr key={row.respond_contact_id}>
-              <td>{formatDate(row.last_replied_at)}</td>
-              <td>{formatDate(row.first_replied_at)}</td>
-              <td>{row.reply_count}</td>
-              <td>{row.channel_id || '—'}</td>
-              <td>{row.respond_contact_id}</td>
-              <td>{row.conversation_url ? <a className="conversation-link" href={row.conversation_url} target="_blank" rel="noreferrer">Open conversation</a> : '—'}</td>
-              <td className="reply-preview" title={row.latest_message_preview}>{row.latest_message_preview || '—'}</td>
-            </tr>)}</tbody></table></div>
-        )}
-      </section>
     </section>
   )
 }

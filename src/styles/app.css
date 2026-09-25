@@ -98,6 +98,7 @@
 .report-card { display: grid; gap: 8px; }
 .report-card span { color: #667085; font-size: 14px; }
 .report-card strong { font-size: 30px; }
+.conversation-summary-cards { grid-template-columns: repeat(2, minmax(180px, 280px)); }
 .report-table-panel { display: grid; gap: 16px; min-width: 0; }
 .report-table-panel .panel-heading > span, .report-state { color: #667085; }
 .report-table-wrap { overflow-x: auto; }

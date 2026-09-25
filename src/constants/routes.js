@@ -4,4 +4,6 @@ export const ROUTES = {
   contacts: '/contacts',
   agents: '/agents',
   settings: '/settings',
+  reports: '/reports',
+  conversations: '/conversations',
 }
