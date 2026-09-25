@@ -32,7 +32,11 @@ export async function recordRespondReply({ contactId, channelId, messageType = '
 
 export async function getConversationReport({ from, to } = {}) {
   const supabase = createSupabaseServerClient()
-  if (!supabase) return { summary: { conversations: 0, replies: 0 }, rows: [] }
+  if (!supabase) return {
+    summary: { conversations: 0, replies: 0, averageReplies: 0 },
+    analytics: buildConversationAnalytics([]),
+    rows: [],
+  }
 
   const range = getEasternReportRange({ from, to })
   const data = []
@@ -72,10 +76,44 @@ export async function getConversationReport({ from, to } = {}) {
   }
 
   const rows = [...conversations.values()]
+  const analytics = buildConversationAnalytics(rows)
   return {
-    summary: { conversations: rows.length, replies: data.length },
+    summary: {
+      conversations: rows.length,
+      replies: data.length,
+      averageReplies: rows.length ? Number((data.length / rows.length).toFixed(1)) : 0,
+    },
+    analytics,
     rows,
   }
+}
+
+export function buildConversationAnalytics(rows = []) {
+  const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, conversations: 0 }))
+  const channelCounts = new Map()
+
+  for (const row of rows) {
+    const hour = getEasternHour(row.first_replied_at)
+    if (hour >= 0) hourly[hour].conversations += 1
+    const channel = String(row.channel_id || 'Unknown')
+    channelCounts.set(channel, (channelCounts.get(channel) || 0) + 1)
+  }
+
+  const byChannel = [...channelCounts.entries()]
+    .map(([channelId, conversations]) => ({ channelId, conversations }))
+    .sort((left, right) => right.conversations - left.conversations)
+
+  return { hourly, byChannel }
+}
+
+function getEasternHour(value) {
+  if (!value || Number.isNaN(Date.parse(value))) return -1
+  const hour = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    hourCycle: 'h23',
+  }).format(new Date(value))
+  return Number(hour)
 }
 
 export function buildRespondConversationUrl(contactId, spaceId = process.env.RESPOND_SPACE_ID || '238284') {
