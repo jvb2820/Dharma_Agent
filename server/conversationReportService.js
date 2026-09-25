@@ -14,9 +14,16 @@ export async function recordRespondReply({ contactId, channelId, messageType = '
     message_preview: buildPreview(text, messageType),
     replied_at: new Date().toISOString(),
   }
-  const query = messageId
-    ? supabase.from('respond_reply_events').upsert(row, { onConflict: 'respond_message_id' })
-    : supabase.from('respond_reply_events').insert(row)
+  if (messageId) {
+    const { data: existing, error: readError } = await supabase
+      .from('respond_reply_events')
+      .select('*')
+      .eq('respond_message_id', messageId)
+      .maybeSingle()
+    if (readError) throw new Error(`Unable to check Respond reply: ${readError.message}`)
+    if (existing) return existing
+  }
+  const query = supabase.from('respond_reply_events').insert(row)
   const { data, error } = await query.select().single()
 
   if (error) throw new Error(`Unable to record Respond reply: ${error.message}`)
@@ -28,20 +35,24 @@ export async function getConversationReport({ from, to } = {}) {
   if (!supabase) return { summary: { conversations: 0, replies: 0 }, rows: [] }
 
   const range = getEasternReportRange({ from, to })
-  let query = supabase
-    .from('respond_reply_events')
-    .select('*')
-    .order('replied_at', { ascending: false })
-    .limit(5000)
-
-  if (range.from) query = query.gte('replied_at', range.from)
-  if (range.toExclusive) query = query.lt('replied_at', range.toExclusive)
-
-  const { data, error } = await query
-  if (error) throw new Error(`Unable to load conversation report: ${error.message}`)
+  const data = []
+  const pageSize = 1000
+  for (let offset = 0; ; offset += pageSize) {
+    let query = supabase
+      .from('respond_reply_events')
+      .select('*')
+      .order('replied_at', { ascending: false })
+      .range(offset, offset + pageSize - 1)
+    if (range.from) query = query.gte('replied_at', range.from)
+    if (range.toExclusive) query = query.lt('replied_at', range.toExclusive)
+    const { data: page, error } = await query
+    if (error) throw new Error(`Unable to load conversation report: ${error.message}`)
+    data.push(...(page || []))
+    if (!page || page.length < pageSize) break
+  }
 
   const conversations = new Map()
-  for (const event of data || []) {
+  for (const event of data) {
     const existing = conversations.get(event.respond_contact_id)
     if (existing) {
       existing.reply_count += 1
@@ -62,7 +73,7 @@ export async function getConversationReport({ from, to } = {}) {
 
   const rows = [...conversations.values()]
   return {
-    summary: { conversations: rows.length, replies: (data || []).length },
+    summary: { conversations: rows.length, replies: data.length },
     rows,
   }
 }
@@ -82,6 +93,12 @@ export function getRespondMessageId(response = {}) {
 }
 
 export function buildPreview(text = '', messageType = 'text') {
-  const normalized = String(text || '').replace(/\s+/g, ' ').trim()
+  const cleaned = [...String(text || '')]
+    .map((character) => {
+      const codePoint = character.codePointAt(0)
+      return codePoint < 32 || codePoint === 127 ? ' ' : character
+    })
+    .join('')
+  const normalized = cleaned.replace(/\s+/g, ' ').trim()
   return (normalized || `[${messageType || 'message'}]`).slice(0, 240)
 }
